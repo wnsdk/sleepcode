@@ -151,15 +151,67 @@ rules.md + tasks.md → 프롬프트 조합 → claude -p (비대화형) → 코
 
 ---
 
-## 사전 준비
+## 사전 준비 (Prerequisites)
 
-1. [Claude CLI](https://docs.anthropic.com/en/docs/claude-code) 설치
+`npx sleepcode`를 실행하기 전에, 아래 도구들이 시스템에 설치되어 있어야 합니다.
 
-2. `--dangerously-skip-permissions` 최초 1회 동의:
-   ```bash
-   claude --dangerously-skip-permissions
-   # 동의 프롬프트 수락 후 Ctrl+C
-   ```
+### 필수
+
+| 도구 | 최소 버전 | 용도 | 설치 확인 |
+|------|-----------|------|-----------|
+| **Node.js** | 18+ | CLI 실행 (`npx sleepcode`) | `node -v` |
+| **npm** | 9+ | npx를 통한 패키지 실행 (Node.js에 포함) | `npm -v` |
+| **Claude CLI** | — | AI 워커가 `claude -p` 명령으로 코드 작성 | `claude --version` |
+| **Python 3** | 3.7+ | 실시간 로그 필터 (`log_filter.py`) | `python3 --version` |
+| **Git** | 2.0+ | 코드 커밋 및 변경사항 관리 | `git --version` |
+| **Bash** | 4.0+ | 워커 스크립트 실행 (`.sh` 파일) | `bash --version` |
+
+### 선택
+
+| 도구 | 용도 | 설치 확인 |
+|------|------|-----------|
+| **tmux** | 워커를 백그라운드 세션에서 실행 | `tmux -V` |
+
+### 설치 가이드
+
+**Node.js** — https://nodejs.org (LTS 권장)
+
+**Claude CLI** — https://docs.anthropic.com/en/docs/claude-code
+```bash
+npm install -g @anthropic-ai/claude-code
+```
+
+**Python 3**
+```bash
+# macOS (Homebrew)
+brew install python3
+
+# Ubuntu/Debian
+sudo apt install python3
+
+# Windows — https://www.python.org/downloads/
+```
+
+**tmux** (선택)
+```bash
+# macOS
+brew install tmux
+
+# Ubuntu/Debian
+sudo apt install tmux
+```
+
+### Claude CLI 권한 설정
+
+AI 워커는 비대화형(`-p`) 모드에서 `--dangerously-skip-permissions` 플래그를 사용합니다.
+최초 1회 동의가 필요합니다:
+
+```bash
+claude --dangerously-skip-permissions
+# 동의 프롬프트 수락 후 Ctrl+C
+```
+
+> **Windows 사용자**: WSL(Windows Subsystem for Linux) 환경에서 실행을 권장합니다. Bash, tmux, Python3 등이 기본 제공됩니다.
 
 ---
 

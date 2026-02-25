@@ -1,6 +1,8 @@
 # AI Worker - 1회 실행 스크립트 (Windows PowerShell)
 # run_forever.ps1 (무한 루프) 대신 수동으로 1회만 돌릴 때 사용
 
+[Console]::OutputEncoding = [System.Text.Encoding]::UTF8
+$OutputEncoding = [System.Text.Encoding]::UTF8
 $ErrorActionPreference = "Stop"
 Set-Location (Split-Path (Split-Path $PSScriptRoot -Parent) -Parent)
 

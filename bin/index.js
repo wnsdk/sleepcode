@@ -279,6 +279,8 @@ function generateFiles(targetDir, { typeKey, projectName, role, buildCmd, testCm
     if (fs.existsSync(src)) {
       let content = fs.readFileSync(src, 'utf-8');
       content = content.replace(/\{\{SLEEP_INTERVAL\}\}/g, sleepInterval);
+      // PowerShell은 UTF-8 BOM 필요 (한글 깨짐 방지)
+      if (file.endsWith('.ps1')) content = '\uFEFF' + content;
       fs.writeFileSync(dest, content);
     }
   }

@@ -1,6 +1,8 @@
 # AI Night Worker - 감시자 스크립트 (Windows PowerShell)
 # 사용법: powershell -File .\.sleepcode\scripts\run_forever.ps1
 
+[Console]::OutputEncoding = [System.Text.Encoding]::UTF8
+$OutputEncoding = [System.Text.Encoding]::UTF8
 $ErrorActionPreference = "Continue"
 Set-Location (Split-Path (Split-Path $PSScriptRoot -Parent) -Parent)
 

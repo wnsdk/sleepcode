@@ -44,11 +44,13 @@ while ($true) {
     $prompt = "$baseRules`n`n---`n`n$rules`n`n---`n`n$tasks"
 
     Log "claude 실행 중..."
-    # stream-json -> log_filter.py 로 핵심 메시지만 추출
-    $prompt | claude -p --dangerously-skip-permissions --output-format stream-json --verbose 2>&1 |
-      python .sleepcode/scripts/log_filter.py |
+    # 프롬프트를 임시 파일에 저장 후 cmd 네이티브 파이프로 실시간 스트리밍
+    $tempFile = [System.IO.Path]::GetTempFileName()
+    [System.IO.File]::WriteAllText($tempFile, $prompt, [System.Text.Encoding]::UTF8)
+    cmd /c "type `"$tempFile`" | claude -p --dangerously-skip-permissions --output-format stream-json --verbose 2>&1 | python -u .sleepcode/scripts/log_filter.py" 2>&1 |
       Tee-Object -Append $logFile
     $exitCode = $LASTEXITCODE
+    Remove-Item $tempFile -ErrorAction SilentlyContinue
     Log "claude 종료 (exit code: $exitCode)"
 
     # 미커밋 변경사항 체크

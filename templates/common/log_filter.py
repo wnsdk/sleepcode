@@ -6,7 +6,7 @@ Usage: claude ... --output-format stream-json | python3 .sleepcode/log_filter.py
 import sys
 import json
 
-for line in sys.stdin:
+for line in iter(sys.stdin.readline, ''):
     line = line.strip()
     if not line:
         continue

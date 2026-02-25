@@ -527,12 +527,17 @@ function generateTasks() {
 
 tasks.md 내용만 출력하세요. 다른 설명은 하지 마세요.`;
 
+  // claude 중첩 세션 방지: CLAUDECODE 환경변수 제거
+  const env = { ...process.env };
+  delete env.CLAUDECODE;
+
   try {
     const result = execSync(
       'claude -p --output-format text',
       {
         input: prompt,
         cwd: targetDir,
+        env,
         stdio: ['pipe', 'pipe', 'pipe'],
         timeout: 300000,
         maxBuffer: 1024 * 1024,
@@ -547,7 +552,10 @@ tasks.md 내용만 출력하세요. 다른 설명은 하지 마세요.`;
     console.log(`  ${C.cyan}npx sleepcode run${C.reset}          ${C.dim}# 1회 실행${C.reset}`);
     console.log(`  ${C.cyan}npx sleepcode run --loop${C.reset}   ${C.dim}# 무한 루프${C.reset}`);
   } catch (e) {
-    console.error(`${C.red}태스크 생성 실패: ${e.message}${C.reset}`);
+    const stderr = e.stderr ? e.stderr.toString().trim() : '';
+    console.error(`${C.red}태스크 생성 실패:${C.reset}`);
+    if (stderr) console.error(stderr);
+    else console.error(e.message);
     process.exit(1);
   }
 }

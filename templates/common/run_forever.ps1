@@ -28,7 +28,7 @@ while ($true) {
     # 미완료 태스크 확인
     $remaining = 0
     if (Test-Path .sleepcode/tasks.md) {
-        $remaining = (Select-String -Pattern '\[ \]' -Path .sleepcode/tasks.md -SimpleMatch).Count
+        $remaining = (Select-String -Pattern '[ ]' -Path .sleepcode/tasks.md -SimpleMatch).Count
     }
     Log "남은 태스크: ${remaining}개"
 

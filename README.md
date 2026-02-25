@@ -45,12 +45,22 @@ npx sleepcode
 
 ### 3. 실행
 
+**macOS / Linux:**
 ```bash
 # 1회 실행
 ./.ai/ai_worker.sh
 
 # 무한 루프 (tmux 권장)
 tmux new -s ai './.ai/run_forever.sh'
+```
+
+**Windows (PowerShell):**
+```powershell
+# 1회 실행
+powershell -File .\.ai\ai_worker.ps1
+
+# 무한 루프
+powershell -File .\.ai\run_forever.ps1
 ```
 
 ### 4. 아침에 확인
@@ -96,14 +106,14 @@ npx sleepcode --type react-native --name my-app --role "쇼핑몰 앱 개발"
 
 ```
 .ai/
-  rules.md           # AI 역할 + 작업 규칙 (프롬프트)
-  tasks.md           # 작업 목록 (체크리스트)
-  docs/              # 참고 자료 (피그마 스크린샷, 기획서 등)
-  ai_worker.sh       # 1회 실행 스크립트
-  run_forever.sh     # 무한 루프 스크립트
-  log_filter.py      # 실시간 로그 필터
-  logs/              # 실행 로그 (자동 생성)
-  README.md          # 사용 가이드
+  rules.md             # AI 역할 + 작업 규칙 (프롬프트)
+  tasks.md             # 작업 목록 (체크리스트)
+  docs/                # 참고 자료 (피그마 스크린샷, 기획서 등)
+  ai_worker.sh/.ps1    # 1회 실행 스크립트 (OS별)
+  run_forever.sh/.ps1  # 무한 루프 스크립트 (OS별)
+  log_filter.py        # 실시간 로그 필터
+  logs/                # 실행 로그 (자동 생성)
+  README.md            # 사용 가이드
 
 .claude/
   settings.local.json  # Claude 권한 설정
@@ -153,52 +163,34 @@ rules.md + tasks.md → 프롬프트 조합 → claude -p (비대화형) → 코
 
 ## 사전 준비 (Prerequisites)
 
-`npx sleepcode`를 실행하기 전에, 아래 도구들이 시스템에 설치되어 있어야 합니다.
+`npx sleepcode` 실행 시 **자동으로 필수 도구를 체크**합니다. 누락된 도구가 있으면 설치 방법을 안내하며, Claude CLI는 자동 설치를 제안합니다.
 
 ### 필수
 
-| 도구 | 최소 버전 | 용도 | 설치 확인 |
-|------|-----------|------|-----------|
-| **Node.js** | 18+ | CLI 실행 (`npx sleepcode`) | `node -v` |
-| **npm** | 9+ | npx를 통한 패키지 실행 (Node.js에 포함) | `npm -v` |
-| **Claude CLI** | — | AI 워커가 `claude -p` 명령으로 코드 작성 | `claude --version` |
-| **Python 3** | 3.7+ | 실시간 로그 필터 (`log_filter.py`) | `python3 --version` |
-| **Git** | 2.0+ | 코드 커밋 및 변경사항 관리 | `git --version` |
-| **Bash** | 4.0+ | 워커 스크립트 실행 (`.sh` 파일) | `bash --version` |
-
-### 선택
-
-| 도구 | 용도 | 설치 확인 |
+| 도구 | 용도 | 자동 설치 |
 |------|------|-----------|
-| **tmux** | 워커를 백그라운드 세션에서 실행 | `tmux -V` |
+| **Node.js** 18+ | CLI 실행 (`npx sleepcode`) | — |
+| **Claude CLI** | AI 워커가 `claude -p` 명령으로 코드 작성 | npm으로 자동 설치 제안 |
+| **Python 3** | 실시간 로그 필터 (`log_filter.py`) | 안내만 |
+| **Git** | 코드 커밋 및 변경사항 관리 | 안내만 |
 
-### 설치 가이드
+### 선택 (macOS/Linux만)
 
-**Node.js** — https://nodejs.org (LTS 권장)
+| 도구 | 용도 |
+|------|------|
+| **tmux** | 워커를 백그라운드 세션에서 실행 |
 
-**Claude CLI** — https://docs.anthropic.com/en/docs/claude-code
-```bash
-npm install -g @anthropic-ai/claude-code
+### 자동 체크 예시
+
 ```
+사전 준비 확인 중...
+  ✓ git (2.43.0)
+  ✓ python3 (3.12.0)
+  ✗ claude — 설치 필요
+  - tmux — 미설치 (선택사항)
 
-**Python 3**
-```bash
-# macOS (Homebrew)
-brew install python3
-
-# Ubuntu/Debian
-sudo apt install python3
-
-# Windows — https://www.python.org/downloads/
-```
-
-**tmux** (선택)
-```bash
-# macOS
-brew install tmux
-
-# Ubuntu/Debian
-sudo apt install tmux
+? claude CLI를 설치할까요? (npm install -g @anthropic-ai/claude-code) [Y/n]: y
+  ✓ claude CLI 설치 완료
 ```
 
 ### Claude CLI 권한 설정
@@ -211,7 +203,9 @@ claude --dangerously-skip-permissions
 # 동의 프롬프트 수락 후 Ctrl+C
 ```
 
-> **Windows 사용자**: WSL(Windows Subsystem for Linux) 환경에서 실행을 권장합니다. Bash, tmux, Python3 등이 기본 제공됩니다.
+### Windows 지원
+
+Windows에서는 `.sh` 대신 **PowerShell 스크립트(`.ps1`)가 자동 생성**됩니다. WSL 없이 바로 사용 가능합니다.
 
 ---
 
@@ -220,7 +214,7 @@ claude --dangerously-skip-permissions
 - **AI 역할/규칙 변경**: `.ai/rules.md` 수정
 - **작업 목록 변경**: `.ai/tasks.md` 수정
 - **참고 자료 추가**: `.ai/docs/`에 파일 추가 (스크린샷, 기획서 등)
-- **반복 간격 변경**: `.ai/run_forever.sh`의 `sleep` 값 수정
+- **반복 간격 변경**: `.ai/run_forever.sh` (또는 `.ps1`)의 sleep 값 수정
 - **Claude 권한 변경**: `.claude/settings.local.json` 수정
 
 ---

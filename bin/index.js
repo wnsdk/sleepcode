@@ -279,6 +279,10 @@ function generateFiles(targetDir, { typeKey, projectName, role, buildCmd, testCm
     if (fs.existsSync(src)) {
       let content = fs.readFileSync(src, 'utf-8');
       content = content.replace(/\{\{SLEEP_INTERVAL\}\}/g, sleepInterval);
+      // Shell/Python 스크립트는 반드시 LF 줄바꿈 (Windows에서도)
+      if (file.endsWith('.sh') || file.endsWith('.py')) {
+        content = content.replace(/\r\n/g, '\n');
+      }
       // PowerShell은 UTF-8 BOM 필요 (한글 깨짐 방지)
       if (file.endsWith('.ps1')) content = '\uFEFF' + content;
       fs.writeFileSync(dest, content);

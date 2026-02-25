@@ -31,11 +31,16 @@ while true; do
     exit 0
   fi
 
-  # rules.md + tasks.md 를 합쳐서 프롬프트 구성
+  # base_rules.md + rules.md + tasks.md 를 합쳐서 프롬프트 구성
+  BASE_RULES=$(cat .sleepcode/scripts/base_rules.md)
   RULES=$(cat .sleepcode/rules.md)
   TASKS=$(cat .sleepcode/tasks.md)
 
-  PROMPT="${RULES}
+  PROMPT="${BASE_RULES}
+
+---
+
+${RULES}
 
 ---
 

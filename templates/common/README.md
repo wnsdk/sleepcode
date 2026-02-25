@@ -11,7 +11,8 @@ AI codes while you sleep — 밤새 개발 작업을 자동화하는 시스템�
   rules.md           # ✏️ AI 역할 + 작업 규칙 (수정하세요)
   tasks.md           # ✏️ 오늘 진행할 작업 목록 (수정하세요)
   docs/              # ✏️ 개발 참고 자료 (피그마 스크린샷, 기획서 등)
-  scripts/           # ⚙️ 시스템 스크립트 (수정하지 마세요)
+  scripts/           # ⚙️ 시스템 (수정하지 마세요)
+    base_rules.md    #    공통 작업 규칙
     ai_worker.*      #    1회 실행 스크립트
     run_forever.*    #    무한 루프 감시자 스크립트
     log_filter.py    #    로그 필터 (핵심 메시지만 추출)
@@ -41,26 +42,15 @@ claude --dangerously-skip-permissions
 
 ### 2. 실행
 
-**macOS / Linux:**
 ```bash
-# 권한 부여
-chmod +x .sleepcode/scripts/*.sh
-
 # 1회 실행
-./.sleepcode/scripts/ai_worker.sh
+npx sleepcode run
 
-# 무한 루프 (tmux)
-tmux new -s ai './.sleepcode/scripts/run_forever.sh'
+# 무한 루프 (잠자기 전)
+npx sleepcode run --loop
 ```
 
-**Windows (PowerShell):**
-```powershell
-# 1회 실행
-powershell -File .\.sleepcode\scripts\ai_worker.ps1
-
-# 무한 루프
-powershell -File .\.sleepcode\scripts\run_forever.ps1
-```
+OS에 맞는 스크립트를 자동으로 선택합니다.
 
 ### 3. tmux 분리 (백그라운드 전환, macOS/Linux)
 

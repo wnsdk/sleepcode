@@ -7,10 +7,15 @@ cd "$(dirname "$0")/../.." || exit 1
 
 echo "[$(date '+%Y-%m-%d %H:%M:%S')] AI 단일 실행 시작"
 
+BASE_RULES=$(cat .sleepcode/scripts/base_rules.md)
 RULES=$(cat .sleepcode/rules.md)
 TASKS=$(cat .sleepcode/tasks.md)
 
-PROMPT="${RULES}
+PROMPT="${BASE_RULES}
+
+---
+
+${RULES}
 
 ---
 

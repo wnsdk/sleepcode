@@ -45,23 +45,15 @@ npx sleepcode
 
 ### 3. 실행
 
-**macOS / Linux:**
 ```bash
 # 1회 실행
-./.sleepcode/scripts/ai_worker.sh
+npx sleepcode run
 
-# 무한 루프 (tmux 권장)
-tmux new -s ai './.sleepcode/scripts/run_forever.sh'
+# 무한 루프 (잠자기 전)
+npx sleepcode run --loop
 ```
 
-**Windows (PowerShell):**
-```powershell
-# 1회 실행
-powershell -File .\.sleepcode\scripts\ai_worker.ps1
-
-# 무한 루프
-powershell -File .\.sleepcode\scripts\run_forever.ps1
-```
+OS에 맞는 스크립트를 자동으로 선택합니다 (macOS/Linux: `.sh`, Windows: `.ps1`).
 
 ### 4. 아침에 확인
 
@@ -96,6 +88,9 @@ npx sleepcode --type react-native --name my-app --role "쇼핑몰 앱 개발"
 | `--name <name>` | 프로젝트 이름 |
 | `--role <desc>` | AI 역할 설명 |
 | `--figma-key <key>` | Figma API Key (선택) |
+| `--figma-file <name>` | Figma 참고 파일명 (선택) |
+| `--notion-key <key>` | Notion API Key (선택) |
+| `--notion-page <name>` | Notion 참고 페이지명 (선택) |
 | `--interval <sec>` | 반복 간격 초 (기본: 30) |
 | `-f, --force` | 기존 `.sleepcode/` 폴더 덮어쓰기 |
 | `-h, --help` | 도움말 |
@@ -109,7 +104,8 @@ npx sleepcode --type react-native --name my-app --role "쇼핑몰 앱 개발"
   rules.md               # ✏️ AI 역할 + 작업 규칙 (수정하세요)
   tasks.md               # ✏️ 작업 목록 (수정하세요)
   docs/                  # ✏️ 참고 자료 (피그마 스크린샷, 기획서 등)
-  scripts/               # ⚙️ 시스템 스크립트 (수정하지 마세요)
+  scripts/               # ⚙️ 시스템 (수정하지 마세요)
+    base_rules.md        #    공통 작업 규칙
     ai_worker.sh/.ps1    #    1회 실행 스크립트 (OS별)
     run_forever.sh/.ps1  #    무한 루프 스크립트 (OS별)
     log_filter.py        #    실시간 로그 필터
@@ -153,7 +149,7 @@ rules.md + tasks.md → 프롬프트 조합 → claude -p (비대화형) → 코
 
 | 동작 | 명령어 |
 |------|--------|
-| 세션 생성 + 실행 | `tmux new -s ai './.sleepcode/scripts/run_forever.sh'` |
+| 세션 생성 + 실행 | `tmux new -s ai 'npx sleepcode run --loop'` |
 | 백그라운드 전환 | `Ctrl+B` → `D` |
 | 세션 재접속 | `tmux attach -t ai` |
 | 실시간 로그 | `tail -f .sleepcode/logs/worker_*.log` |

@@ -35,10 +35,11 @@ while ($true) {
         exit 0
     }
 
-    # rules.md + tasks.md 를 합쳐서 프롬프트 구성
+    # base_rules.md + rules.md + tasks.md 를 합쳐서 프롬프트 구성
+    $baseRules = Get-Content .sleepcode/scripts/base_rules.md -Raw -Encoding UTF8
     $rules = Get-Content .sleepcode/rules.md -Raw -Encoding UTF8
     $tasks = Get-Content .sleepcode/tasks.md -Raw -Encoding UTF8
-    $prompt = "$rules`n`n---`n`n$tasks"
+    $prompt = "$baseRules`n`n---`n`n$rules`n`n---`n`n$tasks"
 
     Log "claude 실행 중..."
     # stream-json -> log_filter.py 로 핵심 메시지만 추출

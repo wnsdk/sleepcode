@@ -190,19 +190,30 @@ function parseArgs() {
     else if (args[i] === '--name' && args[i + 1]) parsed.name = args[++i];
     else if (args[i] === '--role' && args[i + 1]) parsed.role = args[++i];
     else if (args[i] === '--figma-key' && args[i + 1]) parsed.figmaKey = args[++i];
+    else if (args[i] === '--figma-file' && args[i + 1]) parsed.figmaFileNames = args[++i];
+    else if (args[i] === '--notion-key' && args[i + 1]) parsed.notionKey = args[++i];
+    else if (args[i] === '--notion-page' && args[i + 1]) parsed.notionPages = args[++i];
     else if (args[i] === '--interval' && args[i + 1]) parsed.interval = args[++i];
     else if (args[i] === '--force' || args[i] === '-f') parsed.force = true;
     else if (args[i] === '--help' || args[i] === '-h') {
       console.log(`
 사용법: sleepcode [옵션]
+       sleepcode run [--loop]
 
 옵션 없이 실행하면 인터랙티브 모드로 동작합니다.
+
+명령어:
+  run              1회 실행 (ai_worker 스크립트)
+  run --loop       무한 루프 실행 (run_forever 스크립트)
 
 옵션:
   --type <type>        프로젝트 타입 (spring-boot, react-native, nextjs, custom)
   --name <name>        프로젝트 이름
   --role <desc>        AI 역할 설명
   --figma-key <key>    Figma API Key
+  --figma-file <name>  Figma 참고 파일명
+  --notion-key <key>   Notion API Key
+  --notion-page <name> Notion 참고 페이지명
   --interval <sec>     반복 간격 (초, 기본 30)
   -f, --force          기존 .sleepcode/ 덮어쓰기
   -h, --help           도움말
@@ -246,7 +257,7 @@ function writeFile(filePath, content) {
   fs.writeFileSync(filePath, content);
 }
 
-function generateFiles(targetDir, { typeKey, projectName, role, buildCmd, testCmd, lintCmd, figmaKey, sleepInterval }) {
+function generateFiles(targetDir, { typeKey, projectName, role, buildCmd, testCmd, lintCmd, figmaKey, figmaFileNames, notionKey, notionPages, sleepInterval }) {
   const scDir = path.join(targetDir, '.sleepcode');
   const claudeDir = path.join(targetDir, '.claude');
   fs.mkdirSync(path.join(scDir, 'docs'), { recursive: true });
@@ -268,6 +279,36 @@ function generateFiles(targetDir, { typeKey, projectName, role, buildCmd, testCm
       content = content.replace(/\{\{SLEEP_INTERVAL\}\}/g, sleepInterval);
       fs.writeFileSync(dest, content);
     }
+  }
+
+  // base_rules.md → scripts/ 하위로 복사 (Figma/Notion 섹션 조건부 처리)
+  const baseRulesSrc = path.join(TEMPLATES_DIR, 'common', 'base_rules.md');
+  if (fs.existsSync(baseRulesSrc)) {
+    let baseRules = fs.readFileSync(baseRulesSrc, 'utf-8');
+
+    // Figma 섹션
+    if (figmaKey) {
+      let figmaSection = `## Figma\n\n- **프론트엔드 디자인**: Figma MCP 도구로 직접 조회 가능 (API Key: \`${figmaKey}\`)`;
+      if (figmaFileNames) {
+        figmaSection += `\n- **참고 파일**: ${figmaFileNames}`;
+      }
+      baseRules = baseRules.replace('{{FIGMA_SECTION}}', figmaSection);
+    } else {
+      baseRules = baseRules.replace('\n{{FIGMA_SECTION}}\n', '');
+    }
+
+    // Notion 섹션
+    if (notionKey) {
+      let notionSection = `\n## Notion\n\n- **기획/문서**: Notion MCP 도구로 직접 조회 가능 (API Key: \`${notionKey}\`)`;
+      if (notionPages) {
+        notionSection += `\n- **참고 페이지**: ${notionPages}`;
+      }
+      baseRules = baseRules.replace('{{NOTION_SECTION}}', notionSection);
+    } else {
+      baseRules = baseRules.replace('\n{{NOTION_SECTION}}\n', '');
+    }
+
+    fs.writeFileSync(path.join(scDir, 'scripts', 'base_rules.md'), baseRules);
   }
 
   // README.md → .sleepcode/ 루트에 복사
@@ -308,12 +349,6 @@ function generateFiles(targetDir, { typeKey, projectName, role, buildCmd, testCm
     rules = rules.replace(/\{\{BUILD_CMD\}\}/g, buildCmd);
     rules = rules.replace(/\{\{TEST_CMD\}\}/g, testCmd);
     rules = rules.replace(/\{\{LINT_CMD\}\}/g, lintCmd);
-    rules = rules.replace(/\{\{FIGMA_API_KEY\}\}/g, figmaKey);
-
-    if (!figmaKey) {
-      rules = rules.replace(/\n## Figma[\s\S]*?(?=\n## |$)/, '');
-    }
-
     writeFile(path.join(scDir, 'rules.md'), rules);
   }
 
@@ -342,44 +377,69 @@ function printResult() {
   console.log(`  ${C.green}✓${C.reset} .sleepcode/rules.md          ${C.dim}← 수정하세요${C.reset}`);
   console.log(`  ${C.green}✓${C.reset} .sleepcode/tasks.md          ${C.dim}← 수정하세요${C.reset}`);
   console.log(`  ${C.green}✓${C.reset} .sleepcode/docs/             ${C.dim}← 참고자료 추가${C.reset}`);
+  console.log(`  ${C.green}✓${C.reset} .sleepcode/scripts/base_rules.md`);
   console.log(`  ${C.green}✓${C.reset} .sleepcode/scripts/${workerScript}`);
   console.log(`  ${C.green}✓${C.reset} .sleepcode/scripts/${foreverScript}`);
   console.log(`  ${C.green}✓${C.reset} .sleepcode/scripts/log_filter.py`);
   console.log(`  ${C.green}✓${C.reset} .sleepcode/README.md`);
   console.log(`  ${C.green}✓${C.reset} .claude/settings.local.json`);
 
-  if (IS_WIN) {
-    console.log(`
-${C.bold}${C.green}완료!${C.reset} 다음 단계:
-
-  ${C.bold}1.${C.reset} .sleepcode/rules.md 를 프로젝트에 맞게 수정
-  ${C.bold}2.${C.reset} .sleepcode/tasks.md 에 작업 목록 작성
-  ${C.bold}3.${C.reset} 실행 (PowerShell):
-     ${C.dim}# 1회 실행${C.reset}
-     powershell -File .\\.sleepcode\\scripts\\ai_worker.ps1
-
-     ${C.dim}# 무한 루프${C.reset}
-     powershell -File .\\.sleepcode\\scripts\\run_forever.ps1
-`);
-  } else {
-    console.log(`
+  console.log(`
 ${C.bold}${C.green}완료!${C.reset} 다음 단계:
 
   ${C.bold}1.${C.reset} .sleepcode/rules.md 를 프로젝트에 맞게 수정
   ${C.bold}2.${C.reset} .sleepcode/tasks.md 에 작업 목록 작성
   ${C.bold}3.${C.reset} 실행:
-     ${C.dim}# 1회 실행${C.reset}
-     ./.sleepcode/scripts/ai_worker.sh
-
-     ${C.dim}# 무한 루프 (tmux)${C.reset}
-     tmux new -s ai './.sleepcode/scripts/run_forever.sh'
+     ${C.cyan}npx sleepcode run${C.reset}          ${C.dim}# 1회 실행${C.reset}
+     ${C.cyan}npx sleepcode run --loop${C.reset}   ${C.dim}# 무한 루프${C.reset}
 `);
+}
+
+// ─── 실행 명령어 ───
+function runWorker(loop) {
+  const targetDir = process.cwd();
+  const scDir = path.join(targetDir, '.sleepcode', 'scripts');
+
+  if (!fs.existsSync(scDir)) {
+    console.error(`${C.red}.sleepcode/scripts/ 폴더가 없습니다. 먼저 'npx sleepcode'로 초기화하세요.${C.reset}`);
+    process.exit(1);
+  }
+
+  const scriptName = loop
+    ? (IS_WIN ? 'run_forever.ps1' : 'run_forever.sh')
+    : (IS_WIN ? 'ai_worker.ps1' : 'ai_worker.sh');
+  const scriptPath = path.join(scDir, scriptName);
+
+  if (!fs.existsSync(scriptPath)) {
+    console.error(`${C.red}스크립트를 찾을 수 없습니다: ${scriptPath}${C.reset}`);
+    process.exit(1);
+  }
+
+  const cmd = IS_WIN
+    ? `powershell -File "${scriptPath}"`
+    : `"${scriptPath}"`;
+
+  console.log(`${C.cyan}${loop ? '무한 루프' : '1회'} 실행: ${scriptName}${C.reset}\n`);
+
+  try {
+    execSync(cmd, { stdio: 'inherit', cwd: targetDir });
+  } catch (e) {
+    process.exit(e.status || 1);
   }
 }
 
 // ─── 메인 ───
 async function main() {
   const targetDir = process.cwd();
+
+  // 서브커맨드: sleepcode run / sleepcode run --loop
+  const firstArg = process.argv[2];
+  if (firstArg === 'run') {
+    const loop = process.argv.includes('--loop');
+    runWorker(loop);
+    return;
+  }
+
   const cliArgs = parseArgs();
 
   console.log(`
@@ -410,6 +470,9 @@ ${C.bold}${C.magenta}  ╔══════════════════
     const projectName = cliArgs.name || path.basename(targetDir);
     const role = cliArgs.role || `${projectName} 서비스 개발`;
     const figmaKey = cliArgs.figmaKey || '';
+    const figmaFileNames = cliArgs.figmaFileNames || '';
+    const notionKey = cliArgs.notionKey || '';
+    const notionPages = cliArgs.notionPages || '';
     const sleepInterval = cliArgs.interval || '30';
 
     console.log(`${C.dim}타입: ${typeConfig.label}${C.reset}`);
@@ -424,6 +487,9 @@ ${C.bold}${C.magenta}  ╔══════════════════
       testCmd: typeConfig.testCmd,
       lintCmd: typeConfig.lintCmd,
       figmaKey,
+      figmaFileNames,
+      notionKey,
+      notionPages,
       sleepInterval,
     });
 
@@ -476,7 +542,24 @@ ${C.bold}${C.magenta}  ╔══════════════════
       console.log(`${C.dim}  린트: ${lintCmd || '(없음)'}${C.reset}`);
     }
 
-    const figmaKey = await ask(rl, 'Figma API Key (없으면 Enter)', '');
+    // Figma 연동
+    let figmaKey = '';
+    let figmaFileNames = '';
+    const useFigma = await ask(rl, 'Figma 디자인을 참고하나요? (y/N)', 'N');
+    if (useFigma.toLowerCase() === 'y') {
+      figmaKey = await ask(rl, 'Figma API Key', '');
+      figmaFileNames = await ask(rl, '참고할 Figma 파일명 (예: 홈화면, 로그인)', '');
+    }
+
+    // Notion 연동
+    let notionKey = '';
+    let notionPages = '';
+    const useNotion = await ask(rl, 'Notion 문서를 참고하나요? (y/N)', 'N');
+    if (useNotion.toLowerCase() === 'y') {
+      notionKey = await ask(rl, 'Notion API Key', '');
+      notionPages = await ask(rl, '참고할 Notion 페이지명 (예: 기획서, API명세)', '');
+    }
+
     const sleepInterval = await ask(rl, '반복 간격 (초)', '30');
 
     rl.close();
@@ -489,6 +572,9 @@ ${C.bold}${C.magenta}  ╔══════════════════
       testCmd,
       lintCmd,
       figmaKey,
+      figmaFileNames,
+      notionKey,
+      notionPages,
       sleepInterval,
     });
 

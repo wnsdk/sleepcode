@@ -1,0 +1,10 @@
+{
+  "name": "sleepcode",
+  "version": "1.0.0",
+  "description": "AI codes while you sleep — Claude AI 야간 자동화 세팅 CLI",
+  "bin": {
+    "sleepcode": "./bin/index.js"
+  },
+  "keywords": ["claude", "ai", "automation", "coding", "nightshift", "sleepcode"],
+  "license": "MIT"
+}

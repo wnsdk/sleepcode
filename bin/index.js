@@ -204,7 +204,7 @@ function parseArgs() {
   --role <desc>        AI 역할 설명
   --figma-key <key>    Figma API Key
   --interval <sec>     반복 간격 (초, 기본 30)
-  -f, --force          기존 .ai/ 덮어쓰기
+  -f, --force          기존 .sleepcode/ 덮어쓰기
   -h, --help           도움말
 `);
       process.exit(0);
@@ -247,10 +247,10 @@ function writeFile(filePath, content) {
 }
 
 function generateFiles(targetDir, { typeKey, projectName, role, buildCmd, testCmd, lintCmd, figmaKey, sleepInterval }) {
-  const aiDir = path.join(targetDir, '.ai');
+  const scDir = path.join(targetDir, '.sleepcode');
   const claudeDir = path.join(targetDir, '.claude');
-  fs.mkdirSync(path.join(aiDir, 'docs'), { recursive: true });
-  fs.mkdirSync(path.join(aiDir, 'logs'), { recursive: true });
+  fs.mkdirSync(path.join(scDir, 'docs'), { recursive: true });
+  fs.mkdirSync(path.join(scDir, 'logs'), { recursive: true });
   fs.mkdirSync(claudeDir, { recursive: true });
 
   // 공통 파일 복사 (OS별 분기)
@@ -261,7 +261,7 @@ function generateFiles(targetDir, { typeKey, projectName, role, buildCmd, testCm
 
   for (const file of commonFiles) {
     const src = path.join(TEMPLATES_DIR, 'common', file);
-    const dest = path.join(aiDir, file);
+    const dest = path.join(scDir, file);
     if (fs.existsSync(src)) {
       let content = fs.readFileSync(src, 'utf-8');
       content = content.replace(/\{\{SLEEP_INTERVAL\}\}/g, sleepInterval);
@@ -271,17 +271,17 @@ function generateFiles(targetDir, { typeKey, projectName, role, buildCmd, testCm
 
   // 실행 권한 (Unix만)
   if (!IS_WIN) {
-    fs.chmodSync(path.join(aiDir, 'ai_worker.sh'), 0o755);
-    fs.chmodSync(path.join(aiDir, 'run_forever.sh'), 0o755);
-    fs.chmodSync(path.join(aiDir, 'log_filter.py'), 0o755);
+    fs.chmodSync(path.join(scDir, 'ai_worker.sh'), 0o755);
+    fs.chmodSync(path.join(scDir, 'run_forever.sh'), 0o755);
+    fs.chmodSync(path.join(scDir, 'log_filter.py'), 0o755);
   }
 
   // docs/.gitkeep
-  writeFile(path.join(aiDir, 'docs', '.gitkeep'), '');
+  writeFile(path.join(scDir, 'docs', '.gitkeep'), '');
 
   // tasks.md
   writeFile(
-    path.join(aiDir, 'tasks.md'),
+    path.join(scDir, 'tasks.md'),
     `# 작업 목록
 
 아래 태스크를 순서대로 진행하세요. 완료한 항목은 \`[x]\`로 체크하세요.
@@ -307,7 +307,7 @@ function generateFiles(targetDir, { typeKey, projectName, role, buildCmd, testCm
       rules = rules.replace(/\n## Figma[\s\S]*?(?=\n## |$)/, '');
     }
 
-    writeFile(path.join(aiDir, 'rules.md'), rules);
+    writeFile(path.join(scDir, 'rules.md'), rules);
   }
 
   // settings.local.json
@@ -321,8 +321,8 @@ function generateFiles(targetDir, { typeKey, projectName, role, buildCmd, testCm
   const gitignorePath = path.join(targetDir, '.gitignore');
   if (fs.existsSync(gitignorePath)) {
     const gitignore = fs.readFileSync(gitignorePath, 'utf-8');
-    if (!gitignore.includes('.ai/logs/')) {
-      fs.appendFileSync(gitignorePath, '\n# AI worker logs\n.ai/logs/\n');
+    if (!gitignore.includes('.sleepcode/logs/')) {
+      fs.appendFileSync(gitignorePath, '\n# AI worker logs\n.sleepcode/logs/\n');
     }
   }
 }
@@ -332,40 +332,40 @@ function printResult() {
   const foreverScript = IS_WIN ? 'run_forever.ps1' : 'run_forever.sh';
 
   console.log(`\n${C.bold}파일 생성 완료:${C.reset}\n`);
-  console.log(`  ${C.green}✓${C.reset} .ai/rules.md`);
-  console.log(`  ${C.green}✓${C.reset} .ai/tasks.md`);
-  console.log(`  ${C.green}✓${C.reset} .ai/${workerScript}`);
-  console.log(`  ${C.green}✓${C.reset} .ai/${foreverScript}`);
-  console.log(`  ${C.green}✓${C.reset} .ai/log_filter.py`);
-  console.log(`  ${C.green}✓${C.reset} .ai/README.md`);
-  console.log(`  ${C.green}✓${C.reset} .ai/docs/`);
+  console.log(`  ${C.green}✓${C.reset} .sleepcode/rules.md`);
+  console.log(`  ${C.green}✓${C.reset} .sleepcode/tasks.md`);
+  console.log(`  ${C.green}✓${C.reset} .sleepcode/${workerScript}`);
+  console.log(`  ${C.green}✓${C.reset} .sleepcode/${foreverScript}`);
+  console.log(`  ${C.green}✓${C.reset} .sleepcode/log_filter.py`);
+  console.log(`  ${C.green}✓${C.reset} .sleepcode/README.md`);
+  console.log(`  ${C.green}✓${C.reset} .sleepcode/docs/`);
   console.log(`  ${C.green}✓${C.reset} .claude/settings.local.json`);
 
   if (IS_WIN) {
     console.log(`
 ${C.bold}${C.green}완료!${C.reset} 다음 단계:
 
-  ${C.bold}1.${C.reset} .ai/rules.md 를 프로젝트에 맞게 수정
-  ${C.bold}2.${C.reset} .ai/tasks.md 에 작업 목록 작성
+  ${C.bold}1.${C.reset} .sleepcode/rules.md 를 프로젝트에 맞게 수정
+  ${C.bold}2.${C.reset} .sleepcode/tasks.md 에 작업 목록 작성
   ${C.bold}3.${C.reset} 실행 (PowerShell):
      ${C.dim}# 1회 실행${C.reset}
-     powershell -File .\\.ai\\ai_worker.ps1
+     powershell -File .\\.sleepcode\\ai_worker.ps1
 
      ${C.dim}# 무한 루프${C.reset}
-     powershell -File .\\.ai\\run_forever.ps1
+     powershell -File .\\.sleepcode\\run_forever.ps1
 `);
   } else {
     console.log(`
 ${C.bold}${C.green}완료!${C.reset} 다음 단계:
 
-  ${C.bold}1.${C.reset} .ai/rules.md 를 프로젝트에 맞게 수정
-  ${C.bold}2.${C.reset} .ai/tasks.md 에 작업 목록 작성
+  ${C.bold}1.${C.reset} .sleepcode/rules.md 를 프로젝트에 맞게 수정
+  ${C.bold}2.${C.reset} .sleepcode/tasks.md 에 작업 목록 작성
   ${C.bold}3.${C.reset} 실행:
      ${C.dim}# 1회 실행${C.reset}
-     ./.ai/ai_worker.sh
+     ./.sleepcode/ai_worker.sh
 
      ${C.dim}# 무한 루프 (tmux)${C.reset}
-     tmux new -s ai './.ai/run_forever.sh'
+     tmux new -s ai './.sleepcode/run_forever.sh'
 `);
   }
 }
@@ -394,8 +394,8 @@ ${C.bold}${C.magenta}  ╔══════════════════
       process.exit(1);
     }
 
-    if (fs.existsSync(path.join(targetDir, '.ai')) && !cliArgs.force) {
-      console.error(`${C.red}.ai/ 폴더가 이미 존재합니다. --force 로 덮어쓰세요.${C.reset}`);
+    if (fs.existsSync(path.join(targetDir, '.sleepcode')) && !cliArgs.force) {
+      console.error(`${C.red}.sleepcode/ 폴더가 이미 존재합니다. --force 로 덮어쓰세요.${C.reset}`);
       process.exit(1);
     }
 
@@ -434,8 +434,8 @@ ${C.bold}${C.magenta}  ╔══════════════════
     // 인터랙티브: 사전 준비 체크 (자동 설치 제안 포함)
     await checkPrerequisites(rl);
 
-    if (fs.existsSync(path.join(targetDir, '.ai'))) {
-      console.log(`${C.yellow}⚠ .ai/ 폴더가 이미 존재합니다.${C.reset}`);
+    if (fs.existsSync(path.join(targetDir, '.sleepcode'))) {
+      console.log(`${C.yellow}⚠ .sleepcode/ 폴더가 이미 존재합니다.${C.reset}`);
       const overwrite = await ask(rl, '덮어쓸까요? (y/N)', 'N');
       if (overwrite.toLowerCase() !== 'y') {
         console.log('취소됨.');

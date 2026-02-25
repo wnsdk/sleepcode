@@ -7,14 +7,14 @@ Set-Location (Split-Path $PSScriptRoot -Parent)
 $timestamp = Get-Date -Format "yyyy-MM-dd HH:mm:ss"
 Write-Host "[$timestamp] AI 단일 실행 시작"
 
-$rules = Get-Content .ai/rules.md -Raw -Encoding UTF8
-$tasks = Get-Content .ai/tasks.md -Raw -Encoding UTF8
+$rules = Get-Content .sleepcode/rules.md -Raw -Encoding UTF8
+$tasks = Get-Content .sleepcode/tasks.md -Raw -Encoding UTF8
 
 $prompt = "$rules`n`n---`n`n$tasks"
 
 # stream-json + verbose: 토큰 단위 실시간 출력
 $prompt | claude -p --dangerously-skip-permissions --output-format stream-json --verbose 2>&1 |
-  python .ai/log_filter.py
+  python .sleepcode/log_filter.py
 
 $timestamp = Get-Date -Format "yyyy-MM-dd HH:mm:ss"
 Write-Host "[$timestamp] AI 단일 실행 종료"

@@ -7,8 +7,8 @@ cd "$(dirname "$0")/.." || exit 1
 
 echo "[$(date '+%Y-%m-%d %H:%M:%S')] AI 단일 실행 시작"
 
-RULES=$(cat .ai/rules.md)
-TASKS=$(cat .ai/tasks.md)
+RULES=$(cat .sleepcode/rules.md)
+TASKS=$(cat .sleepcode/tasks.md)
 
 PROMPT="${RULES}
 
@@ -18,6 +18,6 @@ ${TASKS}"
 
 # stream-json + verbose: 토큰 단위 실시간 출력
 claude -p "$PROMPT" --dangerously-skip-permissions --output-format stream-json --verbose 2>&1 \
-  | python3 .ai/log_filter.py
+  | python3 .sleepcode/log_filter.py
 
 echo "[$(date '+%Y-%m-%d %H:%M:%S')] AI 단일 실행 종료"

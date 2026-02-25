@@ -7,7 +7,7 @@ AI codes while you sleep — 밤새 개발 작업을 자동화하는 시스템�
 ## 폴더 구조
 
 ```
-.ai/
+.sleepcode/
   rules.md         # AI 역할 + 작업 규칙
   tasks.md         # 오늘 진행할 작업 목록
   docs/            # 개발 참고 자료 (피그마 스크린샷, 기획서 등)
@@ -33,7 +33,7 @@ AI codes while you sleep — 밤새 개발 작업을 자동화하는 시스템�
 ### 1. 권한 부여
 
 ```bash
-chmod +x .ai/*.sh
+chmod +x .sleepcode/*.sh
 ```
 
 ### 2. (최초 1회) --dangerously-skip-permissions 수락
@@ -47,7 +47,7 @@ claude --dangerously-skip-permissions
 ### 3. tmux 세션 생성 + 실행
 
 ```bash
-tmux new -s ai './.ai/run_forever.sh'
+tmux new -s ai './.sleepcode/run_forever.sh'
 ```
 
 ### 4. tmux 분리 (백그라운드 전환)
@@ -61,7 +61,7 @@ Ctrl + B → D
 ## 수동 1회 실행
 
 ```bash
-./.ai/ai_worker.sh
+./.sleepcode/ai_worker.sh
 ```
 
 ---
@@ -71,7 +71,7 @@ Ctrl + B → D
 | 동작 | 명령어 |
 |------|--------|
 | 세션 재접속 | `tmux attach -t ai` |
-| 실시간 로그 | `tail -f .ai/logs/worker_*.log` |
+| 실시간 로그 | `tail -f .sleepcode/logs/worker_*.log` |
 | 종료 | `tmux attach -t ai` → `Ctrl + C` |
 | 세션 삭제 | `tmux kill-session -t ai` |
 
@@ -84,14 +84,14 @@ Ctrl + B → D
 git log --oneline --since="12 hours ago"
 
 # 로그 확인
-tail -100 .ai/logs/worker_*.log
+tail -100 .sleepcode/logs/worker_*.log
 ```
 
 ---
 
 ## 커스터마이징
 
-- **역할/규칙 변경**: `.ai/rules.md` 수정
-- **태스크 변경**: `.ai/tasks.md` 수정
-- **참고 자료 추가**: `.ai/docs/` 에 파일 추가
+- **역할/규칙 변경**: `.sleepcode/rules.md` 수정
+- **태스크 변경**: `.sleepcode/tasks.md` 수정
+- **참고 자료 추가**: `.sleepcode/docs/` 에 파일 추가
 - **반복 간격 변경**: `run_forever.sh` 의 `sleep` 값 수정

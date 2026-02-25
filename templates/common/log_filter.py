@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 stream-json 출력에서 핵심 메시지만 추출하는 필터.
-Usage: claude ... --output-format stream-json | python3 .ai/log_filter.py
+Usage: claude ... --output-format stream-json | python3 .sleepcode/log_filter.py
 """
 import sys
 import json

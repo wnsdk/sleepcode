@@ -33,7 +33,7 @@ npx sleepcode
 
 ### 2. 태스크 작성
 
-`.ai/tasks.md` 에 AI가 수행할 작업을 작성합니다:
+`.sleepcode/tasks.md` 에 AI가 수행할 작업을 작성합니다:
 
 ```markdown
 # 작업 목록
@@ -48,19 +48,19 @@ npx sleepcode
 **macOS / Linux:**
 ```bash
 # 1회 실행
-./.ai/ai_worker.sh
+./.sleepcode/ai_worker.sh
 
 # 무한 루프 (tmux 권장)
-tmux new -s ai './.ai/run_forever.sh'
+tmux new -s ai './.sleepcode/run_forever.sh'
 ```
 
 **Windows (PowerShell):**
 ```powershell
 # 1회 실행
-powershell -File .\.ai\ai_worker.ps1
+powershell -File .\.sleepcode\ai_worker.ps1
 
 # 무한 루프
-powershell -File .\.ai\run_forever.ps1
+powershell -File .\.sleepcode\run_forever.ps1
 ```
 
 ### 4. 아침에 확인
@@ -97,7 +97,7 @@ npx sleepcode --type react-native --name my-app --role "쇼핑몰 앱 개발"
 | `--role <desc>` | AI 역할 설명 |
 | `--figma-key <key>` | Figma API Key (선택) |
 | `--interval <sec>` | 반복 간격 초 (기본: 30) |
-| `-f, --force` | 기존 `.ai/` 폴더 덮어쓰기 |
+| `-f, --force` | 기존 `.sleepcode/` 폴더 덮어쓰기 |
 | `-h, --help` | 도움말 |
 
 ---
@@ -105,7 +105,7 @@ npx sleepcode --type react-native --name my-app --role "쇼핑몰 앱 개발"
 ## 생성되는 파일
 
 ```
-.ai/
+.sleepcode/
   rules.md             # AI 역할 + 작업 규칙 (프롬프트)
   tasks.md             # 작업 목록 (체크리스트)
   docs/                # 참고 자료 (피그마 스크린샷, 기획서 등)
@@ -152,10 +152,10 @@ rules.md + tasks.md → 프롬프트 조합 → claude -p (비대화형) → 코
 
 | 동작 | 명령어 |
 |------|--------|
-| 세션 생성 + 실행 | `tmux new -s ai './.ai/run_forever.sh'` |
+| 세션 생성 + 실행 | `tmux new -s ai './.sleepcode/run_forever.sh'` |
 | 백그라운드 전환 | `Ctrl+B` → `D` |
 | 세션 재접속 | `tmux attach -t ai` |
-| 실시간 로그 | `tail -f .ai/logs/worker_*.log` |
+| 실시간 로그 | `tail -f .sleepcode/logs/worker_*.log` |
 | 종료 | `tmux attach -t ai` → `Ctrl+C` |
 | 세션 삭제 | `tmux kill-session -t ai` |
 
@@ -211,10 +211,10 @@ Windows에서는 `.sh` 대신 **PowerShell 스크립트(`.ps1`)가 자동 생성
 
 ## 커스터마이징
 
-- **AI 역할/규칙 변경**: `.ai/rules.md` 수정
-- **작업 목록 변경**: `.ai/tasks.md` 수정
-- **참고 자료 추가**: `.ai/docs/`에 파일 추가 (스크린샷, 기획서 등)
-- **반복 간격 변경**: `.ai/run_forever.sh` (또는 `.ps1`)의 sleep 값 수정
+- **AI 역할/규칙 변경**: `.sleepcode/rules.md` 수정
+- **작업 목록 변경**: `.sleepcode/tasks.md` 수정
+- **참고 자료 추가**: `.sleepcode/docs/`에 파일 추가 (스크린샷, 기획서 등)
+- **반복 간격 변경**: `.sleepcode/run_forever.sh` (또는 `.ps1`)의 sleep 값 수정
 - **Claude 권한 변경**: `.claude/settings.local.json` 수정
 
 ---

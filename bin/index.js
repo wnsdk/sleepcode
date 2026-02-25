@@ -250,18 +250,19 @@ function generateFiles(targetDir, { typeKey, projectName, role, buildCmd, testCm
   const scDir = path.join(targetDir, '.sleepcode');
   const claudeDir = path.join(targetDir, '.claude');
   fs.mkdirSync(path.join(scDir, 'docs'), { recursive: true });
+  fs.mkdirSync(path.join(scDir, 'scripts'), { recursive: true });
   fs.mkdirSync(path.join(scDir, 'logs'), { recursive: true });
   fs.mkdirSync(claudeDir, { recursive: true });
 
-  // 공통 파일 복사 (OS별 분기)
+  // 스크립트 파일 → scripts/ 하위로 복사 (OS별 분기)
   const scriptFiles = IS_WIN
     ? ['ai_worker.ps1', 'run_forever.ps1']
     : ['ai_worker.sh', 'run_forever.sh'];
-  const commonFiles = [...scriptFiles, 'log_filter.py', 'README.md'];
+  const allScriptFiles = [...scriptFiles, 'log_filter.py'];
 
-  for (const file of commonFiles) {
+  for (const file of allScriptFiles) {
     const src = path.join(TEMPLATES_DIR, 'common', file);
-    const dest = path.join(scDir, file);
+    const dest = path.join(scDir, 'scripts', file);
     if (fs.existsSync(src)) {
       let content = fs.readFileSync(src, 'utf-8');
       content = content.replace(/\{\{SLEEP_INTERVAL\}\}/g, sleepInterval);
@@ -269,11 +270,17 @@ function generateFiles(targetDir, { typeKey, projectName, role, buildCmd, testCm
     }
   }
 
+  // README.md → .sleepcode/ 루트에 복사
+  const readmeSrc = path.join(TEMPLATES_DIR, 'common', 'README.md');
+  if (fs.existsSync(readmeSrc)) {
+    fs.writeFileSync(path.join(scDir, 'README.md'), fs.readFileSync(readmeSrc, 'utf-8'));
+  }
+
   // 실행 권한 (Unix만)
   if (!IS_WIN) {
-    fs.chmodSync(path.join(scDir, 'ai_worker.sh'), 0o755);
-    fs.chmodSync(path.join(scDir, 'run_forever.sh'), 0o755);
-    fs.chmodSync(path.join(scDir, 'log_filter.py'), 0o755);
+    fs.chmodSync(path.join(scDir, 'scripts', 'ai_worker.sh'), 0o755);
+    fs.chmodSync(path.join(scDir, 'scripts', 'run_forever.sh'), 0o755);
+    fs.chmodSync(path.join(scDir, 'scripts', 'log_filter.py'), 0o755);
   }
 
   // docs/.gitkeep
@@ -332,13 +339,13 @@ function printResult() {
   const foreverScript = IS_WIN ? 'run_forever.ps1' : 'run_forever.sh';
 
   console.log(`\n${C.bold}파일 생성 완료:${C.reset}\n`);
-  console.log(`  ${C.green}✓${C.reset} .sleepcode/rules.md`);
-  console.log(`  ${C.green}✓${C.reset} .sleepcode/tasks.md`);
-  console.log(`  ${C.green}✓${C.reset} .sleepcode/${workerScript}`);
-  console.log(`  ${C.green}✓${C.reset} .sleepcode/${foreverScript}`);
-  console.log(`  ${C.green}✓${C.reset} .sleepcode/log_filter.py`);
+  console.log(`  ${C.green}✓${C.reset} .sleepcode/rules.md          ${C.dim}← 수정하세요${C.reset}`);
+  console.log(`  ${C.green}✓${C.reset} .sleepcode/tasks.md          ${C.dim}← 수정하세요${C.reset}`);
+  console.log(`  ${C.green}✓${C.reset} .sleepcode/docs/             ${C.dim}← 참고자료 추가${C.reset}`);
+  console.log(`  ${C.green}✓${C.reset} .sleepcode/scripts/${workerScript}`);
+  console.log(`  ${C.green}✓${C.reset} .sleepcode/scripts/${foreverScript}`);
+  console.log(`  ${C.green}✓${C.reset} .sleepcode/scripts/log_filter.py`);
   console.log(`  ${C.green}✓${C.reset} .sleepcode/README.md`);
-  console.log(`  ${C.green}✓${C.reset} .sleepcode/docs/`);
   console.log(`  ${C.green}✓${C.reset} .claude/settings.local.json`);
 
   if (IS_WIN) {
@@ -349,10 +356,10 @@ ${C.bold}${C.green}완료!${C.reset} 다음 단계:
   ${C.bold}2.${C.reset} .sleepcode/tasks.md 에 작업 목록 작성
   ${C.bold}3.${C.reset} 실행 (PowerShell):
      ${C.dim}# 1회 실행${C.reset}
-     powershell -File .\\.sleepcode\\ai_worker.ps1
+     powershell -File .\\.sleepcode\\scripts\\ai_worker.ps1
 
      ${C.dim}# 무한 루프${C.reset}
-     powershell -File .\\.sleepcode\\run_forever.ps1
+     powershell -File .\\.sleepcode\\scripts\\run_forever.ps1
 `);
   } else {
     console.log(`
@@ -362,10 +369,10 @@ ${C.bold}${C.green}완료!${C.reset} 다음 단계:
   ${C.bold}2.${C.reset} .sleepcode/tasks.md 에 작업 목록 작성
   ${C.bold}3.${C.reset} 실행:
      ${C.dim}# 1회 실행${C.reset}
-     ./.sleepcode/ai_worker.sh
+     ./.sleepcode/scripts/ai_worker.sh
 
      ${C.dim}# 무한 루프 (tmux)${C.reset}
-     tmux new -s ai './.sleepcode/run_forever.sh'
+     tmux new -s ai './.sleepcode/scripts/run_forever.sh'
 `);
   }
 }

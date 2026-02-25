@@ -1,9 +1,9 @@
 #!/bin/bash
 
 # AI Night Worker - 감시자 스크립트
-# 사용법: tmux new -s ai './.sleepcode/run_forever.sh'
+# 사용법: tmux new -s ai './.sleepcode/scripts/run_forever.sh'
 
-cd "$(dirname "$0")/.." || exit 1
+cd "$(dirname "$0")/../.." || exit 1
 
 LOG_DIR=".sleepcode/logs"
 mkdir -p "$LOG_DIR"
@@ -44,7 +44,7 @@ ${TASKS}"
   log "claude 실행 중..."
   # stream-json → log_filter.py 로 핵심 메시지만 추출
   claude -p "$PROMPT" --dangerously-skip-permissions --output-format stream-json --verbose 2>&1 \
-    | python3 .sleepcode/log_filter.py \
+    | python3 .sleepcode/scripts/log_filter.py \
     | tee -a "$LOG_FILE"
   EXIT_CODE=${PIPESTATUS[0]}
   log "claude 종료 (exit code: $EXIT_CODE)"

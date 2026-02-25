@@ -48,19 +48,19 @@ npx sleepcode
 **macOS / Linux:**
 ```bash
 # 1회 실행
-./.sleepcode/ai_worker.sh
+./.sleepcode/scripts/ai_worker.sh
 
 # 무한 루프 (tmux 권장)
-tmux new -s ai './.sleepcode/run_forever.sh'
+tmux new -s ai './.sleepcode/scripts/run_forever.sh'
 ```
 
 **Windows (PowerShell):**
 ```powershell
 # 1회 실행
-powershell -File .\.sleepcode\ai_worker.ps1
+powershell -File .\.sleepcode\scripts\ai_worker.ps1
 
 # 무한 루프
-powershell -File .\.sleepcode\run_forever.ps1
+powershell -File .\.sleepcode\scripts\run_forever.ps1
 ```
 
 ### 4. 아침에 확인
@@ -106,17 +106,18 @@ npx sleepcode --type react-native --name my-app --role "쇼핑몰 앱 개발"
 
 ```
 .sleepcode/
-  rules.md             # AI 역할 + 작업 규칙 (프롬프트)
-  tasks.md             # 작업 목록 (체크리스트)
-  docs/                # 참고 자료 (피그마 스크린샷, 기획서 등)
-  ai_worker.sh/.ps1    # 1회 실행 스크립트 (OS별)
-  run_forever.sh/.ps1  # 무한 루프 스크립트 (OS별)
-  log_filter.py        # 실시간 로그 필터
-  logs/                # 실행 로그 (자동 생성)
-  README.md            # 사용 가이드
+  rules.md               # ✏️ AI 역할 + 작업 규칙 (수정하세요)
+  tasks.md               # ✏️ 작업 목록 (수정하세요)
+  docs/                  # ✏️ 참고 자료 (피그마 스크린샷, 기획서 등)
+  scripts/               # ⚙️ 시스템 스크립트 (수정하지 마세요)
+    ai_worker.sh/.ps1    #    1회 실행 스크립트 (OS별)
+    run_forever.sh/.ps1  #    무한 루프 스크립트 (OS별)
+    log_filter.py        #    실시간 로그 필터
+  logs/                  # 실행 로그 (자동 생성)
+  README.md              # 사용 가이드
 
 .claude/
-  settings.local.json  # Claude 권한 설정
+  settings.local.json    # Claude 권한 설정
 ```
 
 ---
@@ -152,7 +153,7 @@ rules.md + tasks.md → 프롬프트 조합 → claude -p (비대화형) → 코
 
 | 동작 | 명령어 |
 |------|--------|
-| 세션 생성 + 실행 | `tmux new -s ai './.sleepcode/run_forever.sh'` |
+| 세션 생성 + 실행 | `tmux new -s ai './.sleepcode/scripts/run_forever.sh'` |
 | 백그라운드 전환 | `Ctrl+B` → `D` |
 | 세션 재접속 | `tmux attach -t ai` |
 | 실시간 로그 | `tail -f .sleepcode/logs/worker_*.log` |
@@ -214,7 +215,7 @@ Windows에서는 `.sh` 대신 **PowerShell 스크립트(`.ps1`)가 자동 생성
 - **AI 역할/규칙 변경**: `.sleepcode/rules.md` 수정
 - **작업 목록 변경**: `.sleepcode/tasks.md` 수정
 - **참고 자료 추가**: `.sleepcode/docs/`에 파일 추가 (스크린샷, 기획서 등)
-- **반복 간격 변경**: `.sleepcode/run_forever.sh` (또는 `.ps1`)의 sleep 값 수정
+- **반복 간격 변경**: `.sleepcode/scripts/run_forever.sh` (또는 `.ps1`)의 sleep 값 수정
 - **Claude 권한 변경**: `.claude/settings.local.json` 수정
 
 ---

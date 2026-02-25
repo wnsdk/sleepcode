@@ -8,13 +8,14 @@ AI codes while you sleep — 밤새 개발 작업을 자동화하는 시스템�
 
 ```
 .sleepcode/
-  rules.md         # AI 역할 + 작업 규칙
-  tasks.md         # 오늘 진행할 작업 목록
-  docs/            # 개발 참고 자료 (피그마 스크린샷, 기획서 등)
-  ai_worker.sh     # 1회 실행 스크립트
-  run_forever.sh   # 무한 루프 감시자 스크립트
-  log_filter.py    # 로그 필터 (핵심 메시지만 추출)
-  logs/            # 실행 로그 (자동 생성)
+  rules.md           # ✏️ AI 역할 + 작업 규칙 (수정하세요)
+  tasks.md           # ✏️ 오늘 진행할 작업 목록 (수정하세요)
+  docs/              # ✏️ 개발 참고 자료 (피그마 스크린샷, 기획서 등)
+  scripts/           # ⚙️ 시스템 스크립트 (수정하지 마세요)
+    ai_worker.*      #    1회 실행 스크립트
+    run_forever.*    #    무한 루프 감시자 스크립트
+    log_filter.py    #    로그 필터 (핵심 메시지만 추출)
+  logs/              # 실행 로그 (자동 생성)
 ```
 
 ---
@@ -30,13 +31,7 @@ AI codes while you sleep — 밤새 개발 작업을 자동화하는 시스템�
 
 ## 실행 방법
 
-### 1. 권한 부여
-
-```bash
-chmod +x .sleepcode/*.sh
-```
-
-### 2. (최초 1회) --dangerously-skip-permissions 수락
+### 1. (최초 1회) --dangerously-skip-permissions 수락
 
 ```bash
 claude --dangerously-skip-permissions
@@ -44,24 +39,33 @@ claude --dangerously-skip-permissions
 
 동의 프롬프트가 뜨면 수락 후 `Ctrl + C`로 나옵니다.
 
-### 3. tmux 세션 생성 + 실행
+### 2. 실행
 
+**macOS / Linux:**
 ```bash
-tmux new -s ai './.sleepcode/run_forever.sh'
+# 권한 부여
+chmod +x .sleepcode/scripts/*.sh
+
+# 1회 실행
+./.sleepcode/scripts/ai_worker.sh
+
+# 무한 루프 (tmux)
+tmux new -s ai './.sleepcode/scripts/run_forever.sh'
 ```
 
-### 4. tmux 분리 (백그라운드 전환)
+**Windows (PowerShell):**
+```powershell
+# 1회 실행
+powershell -File .\.sleepcode\scripts\ai_worker.ps1
+
+# 무한 루프
+powershell -File .\.sleepcode\scripts\run_forever.ps1
+```
+
+### 3. tmux 분리 (백그라운드 전환, macOS/Linux)
 
 ```
 Ctrl + B → D
-```
-
----
-
-## 수동 1회 실행
-
-```bash
-./.sleepcode/ai_worker.sh
 ```
 
 ---
@@ -94,4 +98,3 @@ tail -100 .sleepcode/logs/worker_*.log
 - **역할/규칙 변경**: `.sleepcode/rules.md` 수정
 - **태스크 변경**: `.sleepcode/tasks.md` 수정
 - **참고 자료 추가**: `.sleepcode/docs/` 에 파일 추가
-- **반복 간격 변경**: `run_forever.sh` 의 `sleep` 값 수정

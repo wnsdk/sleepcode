@@ -1,8 +1,8 @@
 # AI Night Worker - 감시자 스크립트 (Windows PowerShell)
-# 사용법: powershell -File .\.sleepcode\run_forever.ps1
+# 사용법: powershell -File .\.sleepcode\scripts\run_forever.ps1
 
 $ErrorActionPreference = "Continue"
-Set-Location (Split-Path $PSScriptRoot -Parent)
+Set-Location (Split-Path (Split-Path $PSScriptRoot -Parent) -Parent)
 
 $logDir = ".sleepcode/logs"
 if (!(Test-Path $logDir)) { New-Item -ItemType Directory -Path $logDir -Force | Out-Null }
@@ -43,7 +43,7 @@ while ($true) {
     Log "claude 실행 중..."
     # stream-json -> log_filter.py 로 핵심 메시지만 추출
     $prompt | claude -p --dangerously-skip-permissions --output-format stream-json --verbose 2>&1 |
-      python .sleepcode/log_filter.py |
+      python .sleepcode/scripts/log_filter.py |
       Tee-Object -Append $logFile
     $exitCode = $LASTEXITCODE
     Log "claude 종료 (exit code: $exitCode)"

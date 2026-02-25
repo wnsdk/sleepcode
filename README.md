@@ -31,7 +31,22 @@ npx sleepcode
 
 인터랙티브 모드로 프로젝트 타입, 이름, AI 역할 등을 설정합니다.
 
-### 2. 태스크 작성
+### 2. 참고 자료 추가
+
+`.sleepcode/docs/`에 기획서, 피그마 스크린샷 등 참고 자료를 넣습니다.
+
+### 3. 태스크 작성
+
+**방법 A: 자동 생성 (추천)**
+
+```bash
+npx sleepcode generate
+```
+
+참고 자료(docs/, Figma, Notion)와 프로젝트 구조를 분석해서 `tasks.md`를 자동 생성합니다.
+이미 구현된 기능은 제외됩니다.
+
+**방법 B: 직접 작성**
 
 `.sleepcode/tasks.md` 에 AI가 수행할 작업을 작성합니다:
 
@@ -43,7 +58,7 @@ npx sleepcode
 - [ ] 홈 화면 UI 개선
 ```
 
-### 3. 실행
+### 4. 실행
 
 ```bash
 # 1회 실행
@@ -55,7 +70,7 @@ npx sleepcode run --loop
 
 OS에 맞는 스크립트를 자동으로 선택합니다 (macOS/Linux: `.sh`, Windows: `.ps1`).
 
-### 4. 아침에 확인
+### 5. 아침에 확인
 
 ```bash
 git log --oneline --since="12 hours ago"
@@ -73,6 +88,15 @@ git log --oneline --since="12 hours ago"
 | `custom` | 직접 설정 — 빌드/테스트/린트 명령어 수동 입력 |
 
 ---
+
+## CLI 명령어
+
+| 명령어 | 설명 |
+|--------|------|
+| `npx sleepcode` | 인터랙티브 초기화 |
+| `npx sleepcode run` | 1회 실행 |
+| `npx sleepcode run --loop` | 무한 루프 실행 |
+| `npx sleepcode generate` | 참고자료 기반 tasks.md 자동 생성 |
 
 ## CLI 옵션
 

@@ -193,6 +193,8 @@ function parseArgs() {
     else if (args[i] === '--figma-file' && args[i + 1]) parsed.figmaFileNames = args[++i];
     else if (args[i] === '--notion-key' && args[i + 1]) parsed.notionKey = args[++i];
     else if (args[i] === '--notion-page' && args[i + 1]) parsed.notionPages = args[++i];
+    else if (args[i] === '--notion-db' && args[i + 1]) parsed.notionDb = args[++i];
+    else if (args[i] === '--notion-filter' && args[i + 1]) parsed.notionFilter = args[++i];
     else if (args[i] === '--interval' && args[i + 1]) parsed.interval = args[++i];
     else if (args[i] === '--force' || args[i] === '-f') parsed.force = true;
     else if (args[i] === '--help' || args[i] === '-h') {
@@ -216,6 +218,8 @@ function parseArgs() {
   --figma-file <name>  Figma 참고 파일명
   --notion-key <key>   Notion API Key
   --notion-page <name> Notion 참고 페이지명
+  --notion-db <id|url> Notion DB (ID 또는 URL, 태스크 동기화용)
+  --notion-filter <f>  Notion 필터 (예: "Status = To Do")
   --interval <sec>     반복 간격 (초, 기본 30)
   -f, --force          기존 .sleepcode/ 덮어쓰기
   -h, --help           도움말
@@ -253,13 +257,24 @@ function select(rl, question, options) {
   });
 }
 
+function parseNotionDbId(input) {
+  if (!input) return '';
+  // URL: https://www.notion.so/workspace/abc123...?v=xyz → 32자리 hex 추출
+  const urlMatch = input.match(/([a-f0-9]{32})/);
+  if (urlMatch) return urlMatch[1];
+  // 대시 포함 UUID: abc-def-... → 대시 제거
+  const dashless = input.replace(/-/g, '');
+  if (/^[a-f0-9]{32}$/.test(dashless)) return dashless;
+  return input;
+}
+
 function writeFile(filePath, content) {
   const dir = path.dirname(filePath);
   fs.mkdirSync(dir, { recursive: true });
   fs.writeFileSync(filePath, content);
 }
 
-function generateFiles(targetDir, { typeKey, projectName, role, buildCmd, testCmd, lintCmd, figmaKey, figmaFileNames, notionKey, notionPages, sleepInterval }) {
+function generateFiles(targetDir, { typeKey, projectName, role, buildCmd, testCmd, lintCmd, figmaKey, figmaFileNames, notionKey, notionPages, notionDbId, notionFilter, sleepInterval }) {
   const scDir = path.join(targetDir, '.sleepcode');
   const claudeDir = path.join(targetDir, '.claude');
   fs.mkdirSync(path.join(scDir, 'docs'), { recursive: true });
@@ -272,6 +287,7 @@ function generateFiles(targetDir, { typeKey, projectName, role, buildCmd, testCm
     ? ['ai_worker.ps1', 'run_forever.ps1']
     : ['ai_worker.sh', 'run_forever.sh'];
   const allScriptFiles = [...scriptFiles, 'log_filter.py'];
+  if (notionDbId) allScriptFiles.push('notion_sync.py');
 
   for (const file of allScriptFiles) {
     const src = path.join(TEMPLATES_DIR, 'common', file);
@@ -330,15 +346,17 @@ function generateFiles(targetDir, { typeKey, projectName, role, buildCmd, testCm
     fs.chmodSync(path.join(scDir, 'scripts', 'ai_worker.sh'), 0o755);
     fs.chmodSync(path.join(scDir, 'scripts', 'run_forever.sh'), 0o755);
     fs.chmodSync(path.join(scDir, 'scripts', 'log_filter.py'), 0o755);
+    if (notionDbId) fs.chmodSync(path.join(scDir, 'scripts', 'notion_sync.py'), 0o755);
   }
 
   // docs/.gitkeep
   writeFile(path.join(scDir, 'docs', '.gitkeep'), '');
 
-  // tasks.md
-  writeFile(
-    path.join(scDir, 'tasks.md'),
-    `# 작업 목록
+  // tasks.md (Notion DB 모드가 아닐 때만 기본 템플릿 생성)
+  if (!notionDbId) {
+    writeFile(
+      path.join(scDir, 'tasks.md'),
+      `# 작업 목록
 
 아래 태스크를 순서대로 진행하세요. 완료한 항목은 \`[x]\`로 체크하세요.
 
@@ -346,7 +364,8 @@ function generateFiles(targetDir, { typeKey, projectName, role, buildCmd, testCm
 
 - [ ] 여기에 첫 번째 작업을 적어주세요
 `
-  );
+    );
+  }
 
   // rules.md
   const rulesTemplate = path.join(TEMPLATES_DIR, 'rules', `${typeKey}.md`);
@@ -367,23 +386,45 @@ function generateFiles(targetDir, { typeKey, projectName, role, buildCmd, testCm
     fs.writeFileSync(path.join(claudeDir, 'settings.local.json'), content);
   }
 
+  // .sleepcode/.env (API 키 등 민감 정보)
+  const envLines = [];
+  if (figmaKey) envLines.push(`FIGMA_API_KEY=${figmaKey}`);
+  if (notionKey) envLines.push(`NOTION_API_KEY=${notionKey}`);
+  if (notionDbId) envLines.push(`NOTION_DB_ID=${notionDbId}`);
+  if (notionFilter) envLines.push(`NOTION_FILTER=${notionFilter}`);
+  if (envLines.length > 0) {
+    writeFile(path.join(scDir, '.env'), envLines.join('\n') + '\n');
+  }
+
   // .gitignore
   const gitignorePath = path.join(targetDir, '.gitignore');
+  const gitignoreEntries = [
+    { marker: '.sleepcode/logs/', line: '\n# AI worker logs\n.sleepcode/logs/\n' },
+    { marker: '.sleepcode/.env', line: '\n# AI worker secrets (API keys)\n.sleepcode/.env\n' },
+    { marker: '.sleepcode/.notion_state.json', line: '\n# Notion sync state\n.sleepcode/.notion_state.json\n' },
+  ];
   if (fs.existsSync(gitignorePath)) {
-    const gitignore = fs.readFileSync(gitignorePath, 'utf-8');
-    if (!gitignore.includes('.sleepcode/logs/')) {
-      fs.appendFileSync(gitignorePath, '\n# AI worker logs\n.sleepcode/logs/\n');
+    let gitignore = fs.readFileSync(gitignorePath, 'utf-8');
+    for (const entry of gitignoreEntries) {
+      if (!gitignore.includes(entry.marker)) {
+        fs.appendFileSync(gitignorePath, entry.line);
+        gitignore += entry.line;
+      }
     }
   }
 }
 
-function printResult() {
+function printResult(notionDbId) {
   const workerScript = IS_WIN ? 'ai_worker.ps1' : 'ai_worker.sh';
   const foreverScript = IS_WIN ? 'run_forever.ps1' : 'run_forever.sh';
 
   console.log(`\n${C.bold}파일 생성 완료:${C.reset}\n`);
   console.log(`  ${C.green}✓${C.reset} .sleepcode/rules.md          ${C.dim}← 수정하세요${C.reset}`);
-  console.log(`  ${C.green}✓${C.reset} .sleepcode/tasks.md          ${C.dim}← 수정하세요${C.reset}`);
+  if (notionDbId) {
+    console.log(`  ${C.green}✓${C.reset} .sleepcode/scripts/notion_sync.py`);
+  } else {
+    console.log(`  ${C.green}✓${C.reset} .sleepcode/tasks.md          ${C.dim}← 수정하세요${C.reset}`);
+  }
   console.log(`  ${C.green}✓${C.reset} .sleepcode/docs/             ${C.dim}← 참고자료 추가${C.reset}`);
   console.log(`  ${C.green}✓${C.reset} .sleepcode/scripts/base_rules.md`);
   console.log(`  ${C.green}✓${C.reset} .sleepcode/scripts/${workerScript}`);
@@ -392,14 +433,18 @@ function printResult() {
   console.log(`  ${C.green}✓${C.reset} .sleepcode/README.md`);
   console.log(`  ${C.green}✓${C.reset} .claude/settings.local.json`);
 
+  const taskStep = notionDbId
+    ? `${C.bold}3.${C.reset} Notion DB에 할 일을 작성해두세요 (첫 실행 시 자동 동기화)`
+    : `${C.bold}3.${C.reset} 태스크 생성:
+     ${C.cyan}npx sleepcode generate${C.reset}     ${C.dim}# 참고자료 기반 tasks.md 자동 생성${C.reset}
+     ${C.dim}또는 .sleepcode/tasks.md 를 직접 작성${C.reset}`;
+
   console.log(`
 ${C.bold}${C.green}완료!${C.reset} 다음 단계:
 
   ${C.bold}1.${C.reset} .sleepcode/rules.md 를 프로젝트에 맞게 수정
   ${C.bold}2.${C.reset} .sleepcode/docs/ 에 참고 자료 추가 (기획서, 스크린샷 등)
-  ${C.bold}3.${C.reset} 태스크 생성:
-     ${C.cyan}npx sleepcode generate${C.reset}     ${C.dim}# 참고자료 기반 tasks.md 자동 생성${C.reset}
-     ${C.dim}또는 .sleepcode/tasks.md 를 직접 작성${C.reset}
+  ${taskStep}
   ${C.bold}4.${C.reset} 실행:
      ${C.cyan}npx sleepcode run${C.reset}          ${C.dim}# 1회 실행${C.reset}
      ${C.cyan}npx sleepcode run --loop${C.reset}   ${C.dim}# 무한 루프${C.reset}
@@ -615,11 +660,14 @@ ${C.bold}${C.magenta}  ╔══════════════════
     const figmaFileNames = cliArgs.figmaFileNames || '';
     const notionKey = cliArgs.notionKey || '';
     const notionPages = cliArgs.notionPages || '';
+    const notionDbId = parseNotionDbId(cliArgs.notionDb || '');
+    const notionFilter = cliArgs.notionFilter || '';
     const sleepInterval = cliArgs.interval || '30';
 
     console.log(`${C.dim}타입: ${typeConfig.label}${C.reset}`);
     console.log(`${C.dim}이름: ${projectName}${C.reset}`);
     console.log(`${C.dim}역할: ${role}${C.reset}`);
+    if (notionDbId) console.log(`${C.dim}태스크: Notion DB${C.reset}`);
 
     generateFiles(targetDir, {
       typeKey,
@@ -632,10 +680,12 @@ ${C.bold}${C.magenta}  ╔══════════════════
       figmaFileNames,
       notionKey,
       notionPages,
+      notionDbId,
+      notionFilter,
       sleepInterval,
     });
 
-    printResult();
+    printResult(notionDbId);
     return;
   }
 
@@ -696,10 +746,26 @@ ${C.bold}${C.magenta}  ╔══════════════════
     // Notion 연동
     let notionKey = '';
     let notionPages = '';
-    const useNotion = await ask(rl, 'Notion 문서를 참고하나요? (y/N)', 'N');
-    if (useNotion.toLowerCase() === 'y') {
-      notionKey = await ask(rl, 'Notion API Key', '');
-      notionPages = await ask(rl, '참고할 Notion 페이지명 (예: 기획서, API명세)', '');
+    let notionDbId = '';
+    let notionFilter = '';
+    const notionKeyInput = await ask(rl, 'Notion API Key (없으면 Enter)', '');
+    if (notionKeyInput) {
+      notionKey = notionKeyInput;
+
+      // 태스크 관리 방식 선택
+      const taskSource = await select(rl, '할 일(Task) 관리 방식', [
+        { key: 'md', label: 'tasks.md (로컬 파일에 직접 작성)' },
+        { key: 'notion', label: 'Notion DB (Notion 데이터베이스에서 불러오기)' },
+      ]);
+
+      if (taskSource.key === 'notion') {
+        const dbInput = await ask(rl, '할 일을 저장해 둔 Notion DB (URL 또는 ID)', '');
+        notionDbId = parseNotionDbId(dbInput);
+        console.log(`${C.dim}  예: Status = To Do, Sprint = v2.0${C.reset}`);
+        notionFilter = await ask(rl, '실행할 태스크 필터 (없으면 Enter)', '');
+      } else {
+        notionPages = await ask(rl, '참고할 Notion 페이지명 (예: 기획서, API명세)', '');
+      }
     }
 
     const sleepInterval = await ask(rl, '반복 간격 (초)', '30');
@@ -717,10 +783,12 @@ ${C.bold}${C.magenta}  ╔══════════════════
       figmaFileNames,
       notionKey,
       notionPages,
+      notionDbId,
+      notionFilter,
       sleepInterval,
     });
 
-    printResult();
+    printResult(notionDbId);
   } catch (e) {
     console.error(`${C.red}오류: ${e.message}${C.reset}`);
     rl.close();

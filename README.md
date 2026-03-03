@@ -115,6 +115,8 @@ npx sleepcode --type react-native --name my-app --role "쇼핑몰 앱 개발"
 | `--figma-file <name>` | Figma 참고 파일명 (선택) |
 | `--notion-key <key>` | Notion API Key (선택) |
 | `--notion-page <name>` | Notion 참고 페이지명 (선택) |
+| `--notion-db <id\|url>` | Notion DB ID 또는 URL (태스크 동기화용) |
+| `--notion-filter <f>` | Notion 필터 (예: `"Status = To Do"`) |
 | `--interval <sec>` | 반복 간격 초 (기본: 30) |
 | `-f, --force` | 기존 `.sleepcode/` 폴더 덮어쓰기 |
 | `-h, --help` | 도움말 |
@@ -133,6 +135,7 @@ npx sleepcode --type react-native --name my-app --role "쇼핑몰 앱 개발"
     ai_worker.sh/.ps1    #    1회 실행 스크립트 (OS별)
     run_forever.sh/.ps1  #    무한 루프 스크립트 (OS별)
     log_filter.py        #    실시간 로그 필터
+    notion_sync.py       #    Notion 동기화 (Notion DB 모드만)
   logs/                  # 실행 로그 (자동 생성)
   README.md              # 사용 가이드
 
@@ -152,6 +155,19 @@ rules.md + tasks.md → 프롬프트 조합 → claude -p (비대화형) → 코
 2. Claude가 태스크를 하나씩 수행 (코드 작성 → 빌드/테스트 → 오류 수정)
 3. 태스크 완료 시 `[x]` 체크 + `git commit`
 4. 모든 태스크 완료되면 자동 종료 (또는 대기 후 반복)
+
+### Notion DB 동기화
+
+Notion DB를 태스크 소스로 사용하면 양방향 동기화가 자동으로 진행됩니다:
+
+```
+[Notion DB] ──pull──→ [tasks.md] ──prompt──→ [Claude] ──완료──→ [tasks.md] ──push──→ [Notion DB]
+```
+
+- **pull**: 실행 전 Notion DB에서 태스크를 가져와 `tasks.md` 생성
+- **push**: 실행 후 완료된 태스크 상태를 Notion DB에 반영
+- DB 스키마 자동 감지 (checkbox, status, select 프로퍼티)
+- 필터 조건으로 특정 태스크만 실행 가능 (예: `Status = To Do`)
 
 ### 실시간 로그
 
@@ -233,7 +249,7 @@ Windows에서는 `.sh` 대신 **PowerShell 스크립트(`.ps1`)가 자동 생성
 ## 커스터마이징
 
 - **AI 역할/규칙 변경**: `.sleepcode/rules.md` 수정
-- **작업 목록 변경**: `.sleepcode/tasks.md` 수정
+- **작업 목록 변경**: `.sleepcode/tasks.md` 수정 (또는 Notion DB에서 관리)
 - **참고 자료 추가**: `.sleepcode/docs/`에 파일 추가 (스크린샷, 기획서 등)
 - **반복 간격 변경**: `.sleepcode/scripts/run_forever.sh` (또는 `.ps1`)의 sleep 값 수정
 - **Claude 권한 변경**: `.claude/settings.local.json` 수정

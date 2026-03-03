@@ -16,11 +16,25 @@ log() {
 log "=== AI Night Worker 시작 ==="
 log "로그 파일: $LOG_FILE"
 
+# .env 로드 (API 키 등)
+if [ -f .sleepcode/.env ]; then
+  set -a
+  source .sleepcode/.env
+  set +a
+  log ".env 로드 완료"
+fi
+
 ITERATION=0
 
 while true; do
   ITERATION=$((ITERATION + 1))
   log "--- 반복 #${ITERATION} 시작 ---"
+
+  # Notion 동기화: pull (Notion → tasks.md)
+  if [ -n "$NOTION_API_KEY" ] && [ -n "$NOTION_DB_ID" ]; then
+    python3 .sleepcode/scripts/notion_sync.py pull
+    log "Notion 동기화 완료 (pull)"
+  fi
 
   # 미완료 태스크가 있는지 확인
   REMAINING=$(grep -c '\[ \]' .sleepcode/tasks.md 2>/dev/null || echo "0")
@@ -57,6 +71,12 @@ ${TASKS}"
   # 미커밋 변경사항 체크
   if [[ -n $(git status --porcelain) ]]; then
     log "경고: 커밋되지 않은 변경사항 감지"
+  fi
+
+  # Notion 동기화: push (tasks.md → Notion)
+  if [ -n "$NOTION_API_KEY" ] && [ -n "$NOTION_DB_ID" ]; then
+    python3 .sleepcode/scripts/notion_sync.py push
+    log "Notion 동기화 완료 (push)"
   fi
 
   log "--- 반복 #${ITERATION} 종료, {{SLEEP_INTERVAL}}초 대기 ---"

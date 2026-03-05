@@ -3,7 +3,7 @@
 const readline = require('readline');
 const fs = require('fs');
 const path = require('path');
-const { execSync } = require('child_process');
+const { execSync, spawn } = require('child_process');
 
 // ─── 색상 ───
 const C = {
@@ -202,6 +202,7 @@ function parseArgs() {
 사용법: sleepcode [옵션]
        sleepcode run [--loop]
        sleepcode generate
+       sleepcode parallel [--setup|--clean|--merge|--status]
 
 옵션 없이 실행하면 인터랙티브 모드로 동작합니다.
 
@@ -209,6 +210,11 @@ function parseArgs() {
   run              1회 실행 (ai_worker 스크립트)
   run --loop       무한 루프 실행 (run_forever 스크립트)
   generate         참고자료 기반으로 tasks.md 자동 생성
+  parallel         @worker 섹션 기반 병렬 실행
+  parallel --setup worktree 생성만 (실행하지 않음)
+  parallel --status 워커 상태 확인
+  parallel --merge 완료된 브랜치 자동 머지
+  parallel --clean worktree 정리
 
 옵션:
   --type <type>        프로젝트 타입 (spring-boot, react-native, nextjs, custom)
@@ -411,6 +417,9 @@ function generateFiles(targetDir, { typeKey, projectName, role, buildCmd, testCm
         gitignore += entry.line;
       }
     }
+    if (!gitignore.includes('.sleepcode/worktrees/')) {
+      fs.appendFileSync(gitignorePath, '.sleepcode/worktrees/\n');
+    }
   }
 }
 
@@ -449,6 +458,612 @@ ${C.bold}${C.green}완료!${C.reset} 다음 단계:
      ${C.cyan}npx sleepcode run${C.reset}          ${C.dim}# 1회 실행${C.reset}
      ${C.cyan}npx sleepcode run --loop${C.reset}   ${C.dim}# 무한 루프${C.reset}
 `);
+}
+
+// ─── 병렬 실행 (worktree) ───
+function parseParallelTasks(tasksPath) {
+  if (!fs.existsSync(tasksPath)) return null;
+  const content = fs.readFileSync(tasksPath, 'utf-8');
+  const lines = content.split('\n');
+
+  const workers = [];
+  let current = null;
+
+  for (const line of lines) {
+    const match = line.match(/^## @worker\s+(\S+)/);
+    if (match) {
+      current = { name: match[1], lines: [line] };
+      workers.push(current);
+    } else if (current) {
+      current.lines.push(line);
+    }
+  }
+
+  if (workers.length === 0) return null;
+
+  // 각 워커의 tasks.md 콘텐츠 구성
+  return workers.map(w => ({
+    name: w.name,
+    tasks: `# 작업 목록\n\n${w.lines.join('\n')}`,
+    remaining: w.lines.filter(l => l.match(/- \[ \]/)).length,
+  }));
+}
+
+function createWorktrees(targetDir, workers) {
+  const wtBase = path.join(targetDir, '.sleepcode', 'worktrees');
+  fs.mkdirSync(wtBase, { recursive: true });
+
+  const created = [];
+  for (const worker of workers) {
+    const wtPath = path.join(wtBase, worker.name);
+    const branch = `sleepcode/${worker.name}`;
+
+    if (fs.existsSync(wtPath)) {
+      console.log(`  ${C.dim}-${C.reset} ${worker.name} ${C.dim}(이미 존재)${C.reset}`);
+      // 태스크 파일만 갱신
+      const wtTasksPath = path.join(wtPath, '.sleepcode', 'tasks.md');
+      if (fs.existsSync(path.dirname(wtTasksPath))) {
+        fs.writeFileSync(wtTasksPath, worker.tasks);
+      }
+      created.push({ name: worker.name, path: wtPath, branch });
+      continue;
+    }
+
+    try {
+      execSync(`git worktree add "${wtPath}" -b "${branch}"`, {
+        cwd: targetDir,
+        stdio: 'pipe',
+      });
+    } catch (e) {
+      // 브랜치가 이미 있으면 -b 없이 재시도
+      try {
+        execSync(`git worktree add "${wtPath}" "${branch}"`, {
+          cwd: targetDir,
+          stdio: 'pipe',
+        });
+      } catch (e2) {
+        console.error(`  ${C.red}✗${C.reset} ${worker.name}: ${e2.message}`);
+        continue;
+      }
+    }
+
+    // worktree 안의 tasks.md를 해당 워커 태스크만으로 덮어쓰기
+    const wtTasksPath = path.join(wtPath, '.sleepcode', 'tasks.md');
+    if (fs.existsSync(path.dirname(wtTasksPath))) {
+      fs.writeFileSync(wtTasksPath, worker.tasks);
+    }
+
+    console.log(`  ${C.green}✓${C.reset} ${worker.name} ${C.dim}(${branch})${C.reset} — ${worker.remaining}개 태스크`);
+    created.push({ name: worker.name, path: wtPath, branch });
+  }
+
+  return created;
+}
+
+function cleanupWorktrees(targetDir, workers) {
+  const wtBase = path.join(targetDir, '.sleepcode', 'worktrees');
+
+  if (workers) {
+    // 특정 워커들만 정리
+    for (const worker of workers) {
+      const wtPath = path.join(wtBase, worker.name);
+      if (!fs.existsSync(wtPath)) continue;
+      try {
+        execSync(`git worktree remove "${wtPath}" --force`, { cwd: targetDir, stdio: 'pipe' });
+        console.log(`  ${C.green}✓${C.reset} ${worker.name} worktree 제거`);
+      } catch (e) {
+        console.error(`  ${C.red}✗${C.reset} ${worker.name}: ${e.message}`);
+      }
+    }
+  } else {
+    // 전체 정리: .sleepcode/worktrees/ 아래 모든 디렉토리
+    if (!fs.existsSync(wtBase)) {
+      console.log(`${C.dim}정리할 worktree가 없습니다.${C.reset}`);
+      return;
+    }
+    const dirs = fs.readdirSync(wtBase).filter(d =>
+      fs.statSync(path.join(wtBase, d)).isDirectory()
+    );
+    for (const dir of dirs) {
+      const wtPath = path.join(wtBase, dir);
+      try {
+        execSync(`git worktree remove "${wtPath}" --force`, { cwd: targetDir, stdio: 'pipe' });
+        console.log(`  ${C.green}✓${C.reset} ${dir} worktree 제거`);
+      } catch (e) {
+        console.error(`  ${C.red}✗${C.reset} ${dir}: ${e.message}`);
+      }
+    }
+  }
+
+  // worktrees 디렉토리가 비었으면 삭제
+  if (fs.existsSync(wtBase)) {
+    const remaining = fs.readdirSync(wtBase);
+    if (remaining.length === 0) {
+      fs.rmdirSync(wtBase);
+    }
+  }
+}
+
+function showParallelStatus(targetDir) {
+  const tasksPath = path.join(targetDir, '.sleepcode', 'tasks.md');
+  const workers = parseParallelTasks(tasksPath);
+
+  if (!workers) {
+    console.log(`${C.yellow}tasks.md에 @worker 섹션이 없습니다.${C.reset}`);
+    console.log(`${C.dim}병렬 실행을 위해 tasks.md에 ## @worker <name> 섹션을 추가하세요.${C.reset}`);
+    return;
+  }
+
+  const wtBase = path.join(targetDir, '.sleepcode', 'worktrees');
+
+  console.log(`\n${C.bold}워커 상태:${C.reset}\n`);
+  for (const worker of workers) {
+    const wtPath = path.join(wtBase, worker.name);
+    const exists = fs.existsSync(wtPath);
+
+    // worktree가 있으면 그 안의 tasks.md에서 진행률 확인
+    let done = 0;
+    let total = 0;
+    if (exists) {
+      const wtTasksPath = path.join(wtPath, '.sleepcode', 'tasks.md');
+      if (fs.existsSync(wtTasksPath)) {
+        const wtContent = fs.readFileSync(wtTasksPath, 'utf-8');
+        done = (wtContent.match(/- \[x\]/gi) || []).length;
+        total = done + (wtContent.match(/- \[ \]/g) || []).length;
+      }
+    } else {
+      total = worker.remaining;
+    }
+
+    const bar = total > 0 ? progressBar(done, total, 20) : C.dim + '(태스크 없음)' + C.reset;
+    const status = exists
+      ? `${C.green}준비됨${C.reset}`
+      : `${C.dim}미생성${C.reset}`;
+
+    console.log(`  ${C.bold}${worker.name}${C.reset}  ${bar}  ${done}/${total}  ${status}`);
+  }
+  console.log('');
+}
+
+function progressBar(done, total, width) {
+  const ratio = total > 0 ? done / total : 0;
+  const filled = Math.round(ratio * width);
+  const empty = width - filled;
+  return `${C.green}${'█'.repeat(filled)}${C.dim}${'░'.repeat(empty)}${C.reset}`;
+}
+
+function mergeWorktrees(targetDir) {
+  const tasksPath = path.join(targetDir, '.sleepcode', 'tasks.md');
+  const workers = parseParallelTasks(tasksPath);
+
+  if (!workers) {
+    console.error(`${C.red}tasks.md에 @worker 섹션이 없습니다.${C.reset}`);
+    process.exit(1);
+  }
+
+  // 현재 브랜치 확인
+  let currentBranch;
+  try {
+    currentBranch = execSync('git rev-parse --abbrev-ref HEAD', { cwd: targetDir, stdio: 'pipe' }).toString().trim();
+  } catch {
+    console.error(`${C.red}git 브랜치를 확인할 수 없습니다.${C.reset}`);
+    process.exit(1);
+  }
+
+  console.log(`\n${C.bold}브랜치 머지${C.reset} — 대상: ${C.cyan}${currentBranch}${C.reset}\n`);
+
+  // 머지 전 uncommitted changes 체크
+  try {
+    const status = execSync('git status --porcelain', { cwd: targetDir, stdio: 'pipe' }).toString().trim();
+    if (status) {
+      console.error(`${C.red}커밋되지 않은 변경사항이 있습니다. 먼저 커밋하거나 stash 하세요.${C.reset}`);
+      console.log(`${C.dim}${status}${C.reset}`);
+      process.exit(1);
+    }
+  } catch {
+    // 무시
+  }
+
+  const results = { merged: [], conflicted: [], skipped: [] };
+
+  for (const worker of workers) {
+    const branch = `sleepcode/${worker.name}`;
+
+    // 브랜치 존재 확인
+    try {
+      execSync(`git rev-parse --verify "${branch}"`, { cwd: targetDir, stdio: 'pipe' });
+    } catch {
+      console.log(`  ${C.dim}-${C.reset} ${branch} ${C.dim}(브랜치 없음, 스킵)${C.reset}`);
+      results.skipped.push(worker.name);
+      continue;
+    }
+
+    // 메인 브랜치와 차이 확인
+    try {
+      const diff = execSync(`git log "${currentBranch}..${branch}" --oneline`, { cwd: targetDir, stdio: 'pipe' }).toString().trim();
+      if (!diff) {
+        console.log(`  ${C.dim}-${C.reset} ${branch} ${C.dim}(변경사항 없음, 스킵)${C.reset}`);
+        results.skipped.push(worker.name);
+        continue;
+      }
+    } catch {
+      // diff 실패 시 머지 시도
+    }
+
+    // 머지 시도
+    try {
+      execSync(`git merge "${branch}" --no-edit`, { cwd: targetDir, stdio: 'pipe' });
+      console.log(`  ${C.green}✓${C.reset} ${branch} 머지 완료`);
+      results.merged.push(worker.name);
+    } catch (e) {
+      // 충돌 감지
+      const stderr = e.stderr ? e.stderr.toString() : '';
+      if (stderr.includes('CONFLICT') || stderr.includes('Merge conflict')) {
+        // 머지 중단
+        try {
+          execSync('git merge --abort', { cwd: targetDir, stdio: 'pipe' });
+        } catch {
+          // abort 실패 시 무시
+        }
+        console.log(`  ${C.red}✗${C.reset} ${branch} ${C.yellow}충돌 발생${C.reset} — 수동 머지 필요`);
+        results.conflicted.push(worker.name);
+      } else {
+        // 머지 중단 시도
+        try {
+          execSync('git merge --abort', { cwd: targetDir, stdio: 'pipe' });
+        } catch {
+          // abort 실패 시 무시
+        }
+        console.log(`  ${C.red}✗${C.reset} ${branch} 머지 실패`);
+        results.conflicted.push(worker.name);
+      }
+    }
+  }
+
+  // 결과 요약
+  console.log(`\n${C.bold}머지 결과:${C.reset}`);
+  if (results.merged.length > 0) {
+    console.log(`  ${C.green}성공: ${results.merged.length}${C.reset} (${results.merged.join(', ')})`);
+  }
+  if (results.conflicted.length > 0) {
+    console.log(`  ${C.red}충돌: ${results.conflicted.length}${C.reset} (${results.conflicted.join(', ')})`);
+    console.log(`\n${C.yellow}충돌 브랜치를 수동으로 머지하세요:${C.reset}`);
+    for (const name of results.conflicted) {
+      console.log(`  ${C.cyan}git merge sleepcode/${name}${C.reset}  ${C.dim}# 충돌 해결 후 git commit${C.reset}`);
+    }
+  }
+  if (results.skipped.length > 0) {
+    console.log(`  ${C.dim}스킵: ${results.skipped.length} (${results.skipped.join(', ')})${C.reset}`);
+  }
+
+  if (results.conflicted.length === 0 && results.merged.length > 0) {
+    console.log(`\n${C.green}${C.bold}모든 브랜치 머지 완료!${C.reset}`);
+    console.log(`  ${C.cyan}npx sleepcode parallel --clean${C.reset}  ${C.dim}# worktree 정리${C.reset}\n`);
+  }
+}
+
+function runParallel(subArgs) {
+  const targetDir = process.cwd();
+  const scDir = path.join(targetDir, '.sleepcode');
+
+  if (!fs.existsSync(scDir)) {
+    console.error(`${C.red}.sleepcode/ 폴더가 없습니다. 먼저 'npx sleepcode'로 초기화하세요.${C.reset}`);
+    process.exit(1);
+  }
+
+  // 서브 옵션 파싱
+  const isSetup = subArgs.includes('--setup');
+  const isClean = subArgs.includes('--clean');
+  const isStatus = subArgs.includes('--status');
+  const isMerge = subArgs.includes('--merge');
+
+  if (isStatus) {
+    showParallelStatus(targetDir);
+    return;
+  }
+
+  if (isMerge) {
+    mergeWorktrees(targetDir);
+    return;
+  }
+
+  if (isClean) {
+    console.log(`\n${C.bold}Worktree 정리 중...${C.reset}\n`);
+    cleanupWorktrees(targetDir, null);
+    console.log(`\n${C.green}정리 완료.${C.reset}`);
+    return;
+  }
+
+  // --setup 또는 기본 동작: worktree 생성
+  const tasksPath = path.join(scDir, 'tasks.md');
+  const workers = parseParallelTasks(tasksPath);
+
+  if (!workers) {
+    console.error(`${C.red}tasks.md에 @worker 섹션이 없습니다.${C.reset}`);
+    console.log(`
+${C.bold}tasks.md 병렬 포맷 예시:${C.reset}
+
+  ${C.dim}# 작업 목록${C.reset}
+
+  ${C.cyan}## @worker feature-auth${C.reset}
+  ${C.dim}- [ ] 로그인 화면 구현${C.reset}
+  ${C.dim}- [ ] 회원가입 API 연동${C.reset}
+
+  ${C.cyan}## @worker feature-cart${C.reset}
+  ${C.dim}- [ ] 장바구니 화면 구현${C.reset}
+  ${C.dim}- [ ] 상품 추가/삭제 API${C.reset}
+`);
+    process.exit(1);
+  }
+
+  console.log(`\n${C.bold}병렬 워커 설정${C.reset} — ${workers.length}개 워커 감지\n`);
+
+  const created = createWorktrees(targetDir, workers);
+
+  if (created.length === 0) {
+    console.error(`\n${C.red}생성된 worktree가 없습니다.${C.reset}`);
+    process.exit(1);
+  }
+
+  console.log(`\n${C.green}${C.bold}Worktree 생성 완료!${C.reset}`);
+
+  if (isSetup) {
+    console.log(`
+${C.bold}다음 단계:${C.reset}
+
+  ${C.cyan}npx sleepcode parallel --status${C.reset}  ${C.dim}# 워커 상태 확인${C.reset}
+  ${C.cyan}npx sleepcode parallel${C.reset}           ${C.dim}# 병렬 실행${C.reset}
+  ${C.cyan}npx sleepcode parallel --clean${C.reset}   ${C.dim}# worktree 정리${C.reset}
+`);
+    return;
+  }
+
+  // 병렬 실행
+  runParallelWorkers(targetDir, created);
+}
+
+function runParallelWorkers(targetDir, workerInfos) {
+  const logDir = path.join(targetDir, '.sleepcode', 'logs');
+  fs.mkdirSync(logDir, { recursive: true });
+  const timestamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
+
+  const py = detectPython();
+  if (!py) {
+    console.error(`${C.red}python3이 필요합니다.${C.reset}`);
+    process.exit(1);
+  }
+
+  console.log(`\n${C.bold}병렬 실행 시작${C.reset} — ${workerInfos.length}개 워커\n`);
+
+  const workerStates = workerInfos.map(w => ({
+    ...w,
+    status: 'running',
+    currentTask: '',
+    done: 0,
+    total: 0,
+    cost: 0,
+    logFile: path.join(logDir, `parallel_${w.name}_${timestamp}.log`),
+  }));
+
+  // 초기 태스크 수 계산
+  for (const ws of workerStates) {
+    const tasksPath = path.join(ws.path, '.sleepcode', 'tasks.md');
+    if (fs.existsSync(tasksPath)) {
+      const content = fs.readFileSync(tasksPath, 'utf-8');
+      ws.total = (content.match(/- \[ \]/g) || []).length + (content.match(/- \[x\]/gi) || []).length;
+      ws.done = (content.match(/- \[x\]/gi) || []).length;
+    }
+  }
+
+  // 대시보드 렌더링
+  let dashboardLines = 0;
+  function renderDashboard() {
+    // 이전 출력 지우기
+    if (dashboardLines > 0) {
+      process.stdout.write(`\x1b[${dashboardLines}A\x1b[J`);
+    }
+
+    const lines = [];
+    const totalTasks = workerStates.reduce((s, w) => s + w.total, 0);
+    const totalDone = workerStates.reduce((s, w) => s + w.done, 0);
+    const activeCount = workerStates.filter(w => w.status === 'running').length;
+    const totalCost = workerStates.reduce((s, w) => s + w.cost, 0);
+
+    lines.push(`${C.bold}┌─────────────────────────────────────────────────────┐${C.reset}`);
+    lines.push(`${C.bold}│${C.reset}  sleepcode parallel — ${activeCount}/${workerStates.length} workers active          ${C.bold}│${C.reset}`);
+    lines.push(`${C.bold}├─────────────────────────────────────────────────────┤${C.reset}`);
+
+    for (const ws of workerStates) {
+      const bar = progressBar(ws.done, ws.total, 15);
+      const statusIcon = ws.status === 'running' ? `${C.cyan}⟳${C.reset}`
+        : ws.status === 'done' ? `${C.green}✓${C.reset}`
+        : `${C.red}✗${C.reset}`;
+      lines.push(`${C.bold}│${C.reset}  ${statusIcon} ${C.bold}${ws.name.padEnd(20)}${C.reset} ${bar} ${String(ws.done).padStart(2)}/${String(ws.total).padEnd(2)} ${C.bold}│${C.reset}`);
+      if (ws.currentTask && ws.status === 'running') {
+        const task = ws.currentTask.length > 45 ? ws.currentTask.slice(0, 42) + '...' : ws.currentTask;
+        lines.push(`${C.bold}│${C.reset}    ${C.dim}> ${task}${C.reset}${' '.repeat(Math.max(0, 47 - task.length))}${C.bold}│${C.reset}`);
+      }
+    }
+
+    lines.push(`${C.bold}├─────────────────────────────────────────────────────┤${C.reset}`);
+    const costStr = `$${totalCost.toFixed(4)}`;
+    const elapsed = Math.floor((Date.now() - startTime) / 1000);
+    const elapsedStr = elapsed >= 3600
+      ? `${Math.floor(elapsed / 3600)}h ${Math.floor((elapsed % 3600) / 60)}m`
+      : elapsed >= 60
+        ? `${Math.floor(elapsed / 60)}m ${elapsed % 60}s`
+        : `${elapsed}s`;
+    lines.push(`${C.bold}│${C.reset}  비용: ${costStr}  |  경과: ${elapsedStr}  |  진행: ${totalDone}/${totalTasks}       ${C.bold}│${C.reset}`);
+    lines.push(`${C.bold}└─────────────────────────────────────────────────────┘${C.reset}`);
+
+    const output = lines.join('\n');
+    process.stdout.write(output + '\n');
+    dashboardLines = lines.length;
+  }
+
+  const startTime = Date.now();
+  renderDashboard();
+
+  // 대시보드 갱신 타이머
+  const dashboardInterval = setInterval(renderDashboard, 3000);
+
+  // 각 워커 프로세스 생성
+  let activeWorkers = workerStates.length;
+
+  function onWorkerDone() {
+    activeWorkers--;
+    renderDashboard();
+    if (activeWorkers === 0) {
+      clearInterval(dashboardInterval);
+      renderDashboard();
+      onAllDone();
+    }
+  }
+
+  function onAllDone() {
+    const failed = workerStates.filter(w => w.status === 'failed');
+    const done = workerStates.filter(w => w.status === 'done');
+
+    console.log(`\n${C.bold}병렬 실행 완료${C.reset}`);
+    console.log(`  ${C.green}성공: ${done.length}${C.reset}  ${failed.length > 0 ? `${C.red}실패: ${failed.length}${C.reset}` : ''}`);
+
+    // 브랜치 목록 출력
+    console.log(`\n${C.bold}생성된 브랜치:${C.reset}`);
+    for (const ws of workerStates) {
+      const icon = ws.status === 'done' ? `${C.green}✓${C.reset}` : `${C.red}✗${C.reset}`;
+      console.log(`  ${icon} ${ws.branch}`);
+    }
+
+    console.log(`
+${C.bold}다음 단계:${C.reset}
+
+  ${C.cyan}npx sleepcode parallel --merge${C.reset}   ${C.dim}# 브랜치 자동 머지${C.reset}
+  ${C.cyan}npx sleepcode parallel --clean${C.reset}   ${C.dim}# worktree 정리${C.reset}
+`);
+  }
+
+  for (const ws of workerStates) {
+    spawnWorker(ws, py, onWorkerDone, renderDashboard);
+  }
+}
+
+function spawnWorker(ws, py, onDone, onUpdate) {
+  // 프롬프트 구성 (base_rules + rules + tasks)
+  const wtDir = ws.path;
+  const baseRulesPath = path.join(wtDir, '.sleepcode', 'scripts', 'base_rules.md');
+  const rulesPath = path.join(wtDir, '.sleepcode', 'rules.md');
+  const tasksPath = path.join(wtDir, '.sleepcode', 'tasks.md');
+
+  const parts = [];
+  if (fs.existsSync(baseRulesPath)) parts.push(fs.readFileSync(baseRulesPath, 'utf-8'));
+  if (fs.existsSync(rulesPath)) parts.push(fs.readFileSync(rulesPath, 'utf-8'));
+  if (fs.existsSync(tasksPath)) parts.push(fs.readFileSync(tasksPath, 'utf-8'));
+  const prompt = parts.join('\n\n---\n\n');
+
+  // 로그 파일 스트림
+  const logStream = fs.createWriteStream(ws.logFile, { flags: 'a' });
+  const logLine = (msg) => logStream.write(`[${new Date().toISOString()}] ${msg}\n`);
+
+  logLine(`=== Worker ${ws.name} 시작 ===`);
+
+  // claude 중첩 세션 방지
+  const env = { ...process.env };
+  delete env.CLAUDECODE;
+
+  // claude -p 실행 (stream-json)
+  const claudeProc = spawn('claude', [
+    '-p', '--dangerously-skip-permissions',
+    '--output-format', 'stream-json',
+    '--verbose',
+  ], {
+    cwd: wtDir,
+    env,
+    stdio: ['pipe', 'pipe', 'pipe'],
+    shell: true,
+  });
+
+  // 프롬프트 전달
+  claudeProc.stdin.write(prompt);
+  claudeProc.stdin.end();
+
+  // stdout 파싱 (stream-json)
+  let buffer = '';
+  claudeProc.stdout.on('data', (data) => {
+    buffer += data.toString();
+    const lines = buffer.split('\n');
+    buffer = lines.pop(); // 마지막 불완전한 줄은 보존
+
+    for (const line of lines) {
+      if (!line.trim()) continue;
+      logStream.write(line + '\n');
+
+      try {
+        const obj = JSON.parse(line);
+        processStreamEvent(ws, obj, onUpdate);
+      } catch {
+        // JSON 아닌 줄 무시
+      }
+    }
+  });
+
+  claudeProc.stderr.on('data', (data) => {
+    logStream.write(`[STDERR] ${data.toString()}`);
+  });
+
+  claudeProc.on('close', (code) => {
+    logLine(`=== Worker ${ws.name} 종료 (code: ${code}) ===`);
+    logStream.end();
+
+    // 최종 태스크 상태 갱신
+    const finalTasksPath = path.join(wtDir, '.sleepcode', 'tasks.md');
+    if (fs.existsSync(finalTasksPath)) {
+      const content = fs.readFileSync(finalTasksPath, 'utf-8');
+      ws.done = (content.match(/- \[x\]/gi) || []).length;
+      ws.total = ws.done + (content.match(/- \[ \]/g) || []).length;
+    }
+
+    ws.status = (code === 0) ? 'done' : 'failed';
+    ws.currentTask = '';
+    onDone();
+  });
+
+  claudeProc.on('error', (err) => {
+    logLine(`ERROR: ${err.message}`);
+    logStream.end();
+    ws.status = 'failed';
+    ws.currentTask = err.message;
+    onDone();
+  });
+}
+
+function processStreamEvent(ws, obj, onUpdate) {
+  const msgType = obj.type;
+
+  if (msgType === 'assistant') {
+    const contents = (obj.message && obj.message.content) || [];
+    for (const c of contents) {
+      if (c.type === 'tool_use' && c.name === 'TodoWrite') {
+        const todos = (c.input && c.input.todos) || [];
+        const active = todos.find(t => t.status === 'in_progress');
+        if (active) {
+          ws.currentTask = active.activeForm || active.content || '';
+          onUpdate();
+        }
+      }
+    }
+  } else if (msgType === 'result') {
+    const cost = obj.cost_usd;
+    if (cost != null) ws.cost = cost;
+
+    // 최종 태스크 상태 갱신
+    const tasksPath = path.join(ws.path, '.sleepcode', 'tasks.md');
+    if (fs.existsSync(tasksPath)) {
+      const content = fs.readFileSync(tasksPath, 'utf-8');
+      ws.done = (content.match(/- \[x\]/gi) || []).length;
+      ws.total = ws.done + (content.match(/- \[ \]/g) || []).length;
+    }
+    onUpdate();
+  }
 }
 
 // ─── 실행 명령어 ───
@@ -624,6 +1239,11 @@ async function main() {
   }
   if (firstArg === 'generate') {
     generateTasks();
+    return;
+  }
+  if (firstArg === 'parallel') {
+    const subArgs = process.argv.slice(3);
+    runParallel(subArgs);
     return;
   }
 

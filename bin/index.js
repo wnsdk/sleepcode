@@ -196,6 +196,8 @@ function parseArgs() {
     else if (args[i] === '--notion-db' && args[i + 1]) parsed.notionDb = args[++i];
     else if (args[i] === '--notion-filter' && args[i + 1]) parsed.notionFilter = args[++i];
     else if (args[i] === '--interval' && args[i + 1]) parsed.interval = args[++i];
+    else if (args[i] === '--budget' && args[i + 1]) parsed.budget = args[++i];
+    else if (args[i] === '--threshold' && args[i + 1]) parsed.threshold = args[++i];
     else if (args[i] === '--force' || args[i] === '-f') parsed.force = true;
     else if (args[i] === '--help' || args[i] === '-h') {
       console.log(`
@@ -203,6 +205,7 @@ function parseArgs() {
        sleepcode run [--loop]
        sleepcode generate
        sleepcode parallel [--setup|--clean|--merge|--status]
+       sleepcode usage
 
 옵션 없이 실행하면 인터랙티브 모드로 동작합니다.
 
@@ -211,6 +214,7 @@ function parseArgs() {
   run --loop       무한 루프 실행 (run_forever 스크립트)
   generate         참고자료 기반으로 tasks.md 자동 생성
   parallel         @worker 섹션 기반 병렬 실행
+  usage            주간 사용량 확인
   parallel --setup worktree 생성만 (실행하지 않음)
   parallel --status 워커 상태 확인
   parallel --merge 완료된 브랜치 자동 머지
@@ -227,6 +231,8 @@ function parseArgs() {
   --notion-db <id|url> Notion DB (ID 또는 URL, 태스크 동기화용)
   --notion-filter <f>  Notion 필터 (예: "Status = To Do")
   --interval <sec>     반복 간격 (초, 기본 30)
+  --budget <usd>       주간 예산 ($, 예: 50)
+  --threshold <pct>    사용량 임계값 (%, 기본 90)
   -f, --force          기존 .sleepcode/ 덮어쓰기
   -h, --help           도움말
 `);
@@ -419,6 +425,9 @@ function generateFiles(targetDir, { typeKey, projectName, role, buildCmd, testCm
     }
     if (!gitignore.includes('.sleepcode/worktrees/')) {
       fs.appendFileSync(gitignorePath, '.sleepcode/worktrees/\n');
+    }
+    if (!gitignore.includes('.sleepcode/usage.json')) {
+      fs.appendFileSync(gitignorePath, '.sleepcode/usage.json\n');
     }
   }
 }
@@ -632,6 +641,134 @@ function progressBar(done, total, width) {
   return `${C.green}${'█'.repeat(filled)}${C.dim}${'░'.repeat(empty)}${C.reset}`;
 }
 
+// ─── 설정/사용량 관리 ───
+function getMonday(date) {
+  const d = new Date(date || Date.now());
+  const day = d.getDay();
+  const diff = d.getDate() - day + (day === 0 ? -6 : 1);
+  d.setHours(0, 0, 0, 0);
+  d.setDate(diff);
+  return d.toISOString().slice(0, 10);
+}
+
+function loadConfig(targetDir) {
+  const configPath = path.join(targetDir, '.sleepcode', 'config.json');
+  if (!fs.existsSync(configPath)) return null;
+  try {
+    return JSON.parse(fs.readFileSync(configPath, 'utf-8'));
+  } catch {
+    return null;
+  }
+}
+
+function saveConfig(targetDir, config) {
+  const configPath = path.join(targetDir, '.sleepcode', 'config.json');
+  fs.mkdirSync(path.dirname(configPath), { recursive: true });
+  fs.writeFileSync(configPath, JSON.stringify(config, null, 2) + '\n');
+}
+
+function loadUsage(targetDir) {
+  const usagePath = path.join(targetDir, '.sleepcode', 'usage.json');
+  const currentWeek = getMonday();
+  if (!fs.existsSync(usagePath)) {
+    return { weekStart: currentWeek, entries: [] };
+  }
+  try {
+    const data = JSON.parse(fs.readFileSync(usagePath, 'utf-8'));
+    if (data.weekStart !== currentWeek) {
+      return { weekStart: currentWeek, entries: [] };
+    }
+    return data;
+  } catch {
+    return { weekStart: currentWeek, entries: [] };
+  }
+}
+
+function saveUsage(targetDir, usage) {
+  const usagePath = path.join(targetDir, '.sleepcode', 'usage.json');
+  fs.writeFileSync(usagePath, JSON.stringify(usage, null, 2) + '\n');
+}
+
+function recordCost(targetDir, cost, mode, workerName) {
+  if (cost == null || cost <= 0) return;
+  const usage = loadUsage(targetDir);
+  usage.entries.push({
+    timestamp: new Date().toISOString(),
+    mode,
+    worker: workerName || null,
+    cost,
+  });
+  saveUsage(targetDir, usage);
+}
+
+function getWeeklyTotal(targetDir) {
+  const usage = loadUsage(targetDir);
+  return usage.entries.reduce((sum, e) => sum + (e.cost || 0), 0);
+}
+
+function isOverBudget(targetDir) {
+  const config = loadConfig(targetDir);
+  if (!config || !config.weeklyBudget) return null;
+  const threshold = (config.budgetThreshold || 90) / 100;
+  const limit = config.weeklyBudget * threshold;
+  const total = getWeeklyTotal(targetDir);
+  return {
+    over: total >= limit,
+    total,
+    limit,
+    budget: config.weeklyBudget,
+    threshold: config.budgetThreshold || 90,
+  };
+}
+
+function showUsage() {
+  const targetDir = process.cwd();
+  const config = loadConfig(targetDir);
+  const usage = loadUsage(targetDir);
+  const total = usage.entries.reduce((sum, e) => sum + (e.cost || 0), 0);
+
+  console.log(`\n${C.bold}sleepcode 주간 사용량${C.reset}\n`);
+  console.log(`  주간 시작: ${C.cyan}${usage.weekStart}${C.reset} (월요일)`);
+  console.log(`  세션 수:   ${usage.entries.length}`);
+  console.log(`  총 비용:   ${C.bold}$${total.toFixed(4)}${C.reset}`);
+
+  if (config && config.weeklyBudget) {
+    const threshold = config.budgetThreshold || 90;
+    const limit = config.weeklyBudget * threshold / 100;
+    const pct = config.weeklyBudget > 0 ? (total / config.weeklyBudget * 100).toFixed(1) : '0';
+    const bar = progressBar(Math.min(total, config.weeklyBudget), config.weeklyBudget, 30);
+
+    console.log(`  주간 예산: $${config.weeklyBudget.toFixed(2)}`);
+    console.log(`  임계값:    ${threshold}% ($${limit.toFixed(2)})`);
+    console.log(`  사용률:    ${pct}%`);
+    console.log(`\n  ${bar}  $${total.toFixed(2)} / $${config.weeklyBudget.toFixed(2)}`);
+
+    if (total >= limit) {
+      console.log(`\n  ${C.red}${C.bold}한도 도달 — 워커가 중지됩니다.${C.reset}`);
+    } else {
+      console.log(`\n  ${C.green}잔여: $${(limit - total).toFixed(2)}${C.reset}`);
+    }
+  } else {
+    console.log(`\n  ${C.dim}예산 미설정. 'npx sleepcode' 초기화 시 설정하거나,${C.reset}`);
+    console.log(`  ${C.dim}.sleepcode/config.json 에 직접 설정하세요.${C.reset}`);
+  }
+
+  if (usage.entries.length > 0) {
+    console.log(`\n${C.bold}최근 세션:${C.reset}\n`);
+    const recent = usage.entries.slice(-10);
+    for (const entry of recent) {
+      const time = new Date(entry.timestamp).toLocaleString();
+      const mode = entry.mode || 'unknown';
+      const worker = entry.worker ? ` (${entry.worker})` : '';
+      console.log(`  ${C.dim}${time}${C.reset}  ${mode}${worker}  ${C.bold}$${entry.cost.toFixed(4)}${C.reset}`);
+    }
+    if (usage.entries.length > 10) {
+      console.log(`  ${C.dim}... 외 ${usage.entries.length - 10}개${C.reset}`);
+    }
+  }
+  console.log('');
+}
+
 function mergeWorktrees(targetDir) {
   const tasksPath = path.join(targetDir, '.sleepcode', 'tasks.md');
   const workers = parseParallelTasks(tasksPath);
@@ -833,15 +970,26 @@ function runParallelWorkers(targetDir, workerInfos) {
     process.exit(1);
   }
 
+  // 실행 전 예산 체크
+  const budgetCheck = isOverBudget(targetDir);
+  if (budgetCheck && budgetCheck.over) {
+    console.log(`\n${C.red}주간 한도에 도달했습니다.${C.reset}`);
+    console.log(`  사용: $${budgetCheck.total.toFixed(2)} / 한도: $${budgetCheck.limit.toFixed(2)} (${budgetCheck.threshold}% of $${budgetCheck.budget.toFixed(2)})`);
+    console.log(`${C.dim}다음 주 월요일에 초기화됩니다.${C.reset}`);
+    process.exit(0);
+  }
+
   console.log(`\n${C.bold}병렬 실행 시작${C.reset} — ${workerInfos.length}개 워커\n`);
 
   const workerStates = workerInfos.map(w => ({
     ...w,
+    targetDir,
     status: 'running',
     currentTask: '',
     done: 0,
     total: 0,
     cost: 0,
+    _proc: null,
     logFile: path.join(logDir, `parallel_${w.name}_${timestamp}.log`),
   }));
 
@@ -886,6 +1034,7 @@ function runParallelWorkers(targetDir, workerInfos) {
       const bar = progressBar(ws.done, ws.total, 15);
       const statusIcon = ws.status === 'running' ? `${C.cyan}⟳${C.reset}`
         : ws.status === 'done' ? `${C.green}✓${C.reset}`
+        : ws.status === 'budget_stop' ? `${C.yellow}■${C.reset}`
         : `${C.red}✗${C.reset}`;
       lines.push(`${C.bold}│${C.reset}  ${statusIcon} ${C.bold}${ws.name.padEnd(20)}${C.reset} ${bar} ${String(ws.done).padStart(2)}/${String(ws.total).padEnd(2)} ${C.bold}│${C.reset}`);
       if (ws.currentTask && ws.status === 'running') {
@@ -903,6 +1052,14 @@ function runParallelWorkers(targetDir, workerInfos) {
         ? `${Math.floor(elapsed / 60)}m ${elapsed % 60}s`
         : `${elapsed}s`;
     lines.push(`${C.bold}│${C.reset}  비용: ${costStr}  |  경과: ${elapsedStr}  |  진행: ${totalDone}/${totalTasks}       ${C.bold}│${C.reset}`);
+    // 예산 정보
+    const budgetInfo = isOverBudget(targetDir);
+    if (budgetInfo) {
+      const pct = Math.min(100, (budgetInfo.total / budgetInfo.budget * 100)).toFixed(0);
+      const budgetBar = progressBar(Math.min(budgetInfo.total, budgetInfo.budget), budgetInfo.budget, 10);
+      const warn = budgetInfo.over ? `${C.red}한도 도달!${C.reset}` : '';
+      lines.push(`${C.bold}│${C.reset}  주간: $${budgetInfo.total.toFixed(2)}/$${budgetInfo.budget} (${pct}%) ${budgetBar} ${warn}       ${C.bold}│${C.reset}`);
+    }
     lines.push(`${C.bold}└─────────────────────────────────────────────────────┘${C.reset}`);
 
     // 실시간 로그 출력
@@ -924,6 +1081,25 @@ function runParallelWorkers(targetDir, workerInfos) {
   // 대시보드 갱신 타이머
   const dashboardInterval = setInterval(renderDashboard, 3000);
 
+  // 예산 체크 타이머 (30초마다)
+  let budgetStopped = false;
+  const budgetCheckInterval = setInterval(() => {
+    if (budgetStopped) return;
+    const result = isOverBudget(targetDir);
+    if (result && result.over) {
+      budgetStopped = true;
+      pushLog('SYSTEM', `${C.yellow}주간 한도 ${result.threshold}% 도달 ($${result.total.toFixed(2)}) — 워커 중지${C.reset}`);
+      for (const ws of workerStates) {
+        if (ws.status === 'running' && ws._proc) {
+          ws.status = 'budget_stop';
+          ws.currentTask = '한도 도달 — 중지됨';
+          try { ws._proc.kill(); } catch {}
+        }
+      }
+      renderDashboard();
+    }
+  }, 30000);
+
   // 각 워커 프로세스 생성
   let activeWorkers = workerStates.length;
 
@@ -932,6 +1108,7 @@ function runParallelWorkers(targetDir, workerInfos) {
     renderDashboard();
     if (activeWorkers === 0) {
       clearInterval(dashboardInterval);
+      clearInterval(budgetCheckInterval);
       renderDashboard();
       onAllDone();
     }
@@ -940,14 +1117,20 @@ function runParallelWorkers(targetDir, workerInfos) {
   function onAllDone() {
     const failed = workerStates.filter(w => w.status === 'failed');
     const done = workerStates.filter(w => w.status === 'done');
+    const stopped = workerStates.filter(w => w.status === 'budget_stop');
 
     console.log(`\n${C.bold}병렬 실행 완료${C.reset}`);
-    console.log(`  ${C.green}성공: ${done.length}${C.reset}  ${failed.length > 0 ? `${C.red}실패: ${failed.length}${C.reset}` : ''}`);
+    const parts = [`${C.green}성공: ${done.length}${C.reset}`];
+    if (failed.length > 0) parts.push(`${C.red}실패: ${failed.length}${C.reset}`);
+    if (stopped.length > 0) parts.push(`${C.yellow}예산 중지: ${stopped.length}${C.reset}`);
+    console.log(`  ${parts.join('  ')}`);
 
     // 브랜치 목록 출력
     console.log(`\n${C.bold}생성된 브랜치:${C.reset}`);
     for (const ws of workerStates) {
-      const icon = ws.status === 'done' ? `${C.green}✓${C.reset}` : `${C.red}✗${C.reset}`;
+      const icon = ws.status === 'done' ? `${C.green}✓${C.reset}`
+        : ws.status === 'budget_stop' ? `${C.yellow}■${C.reset}`
+        : `${C.red}✗${C.reset}`;
       console.log(`  ${icon} ${ws.branch}`);
     }
 
@@ -998,6 +1181,8 @@ function spawnWorker(ws, py, onDone, onUpdate, pushLog) {
     stdio: ['pipe', 'pipe', 'pipe'],
     shell: true,
   });
+
+  ws._proc = claudeProc;
 
   // 프롬프트 전달
   claudeProc.stdin.write(prompt);
@@ -1102,7 +1287,10 @@ function processStreamEvent(ws, obj, onUpdate, pushLog) {
     }
   } else if (msgType === 'result') {
     const cost = obj.cost_usd;
-    if (cost != null) ws.cost = cost;
+    if (cost != null) {
+      ws.cost = cost;
+      if (ws.targetDir) recordCost(ws.targetDir, cost, 'parallel', ws.name);
+    }
 
     // 최종 태스크 상태 갱신
     const tasksPath = path.join(ws.path, '.sleepcode', 'tasks.md');
@@ -1124,6 +1312,16 @@ function processStreamEvent(ws, obj, onUpdate, pushLog) {
 // ─── 실행 명령어 ───
 function runWorker(loop) {
   const targetDir = process.cwd();
+
+  // 예산 체크
+  const budgetCheck = isOverBudget(targetDir);
+  if (budgetCheck && budgetCheck.over) {
+    console.log(`${C.red}주간 한도에 도달했습니다.${C.reset}`);
+    console.log(`  사용: $${budgetCheck.total.toFixed(2)} / 한도: $${budgetCheck.limit.toFixed(2)} (${budgetCheck.threshold}% of $${budgetCheck.budget.toFixed(2)})`);
+    console.log(`${C.dim}다음 주 월요일에 초기화됩니다. 'npx sleepcode usage' 로 확인하세요.${C.reset}`);
+    process.exit(0);
+  }
+
   const scDir = path.join(targetDir, '.sleepcode', 'scripts');
 
   if (!fs.existsSync(scDir)) {
@@ -1301,6 +1499,10 @@ async function main() {
     runParallel(subArgs);
     return;
   }
+  if (firstArg === 'usage') {
+    showUsage();
+    return;
+  }
 
   const cliArgs = parseArgs();
 
@@ -1359,6 +1561,12 @@ ${C.bold}${C.magenta}  ╔══════════════════
       notionFilter,
       sleepInterval,
     });
+
+    const weeklyBudget = parseFloat(cliArgs.budget) || 0;
+    const budgetThreshold = parseInt(cliArgs.threshold, 10) || 90;
+    if (weeklyBudget > 0) {
+      saveConfig(targetDir, { weeklyBudget, budgetThreshold });
+    }
 
     printResult(notionDbId);
     return;
@@ -1445,6 +1653,17 @@ ${C.bold}${C.magenta}  ╔══════════════════
 
     const sleepInterval = await ask(rl, '반복 간격 (초)', '30');
 
+    // 주간 예산 설정
+    let weeklyBudget = 0;
+    let budgetThreshold = 90;
+    const useBudget = await ask(rl, '주간 비용 한도를 설정할까요? (y/N)', 'N');
+    if (useBudget.toLowerCase() === 'y') {
+      const budgetStr = await ask(rl, '주간 최대 비용 (USD)', '50');
+      weeklyBudget = parseFloat(budgetStr) || 50;
+      const thresholdStr = await ask(rl, '사용량 임계값 (%)', '90');
+      budgetThreshold = parseInt(thresholdStr, 10) || 90;
+    }
+
     rl.close();
 
     generateFiles(targetDir, {
@@ -1462,6 +1681,11 @@ ${C.bold}${C.magenta}  ╔══════════════════
       notionFilter,
       sleepInterval,
     });
+
+    if (weeklyBudget > 0) {
+      saveConfig(targetDir, { weeklyBudget, budgetThreshold });
+      console.log(`  ${C.green}✓${C.reset} .sleepcode/config.json       ${C.dim}← 주간 예산: $${weeklyBudget} (${budgetThreshold}%)${C.reset}`);
+    }
 
     printResult(notionDbId);
   } catch (e) {

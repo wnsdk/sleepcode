@@ -66,14 +66,120 @@ npx sleepcode run
 
 # 무한 루프 (잠자기 전)
 npx sleepcode run --loop
-```
 
-OS에 맞는 스크립트를 자동으로 선택합니다 (macOS/Linux: `.sh`, Windows: `.ps1`).
+# 병렬 실행 (여러 기능 동시 개발)
+npx sleepcode parallel
+```
 
 ### 5. 아침에 확인
 
 ```bash
 git log --oneline --since="12 hours ago"
+```
+
+---
+
+## 병렬 실행 (Parallel Mode)
+
+여러 기능을 동시에 개발할 수 있는 **병렬 실행 모드**입니다. 각 워커가 독립된 git worktree에서 작업하므로 충돌 없이 동시에 진행됩니다.
+
+### 사용법
+
+`tasks.md`에 `@worker`로 워커별 태스크를 나눕니다:
+
+```markdown
+## @worker feature-auth
+- [ ] 로그인 화면 구현
+- [ ] JWT 토큰 관리
+
+## @worker feature-home
+- [ ] 홈 화면 레이아웃
+- [ ] 상품 목록 API 연동
+
+## @worker bugfix
+- [ ] 장바구니 수량 버그 수정
+```
+
+```bash
+# 병렬 실행
+npx sleepcode parallel
+
+# worktree만 생성 (실행 전 확인용)
+npx sleepcode parallel --setup
+
+# 완료된 브랜치 자동 머지
+npx sleepcode parallel --merge
+
+# worktree 정리
+npx sleepcode parallel --clean
+```
+
+### 실시간 대시보드
+
+병렬 실행 중 터미널에 실시간 대시보드가 표시됩니다:
+
+```
+┌─ sleepcode parallel — 3/3 workers active ──────────────────┐
+│  ⟳ feature-auth       ████████░░░░░░░░ 2/4  JWT 토큰 관리 │
+│  ⟳ feature-home       ██████░░░░░░░░░░ 1/3  상품 목록 API  │
+│  ✓ bugfix             ████████████████ 1/1  완료           │
+│──────────────────────────────────────────────────────────── │
+│  💰 $0.45   ⏱ 12m 34s   📋 4/8 done                       │
+│  주간: $12.34/$50 (24%) ██████░░░░░░░░░░                   │
+└────────────────────────────────────────────────────────────┘
+ [feature-auth] JWT 토큰 저장 로직을 구현하겠습니다...
+ [feature-home] Edit: src/screens/HomeScreen.tsx
+ [bugfix] Bash: git commit -m "fix: 장바구니 수량 버그 수정"
+```
+
+각 워커의 진행률, 비용, 경과 시간, 실시간 로그를 한눈에 확인할 수 있습니다.
+
+---
+
+## 주간 예산 관리
+
+API 비용을 추적하고 주간 한도를 설정할 수 있습니다.
+
+### 설정
+
+초기화 시 인터랙티브로 설정하거나 CLI 옵션으로 지정:
+
+```bash
+# 인터랙티브 (초기화 중 질문)
+npx sleepcode
+
+# CLI 옵션
+npx sleepcode --budget 50 --threshold 90
+```
+
+### 동작 방식
+
+- 매주 월요일 기준으로 사용량 리셋
+- 병렬 실행 시 30초마다 예산 체크
+- 임계값(기본 90%) 도달 시 **진행 중인 태스크까지만 완료 후 종료**
+- 워커는 SIGTERM으로 안전하게 중지됨
+
+### 사용량 확인
+
+```bash
+npx sleepcode usage
+```
+
+```
+📊 주간 사용량 리포트
+────────────────────
+  주간 시작: 2026-03-02 (월)
+  세션 수:   8
+  총 비용:   $12.34
+  주간 예산: $50.00 (임계값: 90%)
+  사용률:    24.7%
+  ██████░░░░░░░░░░░░░░ 24.7%
+  ✅ 예산 범위 내 ($32.66 남음)
+
+📋 최근 세션
+  2026-03-05 14:30  parallel  feature-auth  $3.45
+  2026-03-05 14:30  parallel  feature-home  $2.10
+  2026-03-04 22:00  run       —             $1.80
 ```
 
 ---
@@ -97,6 +203,12 @@ git log --oneline --since="12 hours ago"
 | `npx sleepcode run` | 1회 실행 |
 | `npx sleepcode run --loop` | 무한 루프 실행 |
 | `npx sleepcode generate` | 참고자료 기반 tasks.md 자동 생성 |
+| `npx sleepcode parallel` | 병렬 실행 (워커별 동시 개발) |
+| `npx sleepcode parallel --setup` | worktree만 생성 (실행 전 확인) |
+| `npx sleepcode parallel --merge` | 완료된 브랜치 자동 머지 |
+| `npx sleepcode parallel --clean` | worktree 정리 |
+| `npx sleepcode parallel --status` | 워커 상태 확인 |
+| `npx sleepcode usage` | 주간 사용량 확인 |
 
 ## CLI 옵션
 
@@ -118,6 +230,8 @@ npx sleepcode --type react-native --name my-app --role "쇼핑몰 앱 개발"
 | `--notion-db <id\|url>` | Notion DB ID 또는 URL (태스크 동기화용) |
 | `--notion-filter <f>` | Notion 필터 (예: `"Status = To Do"`) |
 | `--interval <sec>` | 반복 간격 초 (기본: 30) |
+| `--budget <usd>` | 주간 예산 USD (예: `--budget 50`) |
+| `--threshold <pct>` | 예산 임계값 % (기본: 90) |
 | `-f, --force` | 기존 `.sleepcode/` 폴더 덮어쓰기 |
 | `-h, --help` | 도움말 |
 
@@ -130,6 +244,8 @@ npx sleepcode --type react-native --name my-app --role "쇼핑몰 앱 개발"
   rules.md               # ✏️ AI 역할 + 작업 규칙 (수정하세요)
   tasks.md               # ✏️ 작업 목록 (수정하세요)
   docs/                  # ✏️ 참고 자료 (피그마 스크린샷, 기획서 등)
+  config.json            # ⚙️ 주간 예산 설정 (budget 설정 시)
+  usage.json             # ⚙️ 사용량 추적 (자동 생성, gitignored)
   scripts/               # ⚙️ 시스템 (수정하지 마세요)
     base_rules.md        #    공통 작업 규칙
     ai_worker.sh/.ps1    #    1회 실행 스크립트 (OS별)
@@ -147,6 +263,8 @@ npx sleepcode --type react-native --name my-app --role "쇼핑몰 앱 개발"
 
 ## 작동 원리
 
+### 기본 모드
+
 ```
 rules.md + tasks.md → 프롬프트 조합 → claude -p (비대화형) → 코드 작성 → git commit → 반복
 ```
@@ -155,6 +273,17 @@ rules.md + tasks.md → 프롬프트 조합 → claude -p (비대화형) → 코
 2. Claude가 태스크를 하나씩 수행 (코드 작성 → 빌드/테스트 → 오류 수정)
 3. 태스크 완료 시 `[x]` 체크 + `git commit`
 4. 모든 태스크 완료되면 자동 종료 (또는 대기 후 반복)
+
+### 병렬 모드
+
+```
+tasks.md → @worker별 분리 → git worktree 생성 → 동시 실행 → 완료 후 머지
+```
+
+1. `@worker` 섹션별로 독립된 git worktree 생성
+2. 각 worktree에서 Claude 워커가 동시에 실행
+3. 실시간 대시보드로 진행 상황 모니터링
+4. 완료 후 `--merge`로 main 브랜치에 통합
 
 ### Notion DB 동기화
 
@@ -252,6 +381,7 @@ Windows에서는 `.sh` 대신 **PowerShell 스크립트(`.ps1`)가 자동 생성
 - **작업 목록 변경**: `.sleepcode/tasks.md` 수정 (또는 Notion DB에서 관리)
 - **참고 자료 추가**: `.sleepcode/docs/`에 파일 추가 (스크린샷, 기획서 등)
 - **반복 간격 변경**: `.sleepcode/scripts/run_forever.sh` (또는 `.ps1`)의 sleep 값 수정
+- **주간 예산 변경**: `.sleepcode/config.json`의 `weeklyBudget`, `budgetThreshold` 수정
 - **Claude 권한 변경**: `.claude/settings.local.json` 수정
 
 ---

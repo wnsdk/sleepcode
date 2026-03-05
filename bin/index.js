@@ -855,6 +855,15 @@ function runParallelWorkers(targetDir, workerInfos) {
     }
   }
 
+  // 실시간 로그 링 버퍼 (최근 N줄)
+  const MAX_LOG_LINES = 8;
+  const logBuffer = [];
+  function pushLog(workerName, msg) {
+    const tag = `${C.dim}[${workerName}]${C.reset}`;
+    logBuffer.push(`${tag} ${msg}`);
+    if (logBuffer.length > MAX_LOG_LINES) logBuffer.shift();
+  }
+
   // 대시보드 렌더링
   let dashboardLines = 0;
   function renderDashboard() {
@@ -895,6 +904,14 @@ function runParallelWorkers(targetDir, workerInfos) {
         : `${elapsed}s`;
     lines.push(`${C.bold}│${C.reset}  비용: ${costStr}  |  경과: ${elapsedStr}  |  진행: ${totalDone}/${totalTasks}       ${C.bold}│${C.reset}`);
     lines.push(`${C.bold}└─────────────────────────────────────────────────────┘${C.reset}`);
+
+    // 실시간 로그 출력
+    if (logBuffer.length > 0) {
+      lines.push('');
+      for (const log of logBuffer) {
+        lines.push(`  ${log}`);
+      }
+    }
 
     const output = lines.join('\n');
     process.stdout.write(output + '\n');
@@ -943,11 +960,11 @@ ${C.bold}다음 단계:${C.reset}
   }
 
   for (const ws of workerStates) {
-    spawnWorker(ws, py, onWorkerDone, renderDashboard);
+    spawnWorker(ws, py, onWorkerDone, renderDashboard, pushLog);
   }
 }
 
-function spawnWorker(ws, py, onDone, onUpdate) {
+function spawnWorker(ws, py, onDone, onUpdate, pushLog) {
   // 프롬프트 구성 (base_rules + rules + tasks)
   const wtDir = ws.path;
   const baseRulesPath = path.join(wtDir, '.sleepcode', 'scripts', 'base_rules.md');
@@ -999,7 +1016,7 @@ function spawnWorker(ws, py, onDone, onUpdate) {
 
       try {
         const obj = JSON.parse(line);
-        processStreamEvent(ws, obj, onUpdate);
+        processStreamEvent(ws, obj, onUpdate, pushLog);
       } catch {
         // JSON 아닌 줄 무시
       }
@@ -1036,19 +1053,51 @@ function spawnWorker(ws, py, onDone, onUpdate) {
   });
 }
 
-function processStreamEvent(ws, obj, onUpdate) {
+function processStreamEvent(ws, obj, onUpdate, pushLog) {
   const msgType = obj.type;
 
   if (msgType === 'assistant') {
     const contents = (obj.message && obj.message.content) || [];
     for (const c of contents) {
-      if (c.type === 'tool_use' && c.name === 'TodoWrite') {
-        const todos = (c.input && c.input.todos) || [];
-        const active = todos.find(t => t.status === 'in_progress');
-        if (active) {
-          ws.currentTask = active.activeForm || active.content || '';
+      if (c.type === 'text') {
+        const text = (c.text || '').trim();
+        if (text) {
+          const short = text.length > 80 ? text.slice(0, 77) + '...' : text;
+          pushLog(ws.name, `${C.dim}${short}${C.reset}`);
           onUpdate();
         }
+      } else if (c.type === 'tool_use') {
+        const name = c.name || '?';
+        const inp = c.input || {};
+
+        // TodoWrite → 대시보드 현재 태스크 갱신
+        if (name === 'TodoWrite') {
+          const todos = inp.todos || [];
+          const active = todos.find(t => t.status === 'in_progress');
+          if (active) {
+            ws.currentTask = active.activeForm || active.content || '';
+          }
+        }
+
+        // 도구 사용 로그
+        let detail = '';
+        if (name === 'Read' || name === 'Write' || name === 'Edit') {
+          const fp = inp.file_path || '';
+          detail = fp.split(/[/\\]/).pop() || fp;
+        } else if (name === 'Bash') {
+          const cmd = inp.command || '';
+          detail = cmd.length > 60 ? cmd.slice(0, 57) + '...' : cmd;
+        } else if (name === 'Glob') {
+          detail = inp.pattern || '';
+        } else if (name === 'Grep') {
+          detail = inp.pattern || '';
+        }
+
+        const logMsg = detail
+          ? `${C.cyan}[TOOL]${C.reset} ${name}: ${detail}`
+          : `${C.cyan}[TOOL]${C.reset} ${name}`;
+        pushLog(ws.name, logMsg);
+        onUpdate();
       }
     }
   } else if (msgType === 'result') {
@@ -1061,6 +1110,12 @@ function processStreamEvent(ws, obj, onUpdate) {
       const content = fs.readFileSync(tasksPath, 'utf-8');
       ws.done = (content.match(/- \[x\]/gi) || []).length;
       ws.total = ws.done + (content.match(/- \[ \]/g) || []).length;
+    }
+
+    const msg = typeof obj.message === 'string' ? obj.message : '';
+    if (msg) {
+      const short = msg.length > 80 ? msg.slice(0, 77) + '...' : msg;
+      pushLog(ws.name, `${C.green}[DONE]${C.reset} ${short}`);
     }
     onUpdate();
   }

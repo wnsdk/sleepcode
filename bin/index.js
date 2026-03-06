@@ -1064,7 +1064,10 @@ function progressBar(done, total, width) {
   const ratio = total > 0 ? done / total : 0;
   const filled = Math.round(ratio * width);
   const empty = width - filled;
-  return `${C.green}${'━'.repeat(filled)}${C.dim}${'─'.repeat(empty)}${C.reset}`;
+  if (ratio >= 1.0) {
+    return `${C.green}${'█'.repeat(filled)}${C.reset}`;
+  }
+  return `${C.green}${'█'.repeat(filled)}${C.dim}${'░'.repeat(empty)}${C.reset}`;
 }
 
 /** ANSI 이스케이프 코드를 제거한 문자열 반환 */
@@ -1109,7 +1112,7 @@ function padEndVisual(str, targetWidth) {
 
 /** 대시보드용 한 줄: │ content (패딩) │ */
 function boxLine(content, innerWidth) {
-  return `${C.dim}│${C.reset} ${padEndVisual(content, innerWidth)} ${C.dim}│${C.reset}`;
+  return `${C.dim}║${C.reset} ${padEndVisual(content, innerWidth)} ${C.dim}║${C.reset}`;
 }
 
 /** 대시보드 하단 메뉴 렌더링 */
@@ -1637,9 +1640,9 @@ function runParallelWorkers(targetDir, workerInfos) {
     const activeCount = workerStates.filter(w => w.status === 'running').length;
     const totalCost = workerStates.reduce((s, w) => s + w.cost, 0);
 
-    lines.push(`${C.dim}╭${'─'.repeat(W + 2)}╮${C.reset}`);
+    lines.push(`${C.dim}╔${'═'.repeat(W + 2)}╗${C.reset}`);
     lines.push(boxLine(`${SLEEPCODE_BADGE} parallel  ${C.dim}${activeCount}/${workerStates.length} workers${C.reset}${notionLink(process.env.NOTION_DB_ID)}`, W));
-    lines.push(`${C.dim}├${'─'.repeat(W + 2)}┤${C.reset}`);
+    lines.push(`${C.dim}╠${'═'.repeat(W + 2)}╣${C.reset}`);
 
     for (const ws of workerStates) {
       const bar = progressBar(ws.done, ws.total, 15);
@@ -1669,7 +1672,7 @@ function runParallelWorkers(targetDir, workerInfos) {
       }
     }
 
-    lines.push(`${C.dim}├${'─'.repeat(W + 2)}┤${C.reset}`);
+    lines.push(`${C.dim}╠${'═'.repeat(W + 2)}╣${C.reset}`);
     const costStr = `$${totalCost.toFixed(4)}`;
     const elapsed = Math.floor((Date.now() - startTime) / 1000);
     const elapsedStr = elapsed >= 3600
@@ -1678,27 +1681,27 @@ function runParallelWorkers(targetDir, workerInfos) {
         ? `${Math.floor(elapsed / 60)}m ${elapsed % 60}s`
         : `${elapsed}s`;
     const totalPct = totalTasks > 0 ? Math.round(totalDone / totalTasks * 100) : 0;
-    lines.push(boxLine(`비용: ${costStr}  ${C.dim}·${C.reset}  경과: ${elapsedStr}  ${C.dim}·${C.reset}  진행: ${totalDone}/${totalTasks} ${C.cyan}${totalPct}%${C.reset}`, W));
+    lines.push(boxLine(`${C.dim}비용${C.reset} ${C.yellow}${costStr}${C.reset}  ${C.dim}·  경과${C.reset} ${C.cyan}${elapsedStr}${C.reset}  ${C.dim}·  진행${C.reset} ${totalDone}/${totalTasks} ${C.cyan}${totalPct}%${C.reset}`, W));
     const budgetInfo = isOverBudget(targetDir);
     if (budgetInfo) {
       const pct = Math.min(100, (budgetInfo.total / budgetInfo.budget * 100)).toFixed(0);
       const budgetBar = progressBar(Math.min(budgetInfo.total, budgetInfo.budget), budgetInfo.budget, 10);
       const warn = budgetInfo.over ? ` ${C.red}한도 도달!${C.reset}` : '';
-      lines.push(boxLine(`주간: $${budgetInfo.total.toFixed(2)}/$${budgetInfo.budget} (${pct}%) ${budgetBar}${warn}`, W));
+      lines.push(boxLine(`${C.dim}주간${C.reset} ${C.yellow}$${budgetInfo.total.toFixed(2)}${C.reset}/${C.dim}$${budgetInfo.budget}${C.reset} (${pct}%) ${budgetBar}${warn}`, W));
     } else {
       lines.push(boxLine('', W));
     }
 
     // 테이블 닫기
-    lines.push(`${C.dim}╰${'─'.repeat(W + 2)}╯${C.reset}`);
+    lines.push(`${C.dim}╚${'═'.repeat(W + 2)}╝${C.reset}`);
 
     // 메뉴 (테이블 밖)
     if (gracefulShutdown) {
-      lines.push(`  ${C.yellow}마무리 중... 현재 작업 완료 후 종료됩니다${C.reset}`);
+      lines.push(`  ${C.yellow}⏳ 마무리 중... 현재 작업 완료 후 종료됩니다${C.reset}`);
     } else {
       lines.push(renderMenuLine(menuState.menuIndex, W, menuState.confirmPending));
     }
-    lines.push(`${C.dim} ─── logs ${'─'.repeat(W - 7)}${C.reset}`);
+    lines.push(`${C.dim} ══ ${C.reset}${C.cyan}logs${C.reset}${C.dim} ${'═'.repeat(W - 6)}${C.reset}`);
 
     // Alternate Screen: 절대 좌표로 대시보드 렌더링
     for (let i = 0; i < lines.length; i++) {
@@ -2254,9 +2257,9 @@ function runSingleWithDashboard(targetDir, cont) {
     const bar = progressBar(ws.done, ws.total, 20);
     const costStr = `$${ws.cost.toFixed(4)}`;
 
-    lines.push(`${C.dim}╭${'─'.repeat(W + 2)}╮${C.reset}`);
+    lines.push(`${C.dim}╔${'═'.repeat(W + 2)}╗${C.reset}`);
     lines.push(boxLine(`${SLEEPCODE_BADGE} run  ${statusIcon} ${statusText}${notionLink(process.env.NOTION_DB_ID)}`, W));
-    lines.push(`${C.dim}├${'─'.repeat(W + 2)}┤${C.reset}`);
+    lines.push(`${C.dim}╠${'═'.repeat(W + 2)}╣${C.reset}`);
     const pct = ws.total > 0 ? Math.round(ws.done / ws.total * 100) : 0;
     lines.push(boxLine(`${bar}  ${String(ws.done).padStart(2)}/${String(ws.total).padEnd(2)} tasks  ${C.cyan}${pct}%${C.reset}`, W));
     if (ws.currentTask && ws.status === 'running') {
@@ -2277,28 +2280,28 @@ function runSingleWithDashboard(targetDir, cont) {
     } else {
       lines.push(boxLine('', W));
     }
-    lines.push(`${C.dim}├${'─'.repeat(W + 2)}┤${C.reset}`);
-    lines.push(boxLine(`비용: ${costStr}  ${C.dim}·${C.reset}  경과: ${elapsedStr}`, W));
+    lines.push(`${C.dim}╠${'═'.repeat(W + 2)}╣${C.reset}`);
+    lines.push(boxLine(`${C.dim}비용${C.reset} ${C.yellow}${costStr}${C.reset}  ${C.dim}·  경과${C.reset} ${C.cyan}${elapsedStr}${C.reset}`, W));
     const budgetInfo = isOverBudget(targetDir);
     if (budgetInfo) {
       const pct = Math.min(100, (budgetInfo.total / budgetInfo.budget * 100)).toFixed(0);
       const budgetBar = progressBar(Math.min(budgetInfo.total, budgetInfo.budget), budgetInfo.budget, 10);
       const warn = budgetInfo.over ? ` ${C.red}한도 도달!${C.reset}` : '';
-      lines.push(boxLine(`주간: $${budgetInfo.total.toFixed(2)}/$${budgetInfo.budget} (${pct}%) ${budgetBar}${warn}`, W));
+      lines.push(boxLine(`${C.dim}주간${C.reset} ${C.yellow}$${budgetInfo.total.toFixed(2)}${C.reset}/${C.dim}$${budgetInfo.budget}${C.reset} (${pct}%) ${budgetBar}${warn}`, W));
     } else {
       lines.push(boxLine('', W));
     }
 
     // 테이블 닫기
-    lines.push(`${C.dim}╰${'─'.repeat(W + 2)}╯${C.reset}`);
+    lines.push(`${C.dim}╚${'═'.repeat(W + 2)}╝${C.reset}`);
 
     // 메뉴 (테이블 밖)
     if (gracefulShutdown) {
-      lines.push(`  ${C.yellow}마무리 중... 현재 작업 완료 후 종료됩니다${C.reset}`);
+      lines.push(`  ${C.yellow}⏳ 마무리 중... 현재 작업 완료 후 종료됩니다${C.reset}`);
     } else {
       lines.push(renderMenuLine(menuState.menuIndex, W, menuState.confirmPending));
     }
-    lines.push(`${C.dim} ─── logs ${'─'.repeat(W - 7)}${C.reset}`);
+    lines.push(`${C.dim} ══ ${C.reset}${C.cyan}logs${C.reset}${C.dim} ${'═'.repeat(W - 6)}${C.reset}`);
 
     // Alternate Screen: 절대 좌표로 대시보드 렌더링
     for (let i = 0; i < lines.length; i++) {
@@ -2668,7 +2671,7 @@ function cmdWatch() {
     const lines = [];
     const W = 62;
 
-    lines.push(`${C.dim}╭${'─'.repeat(W + 2)}╮${C.reset}`);
+    lines.push(`${C.dim}╔${'═'.repeat(W + 2)}╗${C.reset}`);
 
     if (watchPhase === 'executing' && currentWorkerStates.length > 0) {
       const useParallel = currentWorkerStates.length > 1;
@@ -2676,7 +2679,7 @@ function cmdWatch() {
       if (useParallel) {
         const activeCount = currentWorkerStates.filter(w => w.status === 'running').length;
         lines.push(boxLine(`${SLEEPCODE_BADGE} watch  ${C.cyan}⟳${C.reset} ${activeCount}/${currentWorkerStates.length} workers${notionLink(dbId)}`, W));
-        lines.push(`${C.dim}├${'─'.repeat(W + 2)}┤${C.reset}`);
+        lines.push(`${C.dim}╠${'═'.repeat(W + 2)}╣${C.reset}`);
 
         for (const ws of currentWorkerStates) {
           const bar = progressBar(ws.done, ws.total, 15);
@@ -2711,7 +2714,7 @@ function cmdWatch() {
           : `${C.red}✗${C.reset}`;
         const statusText = ws.status === 'running' ? '실행 중' : ws.status === 'done' ? '완료' : '실패';
         lines.push(boxLine(`${SLEEPCODE_BADGE} watch  ${statusIcon} ${statusText}${notionLink(dbId)}`, W));
-        lines.push(`${C.dim}├${'─'.repeat(W + 2)}┤${C.reset}`);
+        lines.push(`${C.dim}╠${'═'.repeat(W + 2)}╣${C.reset}`);
 
         const bar = progressBar(ws.done, ws.total, 20);
         const pct = ws.total > 0 ? Math.round(ws.done / ws.total * 100) : 0;
@@ -2735,7 +2738,7 @@ function cmdWatch() {
         }
       }
 
-      lines.push(`${C.dim}├${'─'.repeat(W + 2)}┤${C.reset}`);
+      lines.push(`${C.dim}╠${'═'.repeat(W + 2)}╣${C.reset}`);
 
       const totalCost = currentWorkerStates.reduce((s, w) => s + (w.cost || 0), 0);
       const costStr = `$${totalCost.toFixed(4)}`;
@@ -2749,15 +2752,15 @@ function cmdWatch() {
       const totalTasks = currentWorkerStates.reduce((s, w) => s + w.total, 0);
       const totalPct = totalTasks > 0 ? Math.round(totalDone / totalTasks * 100) : 0;
       const remaining = lastPollTime ? Math.max(0, pollIntervalSec - Math.floor((Date.now() - lastPollTime) / 1000)) : pollIntervalSec;
-      lines.push(boxLine(`비용: ${costStr}  ${C.dim}·${C.reset}  경과: ${elapsedStr}  ${C.dim}·${C.reset}  ${C.cyan}${totalPct}%${C.reset}  ${C.dim}·${C.reset}  폴링: ${remaining}초`, W));
+      lines.push(boxLine(`${C.dim}비용${C.reset} ${C.yellow}${costStr}${C.reset}  ${C.dim}·  경과${C.reset} ${C.cyan}${elapsedStr}${C.reset}  ${C.dim}·${C.reset}  ${C.cyan}${totalPct}%${C.reset}  ${C.dim}·  폴링${C.reset} ${remaining}초`, W));
     } else {
       // Waiting mode
       lines.push(boxLine(`${SLEEPCODE_BADGE} watch  ${C.dim}◆${C.reset} 대기 중${notionLink(dbId)}`, W));
-      lines.push(`${C.dim}├${'─'.repeat(W + 2)}┤${C.reset}`);
+      lines.push(`${C.dim}╠${'═'.repeat(W + 2)}╣${C.reset}`);
       const remaining = lastPollTime ? Math.max(0, pollIntervalSec - Math.floor((Date.now() - lastPollTime) / 1000)) : pollIntervalSec;
-      lines.push(boxLine(`DB: ${dbId.slice(0, 8)}...  ${C.dim}·${C.reset}  다음 폴링: ${remaining}초`, W));
-      lines.push(boxLine(`전체: ${pollInfo.total}  ${C.dim}·${C.reset}  대기: ${pollInfo.pending}`, W));
-      lines.push(`${C.dim}├${'─'.repeat(W + 2)}┤${C.reset}`);
+      lines.push(boxLine(`${C.dim}DB${C.reset} ${dbId.slice(0, 8)}...  ${C.dim}·  다음 폴링${C.reset} ${C.cyan}${remaining}초${C.reset}`, W));
+      lines.push(boxLine(`${C.dim}전체${C.reset} ${pollInfo.total}  ${C.dim}·  대기${C.reset} ${C.cyan}${pollInfo.pending}${C.reset}`, W));
+      lines.push(`${C.dim}╠${'═'.repeat(W + 2)}╣${C.reset}`);
     }
 
     const budgetInfo = isOverBudget(targetDir);
@@ -2765,21 +2768,21 @@ function cmdWatch() {
       const pct = Math.min(100, (budgetInfo.total / budgetInfo.budget * 100)).toFixed(0);
       const budgetBar = progressBar(Math.min(budgetInfo.total, budgetInfo.budget), budgetInfo.budget, 10);
       const warn = budgetInfo.over ? ` ${C.red}한도 도달!${C.reset}` : '';
-      lines.push(boxLine(`주간: $${budgetInfo.total.toFixed(2)}/$${budgetInfo.budget} (${pct}%) ${budgetBar}${warn}`, W));
+      lines.push(boxLine(`${C.dim}주간${C.reset} ${C.yellow}$${budgetInfo.total.toFixed(2)}${C.reset}/${C.dim}$${budgetInfo.budget}${C.reset} (${pct}%) ${budgetBar}${warn}`, W));
     } else {
       lines.push(boxLine('', W));
     }
 
     // 테이블 닫기
-    lines.push(`${C.dim}╰${'─'.repeat(W + 2)}╯${C.reset}`);
+    lines.push(`${C.dim}╚${'═'.repeat(W + 2)}╝${C.reset}`);
 
     // 메뉴 (테이블 밖)
     if (gracefulShutdown) {
-      lines.push(`  ${C.yellow}마무리 중... 현재 작업 완료 후 종료됩니다${C.reset}`);
+      lines.push(`  ${C.yellow}⏳ 마무리 중... 현재 작업 완료 후 종료됩니다${C.reset}`);
     } else {
       lines.push(renderMenuLine(menuState.menuIndex, W, menuState.confirmPending));
     }
-    lines.push(`${C.dim} ─── logs ${'─'.repeat(W - 7)}${C.reset}`);
+    lines.push(`${C.dim} ══ ${C.reset}${C.cyan}logs${C.reset}${C.dim} ${'═'.repeat(W - 6)}${C.reset}`);
 
     // Alternate Screen: 절대 좌표로 대시보드 렌더링
     for (let i = 0; i < lines.length; i++) {

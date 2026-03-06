@@ -15,7 +15,12 @@ const C = {
   yellow: '\x1b[33m',
   red: '\x1b[31m',
   magenta: '\x1b[35m',
+  bgMagenta: '\x1b[45m',
+  brightWhite: '\x1b[97m',
 };
+
+// sleepcode 뱃지 (마젠타 배경 + 흰색 볼드 텍스트)
+const SLEEPCODE_BADGE = `${C.bgMagenta}${C.brightWhite}${C.bold} sleepcode ${C.reset}`;
 
 const TEMPLATES_DIR = path.join(__dirname, '..', 'templates');
 const IS_WIN = process.platform === 'win32';
@@ -941,9 +946,9 @@ function padEndVisual(str, targetWidth) {
   return str + ' '.repeat(pad);
 }
 
-/** 대시보드용 한 줄: │ content (패딩) │ */
+/** 대시보드용 한 줄: ║ content (패딩) ║ */
 function boxLine(content, innerWidth) {
-  return `${C.bold}│${C.reset} ${padEndVisual(content, innerWidth)} ${C.bold}│${C.reset}`;
+  return `${C.dim}║${C.reset} ${padEndVisual(content, innerWidth)} ${C.dim}║${C.reset}`;
 }
 
 // ─── 설정/사용량 관리 ───
@@ -1355,9 +1360,9 @@ function runParallelWorkers(targetDir, workerInfos) {
     const activeCount = workerStates.filter(w => w.status === 'running').length;
     const totalCost = workerStates.reduce((s, w) => s + w.cost, 0);
 
-    lines.push(`${C.bold}┌${'─'.repeat(W + 2)}┐${C.reset}`);
-    lines.push(boxLine(`sleepcode parallel  ${activeCount}/${workerStates.length} workers active`, W));
-    lines.push(`${C.bold}├${'─'.repeat(W + 2)}┤${C.reset}`);
+    lines.push(`${C.dim}╔${'═'.repeat(W + 2)}╗${C.reset}`);
+    lines.push(boxLine(`${SLEEPCODE_BADGE} parallel  ${C.dim}${activeCount}/${workerStates.length} workers${C.reset}`, W));
+    lines.push(`${C.dim}╠${'═'.repeat(W + 2)}╣${C.reset}`);
 
     for (const ws of workerStates) {
       const bar = progressBar(ws.done, ws.total, 15);
@@ -1386,7 +1391,7 @@ function runParallelWorkers(targetDir, workerInfos) {
       }
     }
 
-    lines.push(`${C.bold}├${'─'.repeat(W + 2)}┤${C.reset}`);
+    lines.push(`${C.dim}╠${'═'.repeat(W + 2)}╣${C.reset}`);
     const costStr = `$${totalCost.toFixed(4)}`;
     const elapsed = Math.floor((Date.now() - startTime) / 1000);
     const elapsedStr = elapsed >= 3600
@@ -1394,7 +1399,7 @@ function runParallelWorkers(targetDir, workerInfos) {
       : elapsed >= 60
         ? `${Math.floor(elapsed / 60)}m ${elapsed % 60}s`
         : `${elapsed}s`;
-    lines.push(boxLine(`비용: ${costStr}  |  경과: ${elapsedStr}  |  진행: ${totalDone}/${totalTasks}`, W));
+    lines.push(boxLine(`비용: ${costStr}  ${C.dim}·${C.reset}  경과: ${elapsedStr}  ${C.dim}·${C.reset}  진행: ${totalDone}/${totalTasks}`, W));
     const budgetInfo = isOverBudget(targetDir);
     if (budgetInfo) {
       const pct = Math.min(100, (budgetInfo.total / budgetInfo.budget * 100)).toFixed(0);
@@ -1404,8 +1409,8 @@ function runParallelWorkers(targetDir, workerInfos) {
     } else {
       lines.push(boxLine('', W));
     }
-    lines.push(`${C.bold}└${'─'.repeat(W + 2)}┘${C.reset}`);
-    lines.push(`${C.dim} ─── logs ${'─'.repeat(W - 7)}${C.reset}`);
+    lines.push(`${C.dim}╚${'═'.repeat(W + 2)}╝${C.reset}`);
+    lines.push(`${C.dim} ━━━ logs ${'━'.repeat(W - 7)}${C.reset}`);
 
     // Alternate Screen: 절대 좌표로 대시보드 렌더링
     for (let i = 0; i < lines.length; i++) {
@@ -1906,9 +1911,9 @@ function runSingleWithDashboard(targetDir, cont) {
     const bar = progressBar(ws.done, ws.total, 20);
     const costStr = `$${ws.cost.toFixed(4)}`;
 
-    lines.push(`${C.bold}┌${'─'.repeat(W + 2)}┐${C.reset}`);
-    lines.push(boxLine(`sleepcode run  ${statusIcon} ${statusText}`, W));
-    lines.push(`${C.bold}├${'─'.repeat(W + 2)}┤${C.reset}`);
+    lines.push(`${C.dim}╔${'═'.repeat(W + 2)}╗${C.reset}`);
+    lines.push(boxLine(`${SLEEPCODE_BADGE} run  ${statusIcon} ${statusText}`, W));
+    lines.push(`${C.dim}╠${'═'.repeat(W + 2)}╣${C.reset}`);
     lines.push(boxLine(`${bar}  ${String(ws.done).padStart(2)}/${String(ws.total).padEnd(2)} tasks`, W));
     if (ws.currentTask && ws.status === 'running') {
       const maxTaskW = W - 4;
@@ -1928,8 +1933,8 @@ function runSingleWithDashboard(targetDir, cont) {
     } else {
       lines.push(boxLine('', W));
     }
-    lines.push(`${C.bold}├${'─'.repeat(W + 2)}┤${C.reset}`);
-    lines.push(boxLine(`비용: ${costStr}  |  경과: ${elapsedStr}`, W));
+    lines.push(`${C.dim}╠${'═'.repeat(W + 2)}╣${C.reset}`);
+    lines.push(boxLine(`비용: ${costStr}  ${C.dim}·${C.reset}  경과: ${elapsedStr}`, W));
     const budgetInfo = isOverBudget(targetDir);
     if (budgetInfo) {
       const pct = Math.min(100, (budgetInfo.total / budgetInfo.budget * 100)).toFixed(0);
@@ -1939,8 +1944,8 @@ function runSingleWithDashboard(targetDir, cont) {
     } else {
       lines.push(boxLine('', W));
     }
-    lines.push(`${C.bold}└${'─'.repeat(W + 2)}┘${C.reset}`);
-    lines.push(`${C.dim} ─── logs ${'─'.repeat(W - 7)}${C.reset}`);
+    lines.push(`${C.dim}╚${'═'.repeat(W + 2)}╝${C.reset}`);
+    lines.push(`${C.dim} ━━━ logs ${'━'.repeat(W - 7)}${C.reset}`);
 
     // Alternate Screen: 절대 좌표로 대시보드 렌더링
     for (let i = 0; i < lines.length; i++) {
@@ -2702,10 +2707,10 @@ async function main() {
   const cliArgs = parseArgs();
 
   console.log(`
-${C.bold}${C.magenta}  ╔══════════════════════════════════╗
-  ║   sleepcode                      ║
-  ║   AI codes while you sleep       ║
-  ╚══════════════════════════════════╝${C.reset}
+  ${C.dim}╔══════════════════════════════════╗${C.reset}
+  ${C.dim}║${C.reset}   ${SLEEPCODE_BADGE}                   ${C.dim}║${C.reset}
+  ${C.dim}║${C.reset}   ${C.dim}AI codes while you sleep${C.reset}       ${C.dim}║${C.reset}
+  ${C.dim}╚══════════════════════════════════╝${C.reset}
 `);
 
   // 비대화형 모드: --type 이 있으면 인터랙티브 스킵

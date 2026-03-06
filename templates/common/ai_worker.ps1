@@ -1,30 +1,81 @@
-# AI Worker - 1회 실행 스크립트 (Windows PowerShell)
-# run_forever.ps1 (무한 루프) 대신 수동으로 1회만 돌릴 때 사용
+# AI Worker - single-run script (PowerShell)
+# Used when running one cycle manually instead of run_forever.ps1.
+
+param(
+    [string]$provider = ''
+)
 
 [Console]::OutputEncoding = [System.Text.Encoding]::UTF8
 $OutputEncoding = [System.Text.Encoding]::UTF8
-$ErrorActionPreference = "Stop"
+$ErrorActionPreference = 'Stop'
 Set-Location (Split-Path (Split-Path $PSScriptRoot -Parent) -Parent)
 
-$timestamp = Get-Date -Format "yyyy-MM-dd HH:mm:ss"
-Write-Host "[$timestamp] AI 단일 실행 시작"
-
-# CLAUDE.md 동기화 (base_rules + rules → CLAUDE.md, 프롬프트 캐싱)
-$baseRules = if (Test-Path .sleepcode/scripts/base_rules.md) { Get-Content .sleepcode/scripts/base_rules.md -Raw -Encoding UTF8 } else { "" }
-$rules = if (Test-Path .sleepcode/rules.md) { Get-Content .sleepcode/rules.md -Raw -Encoding UTF8 } else { "" }
-if ($baseRules -or $rules) {
-    $claudeMd = "$baseRules`n`n---`n`n$rules"
-    [System.IO.File]::WriteAllText("CLAUDE.md", $claudeMd, [System.Text.Encoding]::UTF8)
+if (Test-Path .sleepcode/.env) {
+    Get-Content .sleepcode/.env -Encoding UTF8 | ForEach-Object {
+        $line = $_.Trim()
+        if ($line -and -not $line.StartsWith('#')) {
+            $eq = $line.IndexOf('=')
+            if ($eq -gt 0) {
+                $key = $line.Substring(0, $eq).Trim()
+                $val = $line.Substring($eq + 1).Trim()
+                [System.Environment]::SetEnvironmentVariable($key, $val, 'Process')
+            }
+        }
+    }
 }
 
-# tasks.md만 프롬프트로 전달 (규칙은 CLAUDE.md로 자동 로드됨)
-$prompt = Get-Content .sleepcode/tasks.md -Raw -Encoding UTF8
+function Build-CodexPrompt([string]$tasksText) {
+    $sections = @()
+    if (Test-Path .sleepcode/scripts/base_rules.md) {
+        $sections += Get-Content .sleepcode/scripts/base_rules.md -Raw -Encoding UTF8
+    }
+    if (Test-Path .sleepcode/rules.md) {
+        $sections += Get-Content .sleepcode/rules.md -Raw -Encoding UTF8
+    }
+    $sections += "# Task List`n`n$tasksText"
+    return ($sections -join "`n`n---`n`n")
+}
 
-# 프롬프트를 임시 파일에 저장 후 cmd 네이티브 파이프로 실시간 스트리밍
+$providerArg = $provider
+for ($i = 0; $i -lt $args.Count; $i++) {
+    if ($args[$i] -eq '--provider' -and ($i + 1) -lt $args.Count) {
+        $providerArg = $args[$i + 1]
+    }
+}
+if (-not $providerArg -and $env:SLEEPCODE_PROVIDER) {
+    $providerArg = $env:SLEEPCODE_PROVIDER
+}
+
+$providerName = if ($providerArg) { $providerArg.ToString().Trim().ToLowerInvariant() } else { '' }
+if (-not $providerName) { $providerName = 'claude' }
+if ($providerName -eq 'auto') { $providerName = 'claude' }
+if ($providerName -ne 'claude' -and $providerName -ne 'codex') { $providerName = 'claude' }
+$env:SLEEPCODE_PROVIDER = $providerName
+
+$timestamp = Get-Date -Format 'yyyy-MM-dd HH:mm:ss'
+Write-Host "[$timestamp] AI single run start (provider: $providerName)"
+
+# Keep CLAUDE.md synced for claude prompt-cache behavior.
+$baseRules = if (Test-Path .sleepcode/scripts/base_rules.md) { Get-Content .sleepcode/scripts/base_rules.md -Raw -Encoding UTF8 } else { '' }
+$rules = if (Test-Path .sleepcode/rules.md) { Get-Content .sleepcode/rules.md -Raw -Encoding UTF8 } else { '' }
+if ($baseRules -or $rules) {
+    $claudeMd = "$baseRules`n`n---`n`n$rules"
+    [System.IO.File]::WriteAllText('CLAUDE.md', $claudeMd, [System.Text.Encoding]::UTF8)
+}
+
+$tasksPrompt = Get-Content .sleepcode/tasks.md -Raw -Encoding UTF8
+$stdinPrompt = if ($providerName -eq 'codex') { Build-CodexPrompt $tasksPrompt } else { $tasksPrompt }
+
 $tempFile = [System.IO.Path]::GetTempFileName()
-[System.IO.File]::WriteAllText($tempFile, $prompt, [System.Text.Encoding]::UTF8)
-cmd /c "type `"$tempFile`" | claude -p --dangerously-skip-permissions --output-format stream-json --verbose 2>&1 | python -u .sleepcode/scripts/log_filter.py"
+[System.IO.File]::WriteAllText($tempFile, $stdinPrompt, [System.Text.Encoding]::UTF8)
+
+if ($providerName -eq 'codex') {
+    cmd /c "type `"$tempFile`" | codex exec --json --dangerously-bypass-approvals-and-sandbox - 2>&1 | python -u .sleepcode/scripts/log_filter.py"
+} else {
+    cmd /c "type `"$tempFile`" | claude -p --dangerously-skip-permissions --output-format stream-json --verbose 2>&1 | python -u .sleepcode/scripts/log_filter.py"
+}
+
 Remove-Item $tempFile -ErrorAction SilentlyContinue
 
-$timestamp = Get-Date -Format "yyyy-MM-dd HH:mm:ss"
-Write-Host "[$timestamp] AI 단일 실행 종료"
+$timestamp = Get-Date -Format 'yyyy-MM-dd HH:mm:ss'
+Write-Host "[$timestamp] AI single run end"

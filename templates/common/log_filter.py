@@ -1,15 +1,27 @@
 #!/usr/bin/env python3
 """
-stream-json 출력에서 핵심 메시지만 추출하는 필터.
-Usage: claude ... --output-format stream-json | python3 .sleepcode/log_filter.py
+Filters JSON stream output from Claude/Codex CLIs and prints concise logs.
+Usage:
+  claude ... --output-format stream-json | python3 .sleepcode/scripts/log_filter.py
+  codex exec --json ... | python3 .sleepcode/scripts/log_filter.py
 """
-import sys
-import json
 
-for line in iter(sys.stdin.readline, ''):
-    line = line.strip()
+import json
+import sys
+
+
+def trim(text, limit=120):
+    text = (text or "").strip()
+    if len(text) <= limit:
+        return text
+    return text[:limit] + "..."
+
+
+for raw in iter(sys.stdin.readline, ""):
+    line = raw.strip()
     if not line:
         continue
+
     try:
         obj = json.loads(line)
     except json.JSONDecodeError:
@@ -17,47 +29,72 @@ for line in iter(sys.stdin.readline, ''):
 
     msg_type = obj.get("type")
 
-    # assistant 메시지만 처리
+    # Claude stream format
     if msg_type == "assistant":
         message = obj.get("message", {})
         contents = message.get("content", [])
-        for c in contents:
-            ctype = c.get("type")
+        for content in contents:
+            ctype = content.get("type")
             if ctype == "text":
-                text = c.get("text", "").strip()
+                text = (content.get("text") or "").strip()
                 if text:
                     print(f"[TEXT] {text}", flush=True)
             elif ctype == "tool_use":
-                name = c.get("name", "?")
-                inp = c.get("input", {})
-                # 도구별 핵심 파라미터만 요약
+                name = content.get("name", "?")
+                inp = content.get("input", {})
                 if name in ("Read", "Write", "Edit"):
-                    param = inp.get("file_path", "")
-                    print(f"[TOOL] {name}: {param}", flush=True)
+                    print(f"[TOOL] {name}: {inp.get('file_path', '')}", flush=True)
                 elif name == "Bash":
-                    cmd = inp.get("command", "")
-                    if len(cmd) > 120:
-                        cmd = cmd[:120] + "..."
-                    print(f"[TOOL] Bash: {cmd}", flush=True)
-                elif name == "Glob":
-                    print(f"[TOOL] Glob: {inp.get('pattern', '')}", flush=True)
-                elif name == "Grep":
-                    print(f"[TOOL] Grep: {inp.get('pattern', '')}", flush=True)
+                    print(f"[TOOL] Bash: {trim(inp.get('command', ''), 120)}", flush=True)
+                elif name in ("Glob", "Grep"):
+                    print(f"[TOOL] {name}: {inp.get('pattern', '')}", flush=True)
                 elif name == "TodoWrite":
                     todos = inp.get("todos", [])
                     active = [t for t in todos if t.get("status") == "in_progress"]
                     if active:
-                        print(f"[TODO] {active[0].get('activeForm', '')}", flush=True)
+                        todo = active[0].get("activeForm") or active[0].get("content", "")
+                        if todo:
+                            print(f"[TODO] {todo}", flush=True)
                 else:
                     print(f"[TOOL] {name}", flush=True)
+        continue
 
-    # 최종 결과
-    elif msg_type == "result":
+    if msg_type == "result":
         message = obj.get("message", "")
         if isinstance(message, str) and message:
-            short = message[:200] + "..." if len(message) > 200 else message
-            print(f"[DONE] {short}", flush=True)
+            print(f"[DONE] {trim(message, 200)}", flush=True)
         cost = obj.get("cost_usd")
         duration = obj.get("duration_ms")
-        if cost is not None:
-            print(f"[COST] ${cost:.4f} | {(duration or 0) / 1000:.0f}s", flush=True)
+        if isinstance(cost, (int, float)):
+            seconds = (duration or 0) / 1000
+            print(f"[COST] ${cost:.4f} | {seconds:.0f}s", flush=True)
+        continue
+
+    # Codex stream format
+    if msg_type in ("item.started", "item.completed"):
+        item = obj.get("item") or {}
+        item_type = item.get("type")
+
+        if item_type == "agent_message" and msg_type == "item.completed":
+            text = (item.get("text") or "").strip()
+            if text:
+                print(f"[TEXT] {text}", flush=True)
+            continue
+
+        if item_type == "command_execution":
+            command = trim(item.get("command", ""), 120)
+            if msg_type == "item.started":
+                print(f"[TOOL] Bash: {command}", flush=True)
+            else:
+                exit_code = item.get("exit_code")
+                suffix = f" (exit {exit_code})" if isinstance(exit_code, int) else ""
+                print(f"[TOOL] Bash done{suffix}: {command}", flush=True)
+            continue
+
+    if msg_type == "turn.completed":
+        usage = obj.get("usage") or {}
+        input_tokens = usage.get("input_tokens") or usage.get("prompt_tokens") or 0
+        output_tokens = usage.get("output_tokens") or usage.get("completion_tokens") or 0
+        total_tokens = usage.get("total_tokens") or (input_tokens + output_tokens)
+        if total_tokens:
+            print(f"[TOKENS] in:{input_tokens} out:{output_tokens} total:{total_tokens}", flush=True)

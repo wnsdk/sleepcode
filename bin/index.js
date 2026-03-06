@@ -3,7 +3,7 @@
 const readline = require('readline');
 const fs = require('fs');
 const path = require('path');
-const { execSync, spawn } = require('child_process');
+const { execSync, spawn, spawnSync } = require('child_process');
 
 // ─── 색상 ───
 const C = {
@@ -102,6 +102,174 @@ function getInstallHint(tool) {
   return hints[tool] || '';
 }
 
+const PROVIDERS = {
+  CLAUDE: 'claude',
+  CODEX: 'codex',
+  AUTO: 'auto',
+};
+
+function normalizeProvider(value, defaultValue = '') {
+  const raw = (value || '').toString().trim().toLowerCase();
+  if (!raw) return defaultValue;
+  if (raw === PROVIDERS.CLAUDE || raw === PROVIDERS.CODEX || raw === PROVIDERS.AUTO) {
+    return raw;
+  }
+  return null;
+}
+
+function providerLabel(provider) {
+  return provider === PROVIDERS.CODEX ? 'Codex' : 'Claude';
+}
+
+function otherProvider(provider) {
+  return provider === PROVIDERS.CLAUDE ? PROVIDERS.CODEX : PROVIDERS.CLAUDE;
+}
+
+function parseEnvFile(envPath) {
+  const env = {};
+  if (!envPath || !fs.existsSync(envPath)) return env;
+  const content = fs.readFileSync(envPath, 'utf-8');
+  for (const line of content.split('\n')) {
+    const trimmed = line.trim();
+    if (!trimmed || trimmed.startsWith('#')) continue;
+    const eqIdx = trimmed.indexOf('=');
+    if (eqIdx <= 0) continue;
+    const key = trimmed.slice(0, eqIdx).trim();
+    const val = trimmed.slice(eqIdx + 1).trim();
+    env[key] = val;
+  }
+  return env;
+}
+
+function loadEnvFileToProcessEnv(envPath) {
+  const parsed = parseEnvFile(envPath);
+  for (const [k, v] of Object.entries(parsed)) {
+    process.env[k] = v;
+  }
+  return parsed;
+}
+
+function isProviderAvailable(provider) {
+  if (provider === PROVIDERS.CLAUDE) return !!checkCommand('claude --version');
+  if (provider === PROVIDERS.CODEX) return !!checkCommand('codex --version');
+  return false;
+}
+
+function resolveProviderPlan(targetDir, requestedProvider) {
+  const envPath = path.join(targetDir, '.sleepcode', '.env');
+  const envMap = parseEnvFile(envPath);
+  const preferred = normalizeProvider(requestedProvider)
+    || normalizeProvider(process.env.SLEEPCODE_PROVIDER || envMap.SLEEPCODE_PROVIDER)
+    || PROVIDERS.CLAUDE;
+
+  const available = {
+    [PROVIDERS.CLAUDE]: isProviderAvailable(PROVIDERS.CLAUDE),
+    [PROVIDERS.CODEX]: isProviderAvailable(PROVIDERS.CODEX),
+  };
+
+  const candidates = preferred === PROVIDERS.AUTO
+    ? [PROVIDERS.CLAUDE, PROVIDERS.CODEX]
+    : [preferred, otherProvider(preferred)];
+
+  const selected = candidates.find((p) => available[p]);
+  if (!selected) {
+    throw new Error('Claude CLI or Codex CLI is required. Install at least one provider first.');
+  }
+
+  const fallback = candidates.find((p) => p !== selected && available[p]) || null;
+  return {
+    preferred,
+    selected,
+    fallback,
+    requestedUnavailable: preferred !== PROVIDERS.AUTO && !available[preferred],
+    available,
+  };
+}
+
+function buildExecutionPrompt(targetDir, tasksPrompt, provider) {
+  if (provider !== PROVIDERS.CODEX) return tasksPrompt;
+
+  const scDir = path.join(targetDir, '.sleepcode');
+  const baseRulesPath = path.join(scDir, 'scripts', 'base_rules.md');
+  const rulesPath = path.join(scDir, 'rules.md');
+  const sections = [];
+
+  if (fs.existsSync(baseRulesPath)) sections.push(fs.readFileSync(baseRulesPath, 'utf-8'));
+  if (fs.existsSync(rulesPath)) sections.push(fs.readFileSync(rulesPath, 'utf-8'));
+  sections.push('# Task List\n\n' + tasksPrompt);
+
+  return sections.join('\n\n---\n\n');
+}
+
+function getProviderRunCommand(provider, continueMode) {
+  if (provider === PROVIDERS.CODEX) {
+    const args = continueMode
+      ? ['exec', 'resume', '--last', '--json', '--dangerously-bypass-approvals-and-sandbox', '-']
+      : ['exec', '--json', '--dangerously-bypass-approvals-and-sandbox', '-'];
+    return { command: 'codex', args };
+  }
+
+  const args = [];
+  if (continueMode) args.push('--continue');
+  args.push('-p', '--dangerously-skip-permissions', '--output-format', 'stream-json', '--verbose');
+  return { command: 'claude', args };
+}
+
+function runPromptForTaskGeneration(provider, prompt, targetDir, env) {
+  if (provider === PROVIDERS.CODEX) {
+    const proc = spawnSync('codex', [
+      'exec',
+      '--json',
+      '--dangerously-bypass-approvals-and-sandbox',
+      '-',
+    ], {
+      input: prompt,
+      cwd: targetDir,
+      env,
+      shell: true,
+      timeout: 300000,
+      maxBuffer: 10 * 1024 * 1024,
+      encoding: 'utf-8',
+    });
+
+    if (proc.error) throw proc.error;
+    const stdout = proc.stdout || '';
+    const stderr = proc.stderr || '';
+    if (proc.status !== 0) {
+      throw new Error((stderr || stdout || ('codex exit code: ' + proc.status)).trim());
+    }
+
+    let finalMessage = '';
+    for (const line of stdout.split(/\r?\n/)) {
+      if (!line.trim()) continue;
+      try {
+        const obj = JSON.parse(line);
+        if (obj.type === 'item.completed' && obj.item && obj.item.type === 'agent_message') {
+          const text = (obj.item.text || '').trim();
+          if (text) finalMessage = text;
+        }
+      } catch {}
+    }
+
+    if (!finalMessage) {
+      throw new Error('Codex returned no final message for tasks generation.');
+    }
+    return finalMessage;
+  }
+
+  return execSync(
+    'claude -p --output-format text',
+    {
+      input: prompt,
+      cwd: targetDir,
+      env,
+      stdio: ['pipe', 'pipe', 'pipe'],
+      timeout: 300000,
+      maxBuffer: 1024 * 1024,
+    }
+  ).toString().trim();
+}
+
 async function checkPrerequisites(rl) {
   console.log(`${C.bold}사전 준비 확인 중...${C.reset}\n`);
 
@@ -136,8 +304,21 @@ async function checkPrerequisites(rl) {
     console.log(`  ${C.green}✓${C.reset} claude (${claudeVer})`);
     results.claude = true;
   } else {
-    console.log(`  ${C.red}✗${C.reset} claude — 설치 필요`);
+    console.log(`  ${C.dim}-${C.reset} claude not installed`);
     results.claude = false;
+  }
+
+  // codex
+  const codexVer = checkCommand('codex --version');
+  if (codexVer) {
+    console.log(`  ${C.green}✓${C.reset} codex (${codexVer})`);
+    results.codex = true;
+  } else {
+    console.log(`  ${C.dim}-${C.reset} codex not installed`);
+    results.codex = false;
+  }
+
+  if (!(results.claude || results.codex)) {
     hasMissing = true;
   }
 
@@ -158,7 +339,7 @@ async function checkPrerequisites(rl) {
   // ─── 자동 설치 제안 ───
 
   // Claude CLI 자동 설치
-  if (!results.claude && rl) {
+  if (!(results.claude || results.codex) && rl) {
     const answer = await ask(rl, 'claude CLI를 설치할까요? (npm install -g @anthropic-ai/claude-code) [Y/n]', 'Y');
     if (answer.toLowerCase() !== 'n') {
       console.log(`\n  ${C.dim}설치 중...${C.reset}`);
@@ -181,7 +362,9 @@ async function checkPrerequisites(rl) {
   const missing = [];
   if (!results.git) missing.push({ name: 'git', hint: getInstallHint('git') });
   if (!results.python) missing.push({ name: 'python3', hint: getInstallHint('python') });
-  if (!results.claude) missing.push({ name: 'claude', hint: 'npm install -g @anthropic-ai/claude-code' });
+  if (!(results.claude || results.codex)) {
+    missing.push({ name: 'ai provider (claude|codex)', hint: 'claude: npm install -g @anthropic-ai/claude-code / codex: install Codex CLI' });
+  }
 
   if (missing.length > 0) {
     console.log(`${C.red}${C.bold}아래 도구를 설치한 뒤 다시 실행해주세요:${C.reset}\n`);
@@ -236,7 +419,7 @@ function showHelp() {
 ${SLEEPCODE_BADGE}  v${pkg.version}
 
 사용법: sleepcode [옵션]
-       sleepcode run [--loop] [--continue]
+       sleepcode run [--loop] [--continue] [--provider <claude|codex|auto>]
        sleepcode watch [--notion-db <id|url>] [--notion-key <key>]
        sleepcode generate
        sleepcode sources
@@ -277,7 +460,8 @@ ${SLEEPCODE_BADGE}  v${pkg.version}
   --interval <sec>     반복 간격 (초, 기본 30)
   --budget <usd>       주간 예산 ($, 예: 50)
   --threshold <pct>    사용량 임계값 (%, 기본 90)
-  -c, --continue       이전 Claude 세션 이어서 실행 (토큰 절약)
+  --provider <name>    AI provider (claude, codex, auto)
+  -c, --continue       이전 세션 이어서 실행 (토큰 절약)
   -f, --force          기존 .sleepcode/ 덮어쓰기
   -v, --version        버전 정보
   -h, --help           도움말
@@ -308,6 +492,7 @@ function parseArgs() {
     else if (args[i] === '--interval' && args[i + 1]) parsed.interval = args[++i];
     else if (args[i] === '--budget' && args[i + 1]) parsed.budget = args[++i];
     else if (args[i] === '--threshold' && args[i + 1]) parsed.threshold = args[++i];
+    else if (args[i] === '--provider' && args[i + 1]) parsed.provider = args[++i];
     else if (args[i] === '--continue' || args[i] === '-c') parsed.continue = true;
     else if (args[i] === '--force' || args[i] === '-f') parsed.force = true;
     else if (args[i] === '--help' || args[i] === '-h') {
@@ -688,7 +873,7 @@ function syncClaudeMd(targetDir) {
   }
 }
 
-function generateFiles(targetDir, { typeKey, projectName, role, buildCmd, testCmd, lintCmd, figmaKey, figmaFileNames, notionKey, notionPages, notionDbId, notionFilter, sleepInterval }) {
+function generateFiles(targetDir, { typeKey, projectName, role, buildCmd, testCmd, lintCmd, figmaKey, figmaFileNames, notionKey, notionPages, notionDbId, notionFilter, sleepInterval, provider = PROVIDERS.CLAUDE }) {
   const scDir = path.join(targetDir, '.sleepcode');
   const claudeDir = path.join(targetDir, '.claude');
   fs.mkdirSync(path.join(scDir, 'docs'), { recursive: true });
@@ -810,6 +995,7 @@ function generateFiles(targetDir, { typeKey, projectName, role, buildCmd, testCm
   if (notionKey) envLines.push(`NOTION_API_KEY=${notionKey}`);
   if (notionDbId) envLines.push(`NOTION_DB_ID=${notionDbId}`);
   if (notionFilter) envLines.push(`NOTION_FILTER=${notionFilter}`);
+  if (provider) envLines.push(`SLEEPCODE_PROVIDER=${provider}`);
   if (envLines.length > 0) {
     writeFile(path.join(scDir, '.env'), envLines.join('\n') + '\n');
   }
@@ -1503,7 +1689,7 @@ function autoMergeWorktrees(targetDir, workerStates) {
   return results;
 }
 
-function runParallel(subArgs) {
+function runParallel(subArgs, cliProvider) {
   const targetDir = process.cwd();
   const scDir = path.join(targetDir, '.sleepcode');
 
@@ -1580,10 +1766,10 @@ ${C.bold}다음 단계:${C.reset}
   }
 
   // 병렬 실행
-  runParallelWorkers(targetDir, created);
+  runParallelWorkers(targetDir, created, cliProvider);
 }
 
-function runParallelWorkers(targetDir, workerInfos) {
+function runParallelWorkers(targetDir, workerInfos, cliProvider) {
   const logDir = path.join(targetDir, '.sleepcode', 'logs');
   fs.mkdirSync(logDir, { recursive: true });
   const timestamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
@@ -1605,6 +1791,17 @@ function runParallelWorkers(targetDir, workerInfos) {
 
   console.log(`\n${C.bold}병렬 실행 시작${C.reset} — ${workerInfos.length}개 워커\n`);
 
+  let providerPlan;
+  try {
+    providerPlan = resolveProviderPlan(targetDir, cliProvider);
+  } catch (e) {
+    console.error(`${C.red}${e.message}${C.reset}`);
+    process.exit(1);
+  }
+  if (providerPlan.requestedUnavailable) {
+    console.log(`${C.yellow}requested provider unavailable, switched to ${providerLabel(providerPlan.selected)}.${C.reset}`);
+  }
+
   const workerStates = workerInfos.map(w => ({
     ...w,
     targetDir,
@@ -1613,6 +1810,8 @@ function runParallelWorkers(targetDir, workerInfos) {
     done: 0,
     total: 0,
     cost: 0,
+    provider: providerPlan.selected,
+    fallbackProvider: providerPlan.fallback,
     _proc: null,
     logFile: path.join(logDir, `parallel_${w.name}_${timestamp}.log`),
   }));
@@ -1907,180 +2106,204 @@ ${C.bold}다음 단계:${C.reset}
   }
 
   for (const ws of workerStates) {
-    spawnWorker(ws, py, onWorkerDone, scheduleRender, pushLog);
+    spawnWorker(ws, py, onWorkerDone, scheduleRender, pushLog, cliProvider);
   }
 }
 
-function spawnWorker(ws, py, onDone, onUpdate, pushLog) {
-  // CLAUDE.md 동기화 (base_rules + rules → CLAUDE.md, 프롬프트 캐싱)
+function spawnWorker(ws, py, onDone, onUpdate, pushLog, cliProvider) {
   const wtDir = ws.path;
   syncClaudeMd(wtDir);
 
-  // 프롬프트 구성 (tasks.md만 전달 — 규칙은 CLAUDE.md로 자동 로드됨)
   const tasksPath = path.join(wtDir, '.sleepcode', 'tasks.md');
   const prompt = fs.existsSync(tasksPath) ? fs.readFileSync(tasksPath, 'utf-8') : '';
+  const promptsByProvider = {
+    [PROVIDERS.CLAUDE]: prompt,
+    [PROVIDERS.CODEX]: buildExecutionPrompt(wtDir, prompt, PROVIDERS.CODEX),
+  };
 
   if (!prompt.trim()) {
-    pushLog(ws.name, `${C.red}[오류] 프롬프트가 비어있습니다. .sleepcode/ 디렉토리를 확인하세요.${C.reset}`);
+    pushLog(ws.name, `${C.red}[ERROR] task prompt is empty (.sleepcode/tasks.md).${C.reset}`);
     ws.status = 'failed';
-    ws.currentTask = '프롬프트 파일 누락';
+    ws.currentTask = 'task prompt is empty';
+    onUpdate();
     onDone();
     return;
   }
 
-  // 로그 파일 스트림
+  try {
+    if (!ws.provider || !isProviderAvailable(ws.provider)) {
+      const plan = resolveProviderPlan(ws.targetDir || wtDir, cliProvider || ws.provider);
+      ws.provider = plan.selected;
+      ws.fallbackProvider = plan.fallback;
+      if (plan.requestedUnavailable) {
+        pushLog(ws.name, `${C.yellow}[PROVIDER] requested provider unavailable, switched to ${providerLabel(plan.selected)}${C.reset}`);
+      }
+    } else if (!ws.fallbackProvider) {
+      const alt = otherProvider(ws.provider);
+      ws.fallbackProvider = isProviderAvailable(alt) ? alt : null;
+    }
+  } catch (e) {
+    pushLog(ws.name, `${C.red}[ERROR] ${e.message}${C.reset}`);
+    ws.status = 'failed';
+    ws.currentTask = e.message;
+    onUpdate();
+    onDone();
+    return;
+  }
+
   const logStream = fs.createWriteStream(ws.logFile, { flags: 'a' });
   const logLine = (msg) => logStream.write(`[${new Date().toISOString()}] ${msg}\n`);
+  logLine(`=== Worker ${ws.name} start (provider: ${ws.provider}) ===`);
 
-  logLine(`=== Worker ${ws.name} 시작 ===`);
-
-  // claude 중첩 세션 방지
   const env = { ...process.env };
   delete env.CLAUDECODE;
 
-  // claude -p 실행 (stream-json)
-  const claudeProc = spawn('claude', [
-    '-p', '--dangerously-skip-permissions',
-    '--output-format', 'stream-json',
-    '--verbose',
-  ], {
-    cwd: wtDir,
-    env,
-    stdio: ['pipe', 'pipe', 'pipe'],
-    shell: true,
-  });
-
-  ws._proc = claudeProc;
-
-  // 프롬프트 전달
-  claudeProc.stdin.write(prompt);
-  claudeProc.stdin.end();
-
-  // stdout 파싱 (stream-json)
-  let buffer = '';
-  claudeProc.stdout.on('data', (data) => {
-    buffer += data.toString();
-    const lines = buffer.split('\n');
-    buffer = lines.pop(); // 마지막 불완전한 줄은 보존
-
-    for (const line of lines) {
-      if (!line.trim()) continue;
-      logStream.write(line + '\n');
-
-      try {
-        const obj = JSON.parse(line);
-        processStreamEvent(ws, obj, onUpdate, pushLog);
-      } catch {
-        // JSON 아닌 줄 무시
-      }
-    }
-  });
-
-  claudeProc.stderr.on('data', (data) => {
-    logStream.write(`[STDERR] ${data.toString()}`);
-  });
-
-  claudeProc.on('close', (code) => {
-    // 버퍼에 남은 마지막 줄 처리 (result 메시지에 cost_usd 포함)
-    if (buffer.trim()) {
-      logStream.write(buffer + '\n');
-      try {
-        const obj = JSON.parse(buffer);
-        processStreamEvent(ws, obj, onUpdate, pushLog);
-      } catch {
-        // JSON 아닌 줄 무시
-      }
-      buffer = '';
-    }
-
-    logLine(`=== Worker ${ws.name} 종료 (code: ${code}) ===`);
+  function finalize(code, errMsg) {
+    logLine(`=== Worker ${ws.name} end (code: ${code}) ===`);
+    if (errMsg) logLine(`ERROR: ${errMsg}`);
     logStream.end();
 
-    // 최종 태스크 상태 갱신
-    const finalTasksPath = path.join(wtDir, '.sleepcode', 'tasks.md');
-    if (fs.existsSync(finalTasksPath)) {
-      const content = fs.readFileSync(finalTasksPath, 'utf-8');
+    if (fs.existsSync(tasksPath)) {
+      const content = fs.readFileSync(tasksPath, 'utf-8');
       const tc = countTasks(content);
       ws.done = tc.done;
       ws.total = tc.total;
     }
 
     ws.status = (code === 0) ? 'done' : 'failed';
-    ws.currentTask = '';
+    ws.currentTask = errMsg || '';
+    onUpdate();
     onDone();
-  });
+  }
 
-  claudeProc.on('error', (err) => {
-    logLine(`ERROR: ${err.message}`);
-    logStream.end();
-    ws.status = 'failed';
-    ws.currentTask = err.message;
-    onDone();
-  });
+  function runAttempt(provider, allowFallback) {
+    ws.provider = provider;
+    const invoke = getProviderRunCommand(provider, false);
+    const stdinPrompt = promptsByProvider[provider] || prompt;
+
+    const proc = spawn(invoke.command, invoke.args, {
+      cwd: wtDir,
+      env,
+      stdio: ['pipe', 'pipe', 'pipe'],
+      shell: true,
+    });
+
+    ws._proc = proc;
+    proc.stdin.write(stdinPrompt);
+    proc.stdin.end();
+
+    let buffer = '';
+    let sawEvents = false;
+
+    proc.stdout.on('data', (data) => {
+      buffer += data.toString();
+      const lines = buffer.split('\n');
+      buffer = lines.pop();
+
+      for (const line of lines) {
+        if (!line.trim()) continue;
+        logStream.write(line + '\n');
+        sawEvents = true;
+        try {
+          const obj = JSON.parse(line);
+          processStreamEvent(ws, obj, onUpdate, pushLog);
+        } catch {}
+      }
+    });
+
+    proc.stderr.on('data', (data) => {
+      logStream.write(`[STDERR] ${data.toString()}`);
+    });
+
+    proc.on('close', (code) => {
+      if (buffer.trim()) {
+        logStream.write(buffer + '\n');
+        try {
+          const obj = JSON.parse(buffer);
+          processStreamEvent(ws, obj, onUpdate, pushLog);
+          sawEvents = true;
+        } catch {}
+      }
+
+      if (code !== 0 && allowFallback && ws.fallbackProvider && ws.fallbackProvider !== provider && !sawEvents) {
+        const fromLabel = providerLabel(provider);
+        const toLabel = providerLabel(ws.fallbackProvider);
+        pushLog(ws.name, `${C.yellow}[FALLBACK]${C.reset} ${fromLabel} failed, retrying with ${toLabel}`);
+        logLine(`FALLBACK: ${provider} -> ${ws.fallbackProvider}`);
+        onUpdate();
+        runAttempt(ws.fallbackProvider, false);
+        return;
+      }
+
+      finalize(code);
+    });
+
+    proc.on('error', (err) => {
+      if (allowFallback && ws.fallbackProvider && ws.fallbackProvider !== provider) {
+        const fromLabel = providerLabel(provider);
+        const toLabel = providerLabel(ws.fallbackProvider);
+        pushLog(ws.name, `${C.yellow}[FALLBACK]${C.reset} ${fromLabel} failed, retrying with ${toLabel}`);
+        logLine(`FALLBACK_ERROR: ${err.message}`);
+        onUpdate();
+        runAttempt(ws.fallbackProvider, false);
+        return;
+      }
+      finalize(1, err.message);
+    });
+  }
+
+  runAttempt(ws.provider, true);
 }
 
 function processStreamEvent(ws, obj, onUpdate, pushLog) {
   const msgType = obj.type;
 
+  const trimByWidth = (text, width) => {
+    const src = (text || '').trim();
+    if (!src) return '';
+    if (visualWidth(src) <= width) return src;
+    let tw = 0;
+    let cut = 0;
+    for (const ch of src) {
+      const cw = visualWidth(ch);
+      if (tw + cw > width - 3) break;
+      tw += cw;
+      cut += ch.length;
+    }
+    return src.slice(0, cut) + '...';
+  };
+
+  const appendReport = (text) => {
+    const body = (text || '').trim();
+    if (!body) return;
+    if (!ws.reportLines) ws.reportLines = [];
+    ws.reportLines.push(body);
+    pushLog(ws.name, `${C.dim}${trimByWidth(body, 132)}${C.reset}`);
+    onUpdate();
+  };
+
   if (msgType === 'assistant') {
     const contents = (obj.message && obj.message.content) || [];
     for (const c of contents) {
       if (c.type === 'text') {
-        const text = (c.text || '').trim();
-        if (text) {
-          // AI 보고 텍스트 수집 (Notion 페이지 기록용)
-          if (!ws.reportLines) ws.reportLines = [];
-          ws.reportLines.push(text);
-
-          let short = text;
-          if (visualWidth(text) > 135) {
-            let tw = 0, cut = 0;
-            for (const ch of text) {
-              const cw = visualWidth(ch);
-              if (tw + cw > 132) break;
-              tw += cw;
-              cut += ch.length;
-            }
-            short = text.slice(0, cut) + '...';
-          }
-          pushLog(ws.name, `${C.dim}${short}${C.reset}`);
-          onUpdate();
-        }
+        appendReport(c.text || '');
       } else if (c.type === 'tool_use') {
         const name = c.name || '?';
         const inp = c.input || {};
 
-        // TodoWrite → 대시보드 현재 태스크 갱신
         if (name === 'TodoWrite') {
           const todos = inp.todos || [];
           const active = todos.find(t => t.status === 'in_progress');
-          if (active) {
-            ws.currentTask = active.activeForm || active.content || '';
-          }
+          if (active) ws.currentTask = active.activeForm || active.content || '';
         }
 
-        // 도구 사용 로그
         let detail = '';
         if (name === 'Read' || name === 'Write' || name === 'Edit') {
           const fp = inp.file_path || '';
           detail = fp.split(/[/\\]/).pop() || fp;
         } else if (name === 'Bash') {
-          const cmd = inp.command || '';
-          if (visualWidth(cmd) > 120) {
-            let tw = 0, cut = 0;
-            for (const ch of cmd) {
-              const cw = visualWidth(ch);
-              if (tw + cw > 117) break;
-              tw += cw;
-              cut += ch.length;
-            }
-            detail = cmd.slice(0, cut) + '...';
-          } else {
-            detail = cmd;
-          }
-        } else if (name === 'Glob') {
-          detail = inp.pattern || '';
-        } else if (name === 'Grep') {
+          detail = trimByWidth(inp.command || '', 117);
+        } else if (name === 'Glob' || name === 'Grep') {
           detail = inp.pattern || '';
         }
 
@@ -2091,14 +2314,16 @@ function processStreamEvent(ws, obj, onUpdate, pushLog) {
         onUpdate();
       }
     }
-  } else if (msgType === 'result') {
+    return;
+  }
+
+  if (msgType === 'result') {
     const cost = obj.cost_usd;
     if (cost != null) {
       ws.cost = cost;
       if (ws.targetDir) recordCost(ws.targetDir, cost, 'parallel', ws.name);
     }
 
-    // 최종 태스크 상태 갱신
     const tasksPath2 = path.join(ws.path, '.sleepcode', 'tasks.md');
     if (fs.existsSync(tasksPath2)) {
       const content = fs.readFileSync(tasksPath2, 'utf-8');
@@ -2109,25 +2334,47 @@ function processStreamEvent(ws, obj, onUpdate, pushLog) {
 
     const msg = typeof obj.message === 'string' ? obj.message : '';
     if (msg) {
-      let short = msg;
-      if (visualWidth(msg) > 120) {
-        let tw = 0, cut = 0;
-        for (const ch of msg) {
-          const cw = visualWidth(ch);
-          if (tw + cw > 117) break;
-          tw += cw;
-          cut += ch.length;
-        }
-        short = msg.slice(0, cut) + '...';
-      }
-      pushLog(ws.name, `${C.green}[DONE]${C.reset} ${short}`);
+      pushLog(ws.name, `${C.green}[DONE]${C.reset} ${trimByWidth(msg, 117)}`);
     }
     onUpdate();
+    return;
+  }
+
+  if ((msgType === 'item.started' || msgType === 'item.completed') && obj.item) {
+    const item = obj.item;
+
+    if (item.type === 'agent_message') {
+      appendReport(item.text || '');
+      return;
+    }
+
+    if (item.type === 'command_execution') {
+      const command = trimByWidth(item.command || '', 110);
+      if (msgType === 'item.started') {
+        pushLog(ws.name, `${C.cyan}[TOOL]${C.reset} Bash: ${command}`);
+      } else {
+        const exitCode = (typeof item.exit_code === 'number') ? item.exit_code : null;
+        const tail = exitCode == null ? '' : ` (exit ${exitCode})`;
+        pushLog(ws.name, `${C.cyan}[TOOL]${C.reset} Bash done${tail}: ${command}`);
+      }
+      onUpdate();
+      return;
+    }
+  }
+
+  if (msgType === 'turn.completed') {
+    const usage = obj.usage || {};
+    const inputTokens = usage.input_tokens || usage.prompt_tokens || 0;
+    const outputTokens = usage.output_tokens || usage.completion_tokens || 0;
+    const totalTokens = usage.total_tokens || (inputTokens + outputTokens);
+    if (totalTokens > 0) {
+      pushLog(ws.name, `${C.dim}[TOKENS] in:${inputTokens} out:${outputTokens} total:${totalTokens}${C.reset}`);
+      onUpdate();
+    }
   }
 }
 
-// ─── 실행 명령어 ───
-function runWorker(loop, cont) {
+function runWorker(loop, cont, cliProvider) {
   const targetDir = process.cwd();
 
   // 예산 체크
@@ -2157,13 +2404,27 @@ function runWorker(loop, cont) {
       process.exit(1);
     }
 
+    let providerPlan;
+    try {
+      providerPlan = resolveProviderPlan(targetDir, cliProvider);
+    } catch (e) {
+      console.error(C.red + e.message + C.reset);
+      process.exit(1);
+    }
+    if (providerPlan.requestedUnavailable) {
+      console.log(C.yellow + 'requested provider unavailable, switched to ' + providerLabel(providerPlan.selected) + '.' + C.reset);
+    }
+
     const contFlag = cont ? ' --continue' : '';
-    const cmd = IS_WIN ? `powershell -File "${scriptPath}"${contFlag}` : `"${scriptPath}"${contFlag}`;
+    const providerFlag = ' --provider ' + providerPlan.selected;
+    const cmd = IS_WIN
+      ? `powershell -File "${scriptPath}"${contFlag}${providerFlag}`
+      : `"${scriptPath}"${contFlag}${providerFlag}`;
     const modeLabel = cont ? '무한 루프 실행 (세션 연속 모드)' : '무한 루프 실행';
     console.log(`${C.cyan}${modeLabel}: ${scriptName}${C.reset}\n`);
 
     try {
-      execSync(cmd, { stdio: 'inherit', cwd: targetDir });
+      execSync(cmd, { stdio: 'inherit', cwd: targetDir, env: { ...process.env, SLEEPCODE_PROVIDER: providerPlan.selected } });
     } catch (e) {
       process.exit(e.status || 1);
     }
@@ -2171,27 +2432,28 @@ function runWorker(loop, cont) {
   }
 
   // 1회 실행: 대시보드 모드
-  runSingleWithDashboard(targetDir, cont);
+  runSingleWithDashboard(targetDir, cont, cliProvider);
 }
 
-function runSingleWithDashboard(targetDir, cont) {
+function runSingleWithDashboard(targetDir, cont, cliProvider) {
   const scDir = path.join(targetDir, '.sleepcode');
   const logDir = path.join(scDir, 'logs');
   fs.mkdirSync(logDir, { recursive: true });
   const timestamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
 
-  // .env 로드
+  // .env load
   const envPath = path.join(scDir, '.env');
-  if (fs.existsSync(envPath)) {
-    const envContent = fs.readFileSync(envPath, 'utf-8');
-    for (const line of envContent.split('\n')) {
-      const trimmed = line.trim();
-      if (!trimmed || trimmed.startsWith('#')) continue;
-      const eqIdx = trimmed.indexOf('=');
-      if (eqIdx > 0) {
-        process.env[trimmed.slice(0, eqIdx)] = trimmed.slice(eqIdx + 1);
-      }
-    }
+  loadEnvFileToProcessEnv(envPath);
+
+  let providerPlan;
+  try {
+    providerPlan = resolveProviderPlan(targetDir, cliProvider);
+  } catch (e) {
+    console.error(C.red + e.message + C.reset);
+    process.exit(1);
+  }
+  if (providerPlan.requestedUnavailable) {
+    console.log(C.yellow + 'requested provider unavailable, switched to ' + providerLabel(providerPlan.selected) + '.' + C.reset);
   }
 
   // Notion 동기화: pull
@@ -2211,6 +2473,10 @@ function runSingleWithDashboard(targetDir, cont) {
   // 프롬프트 구성 (tasks.md만 전달 — 규칙은 CLAUDE.md로 자동 로드됨)
   const tasksPath = path.join(scDir, 'tasks.md');
   const prompt = fs.existsSync(tasksPath) ? fs.readFileSync(tasksPath, 'utf-8') : '';
+  const promptsByProvider = {
+    [PROVIDERS.CLAUDE]: prompt,
+    [PROVIDERS.CODEX]: buildExecutionPrompt(targetDir, prompt, PROVIDERS.CODEX),
+  };
 
   if (!prompt.trim()) {
     console.error(`${C.red}프롬프트가 비어있습니다. .sleepcode/ 디렉토리를 확인하세요.${C.reset}`);
@@ -2227,6 +2493,8 @@ function runSingleWithDashboard(targetDir, cont) {
     done: 0,
     total: 0,
     cost: 0,
+    provider: providerPlan.selected,
+    fallbackProvider: providerPlan.fallback,
     reportLines: [],
     _proc: null,
     logFile: path.join(logDir, `run_${timestamp}.log`),
@@ -2283,7 +2551,7 @@ function runSingleWithDashboard(targetDir, cont) {
     const costStr = `$${ws.cost.toFixed(4)}`;
 
     lines.push(`${C.dim}╔${'═'.repeat(W + 2)}╗${C.reset}`);
-    lines.push(boxLine(`${SLEEPCODE_BADGE} run  ${statusIcon} ${statusText}${notionLink(process.env.NOTION_DB_ID)}`, W));
+    lines.push(boxLine(`${SLEEPCODE_BADGE} run  ${C.dim}[${providerLabel(ws.provider)}]${C.reset} ${statusIcon} ${statusText}${notionLink(process.env.NOTION_DB_ID)}`, W));
     lines.push(`${C.dim}╠${'═'.repeat(W + 2)}╣${C.reset}`);
     const pct = ws.total > 0 ? Math.round(ws.done / ws.total * 100) : 0;
     lines.push(boxLine(`${bar}  ${String(ws.done).padStart(2)}/${String(ws.total).padEnd(2)} tasks  ${C.cyan}${pct}%${C.reset}`, W));
@@ -2493,63 +2761,19 @@ function runSingleWithDashboard(targetDir, cont) {
     }
   }
 
-  // claude 프로세스 실행
   const env = { ...process.env };
   delete env.CLAUDECODE;
 
-  const claudeArgs = [];
-  if (cont) {
-    claudeArgs.push('--continue');
-  }
-  claudeArgs.push('-p', '--dangerously-skip-permissions',
-    '--output-format', 'stream-json',
-    '--verbose');
-
-  const claudeProc = spawn('claude', claudeArgs, {
-    cwd: targetDir,
-    env,
-    stdio: ['pipe', 'pipe', 'pipe'],
-    shell: true,
-  });
-
-  ws._proc = claudeProc;
-
-  // --continue 모드에서는 간결한 프롬프트 전달
-  const stdinPrompt = cont ? '다음 태스크를 진행하세요.' : prompt;
-  claudeProc.stdin.write(stdinPrompt);
-  claudeProc.stdin.end();
-
-  // 로그 파일
   const logStream = fs.createWriteStream(ws.logFile, { flags: 'a' });
-  logStream.write(`[${new Date().toISOString()}] === Run 시작 ===\n`);
+  logStream.write(`[${new Date().toISOString()}] === Run start (provider: ${ws.provider}) ===\n`);
 
-  // stdout 파싱
-  let buffer = '';
-  claudeProc.stdout.on('data', (data) => {
-    buffer += data.toString();
-    const lines = buffer.split('\n');
-    buffer = lines.pop();
+  const continuePrompt = '다음 태스크를 진행하세요.';
 
-    for (const line of lines) {
-      if (!line.trim()) continue;
-      logStream.write(line + '\n');
-
-      try {
-        const obj = JSON.parse(line);
-        processStreamEvent(ws, obj, scheduleRender, pushLog);
-      } catch {}
-    }
-  });
-
-  claudeProc.stderr.on('data', (data) => {
-    logStream.write(`[STDERR] ${data.toString()}`);
-  });
-
-  claudeProc.on('close', (code) => {
-    logStream.write(`[${new Date().toISOString()}] === Run 종료 (code: ${code}) ===\n`);
+  function finalizeRun(code, errMsg) {
+    logStream.write(`[${new Date().toISOString()}] === Run end (code: ${code}) ===\n`);
+    if (errMsg) logStream.write(`ERROR: ${errMsg}\n`);
     logStream.end();
 
-    // 최종 태스크 상태 갱신
     if (fs.existsSync(tasksPath)) {
       const content = fs.readFileSync(tasksPath, 'utf-8');
       const tc = countTasks(content);
@@ -2558,22 +2782,90 @@ function runSingleWithDashboard(targetDir, cont) {
     }
 
     ws.status = (code === 0) ? 'done' : 'failed';
-    ws.currentTask = '';
+    ws.currentTask = errMsg || '';
     onDone();
-  });
+  }
 
-  claudeProc.on('error', (err) => {
-    logStream.write(`ERROR: ${err.message}\n`);
-    logStream.end();
-    ws.status = 'failed';
-    ws.currentTask = err.message;
-    onDone();
-  });
+  function runAttempt(provider, allowFallback) {
+    ws.provider = provider;
+    const invoke = getProviderRunCommand(provider, cont);
+    const stdinPrompt = cont ? continuePrompt : (promptsByProvider[provider] || prompt);
+
+    const proc = spawn(invoke.command, invoke.args, {
+      cwd: targetDir,
+      env,
+      stdio: ['pipe', 'pipe', 'pipe'],
+      shell: true,
+    });
+
+    ws._proc = proc;
+    proc.stdin.write(stdinPrompt);
+    proc.stdin.end();
+
+    let buffer = '';
+    let sawEvents = false;
+
+    proc.stdout.on('data', (data) => {
+      buffer += data.toString();
+      const lines = buffer.split('\n');
+      buffer = lines.pop();
+
+      for (const line of lines) {
+        if (!line.trim()) continue;
+        logStream.write(line + '\n');
+        sawEvents = true;
+        try {
+          const obj = JSON.parse(line);
+          processStreamEvent(ws, obj, scheduleRender, pushLog);
+        } catch {}
+      }
+    });
+
+    proc.stderr.on('data', (data) => {
+      logStream.write(`[STDERR] ${data.toString()}`);
+    });
+
+    proc.on('close', (code) => {
+      if (buffer.trim()) {
+        logStream.write(buffer + '\n');
+        try {
+          const obj = JSON.parse(buffer);
+          processStreamEvent(ws, obj, scheduleRender, pushLog);
+          sawEvents = true;
+        } catch {}
+      }
+
+      if (code !== 0 && allowFallback && ws.fallbackProvider && ws.fallbackProvider !== provider && !sawEvents) {
+        const fromLabel = providerLabel(provider);
+        const toLabel = providerLabel(ws.fallbackProvider);
+        pushLog(ws.name, `${C.yellow}[FALLBACK]${C.reset} ${fromLabel} failed, retrying with ${toLabel}`);
+        logStream.write(`[${new Date().toISOString()}] FALLBACK: ${provider} -> ${ws.fallbackProvider}\n`);
+        runAttempt(ws.fallbackProvider, false);
+        return;
+      }
+
+      finalizeRun(code);
+    });
+
+    proc.on('error', (err) => {
+      if (allowFallback && ws.fallbackProvider && ws.fallbackProvider !== provider) {
+        const fromLabel = providerLabel(provider);
+        const toLabel = providerLabel(ws.fallbackProvider);
+        pushLog(ws.name, `${C.yellow}[FALLBACK]${C.reset} ${fromLabel} failed, retrying with ${toLabel}`);
+        logStream.write(`[${new Date().toISOString()}] FALLBACK_ERROR: ${err.message}\n`);
+        runAttempt(ws.fallbackProvider, false);
+        return;
+      }
+      finalizeRun(1, err.message);
+    });
+  }
+
+  runAttempt(ws.provider, true);
 }
 
 // ─── Watch 모드 (Notion 제어판) ───
 
-function cmdWatch() {
+function cmdWatch(cliProvider) {
   const targetDir = process.cwd();
   const scDir = path.join(targetDir, '.sleepcode');
 
@@ -2582,19 +2874,9 @@ function cmdWatch() {
     process.exit(1);
   }
 
-  // .env 로드
+  // .env load
   const envPath = path.join(scDir, '.env');
-  if (fs.existsSync(envPath)) {
-    const envContent = fs.readFileSync(envPath, 'utf-8');
-    for (const line of envContent.split('\n')) {
-      const trimmed = line.trim();
-      if (!trimmed || trimmed.startsWith('#')) continue;
-      const eqIdx = trimmed.indexOf('=');
-      if (eqIdx > 0) {
-        process.env[trimmed.slice(0, eqIdx)] = trimmed.slice(eqIdx + 1);
-      }
-    }
-  }
+  loadEnvFileToProcessEnv(envPath);
 
   // CLI 인자로 Notion 설정 오버라이드
   const cliArgs = parseArgs();
@@ -3071,7 +3353,7 @@ function cmdWatch() {
       }
 
       for (const ws of workerStates) {
-        spawnWorker(ws, py, onWorkerDone, scheduleRender, watchPushLog);
+        spawnWorker(ws, py, onWorkerDone, scheduleRender, watchPushLog, cliProvider);
       }
     } else {
       // 단일 모드
@@ -3112,7 +3394,7 @@ function cmdWatch() {
         if (allDone) {
           finishExecution(currentNotionTasks, currentSchema, currentWorkerStates);
         }
-      }, scheduleRender, watchPushLog);
+      }, scheduleRender, watchPushLog, cliProvider);
     }
   }
 
@@ -3335,7 +3617,7 @@ function cmdWatch() {
               if (allDone) {
                 finishExecution(currentNotionTasks, currentSchema, currentWorkerStates);
               }
-            }, scheduleRender, watchPushLog);
+            }, scheduleRender, watchPushLog, cliProvider);
           }
         }
       }
@@ -3520,7 +3802,7 @@ function cmdWatch() {
 }
 
 // ─── 태스크 자동 생성 ───
-function generateTasks() {
+function generateTasks(cliProvider) {
   const targetDir = process.cwd();
   const scDir = path.join(targetDir, '.sleepcode');
 
@@ -3529,10 +3811,15 @@ function generateTasks() {
     process.exit(1);
   }
 
-  // claude CLI 확인
-  if (!checkCommand('claude --version')) {
-    console.error(`${C.red}claude CLI가 설치되어 있지 않습니다.${C.reset}`);
+  let providerPlan;
+  try {
+    providerPlan = resolveProviderPlan(targetDir, cliProvider);
+  } catch (e) {
+    console.error(`${C.red}${e.message}${C.reset}`);
     process.exit(1);
+  }
+  if (providerPlan.requestedUnavailable) {
+    console.log(`${C.yellow}요청한 provider를 찾지 못해 ${providerLabel(providerPlan.selected)}로 전환합니다.${C.reset}`);
   }
 
   // sources.json 상태 표시
@@ -3637,17 +3924,17 @@ tasks.md 내용만 출력하세요. 다른 설명은 하지 마세요.`;
   delete env.CLAUDECODE;
 
   try {
-    const result = execSync(
-      'claude -p --output-format text',
-      {
-        input: prompt,
-        cwd: targetDir,
-        env,
-        stdio: ['pipe', 'pipe', 'pipe'],
-        timeout: 300000,
-        maxBuffer: 1024 * 1024,
+    let result;
+    try {
+      result = runPromptForTaskGeneration(providerPlan.selected, prompt, targetDir, env);
+    } catch (primaryError) {
+      if (providerPlan.fallback) {
+        console.log(`${C.yellow}${providerLabel(providerPlan.selected)} 실패, ${providerLabel(providerPlan.fallback)}로 재시도합니다.${C.reset}`);
+        result = runPromptForTaskGeneration(providerPlan.fallback, prompt, targetDir, env);
+      } else {
+        throw primaryError;
       }
-    ).toString().trim();
+    }
 
     // tasks.md에 저장
     fs.writeFileSync(tasksPath, result + '\n');
@@ -3668,6 +3955,13 @@ tasks.md 내용만 출력하세요. 다른 설명은 하지 마세요.`;
 // ─── 메인 ───
 async function main() {
   const targetDir = process.cwd();
+  const cliArgs = parseArgs();
+  const providerArg = normalizeProvider(cliArgs.provider, '');
+
+  if (cliArgs.provider && !providerArg) {
+    console.error(`${C.red}--provider 값은 claude, codex, auto 중 하나여야 합니다.${C.reset}`);
+    process.exit(1);
+  }
 
   // 서브커맨드 처리
   const firstArg = process.argv[2];
@@ -3682,11 +3976,11 @@ async function main() {
   if (firstArg === 'run') {
     const loop = process.argv.includes('--loop');
     const cont = process.argv.includes('--continue') || process.argv.includes('-c');
-    runWorker(loop, cont);
+    runWorker(loop, cont, providerArg);
     return;
   }
   if (firstArg === 'generate') {
-    generateTasks();
+    generateTasks(providerArg);
     return;
   }
   if (firstArg === 'sources') {
@@ -3695,7 +3989,7 @@ async function main() {
   }
   if (firstArg === 'parallel') {
     const subArgs = process.argv.slice(3);
-    runParallel(subArgs);
+    runParallel(subArgs, providerArg);
     return;
   }
   if (firstArg === 'usage') {
@@ -3703,11 +3997,9 @@ async function main() {
     return;
   }
   if (firstArg === 'watch') {
-    cmdWatch();
+    cmdWatch(providerArg);
     return;
   }
-
-  const cliArgs = parseArgs();
 
   console.log(`
     ${SLEEPCODE_BADGE}
@@ -3799,6 +4091,7 @@ async function main() {
       notionDbId,
       notionFilter,
       sleepInterval,
+      provider: providerArg || PROVIDERS.CLAUDE,
     });
 
     const weeklyBudget = parseFloat(cliArgs.budget) || 0;
@@ -3951,6 +4244,7 @@ async function main() {
       notionDbId,
       notionFilter,
       sleepInterval,
+      provider: providerArg || PROVIDERS.CLAUDE,
     });
 
     if (weeklyBudget > 0) {

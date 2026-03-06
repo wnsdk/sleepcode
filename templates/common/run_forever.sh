@@ -1,8 +1,10 @@
 #!/bin/bash
 
-# AI Night Worker - 감시자 스크립트
-# 사용법: tmux new -s ai './.sleepcode/scripts/run_forever.sh'
-#         ./.sleepcode/scripts/run_forever.sh --continue  (세션 연속 모드)
+# AI Night Worker loop script
+# Usage:
+#   ./.sleepcode/scripts/run_forever.sh
+#   ./.sleepcode/scripts/run_forever.sh --continue
+#   ./.sleepcode/scripts/run_forever.sh --provider codex
 
 cd "$(dirname "$0")/../.." || exit 1
 
@@ -10,59 +12,100 @@ LOG_DIR=".sleepcode/logs"
 mkdir -p "$LOG_DIR"
 LOG_FILE="$LOG_DIR/worker_$(date +%Y%m%d_%H%M%S).log"
 
-# --continue 플래그 파싱
 USE_CONTINUE=false
-for arg in "$@"; do
-  if [ "$arg" = "--continue" ]; then
-    USE_CONTINUE=true
-  fi
+PROVIDER_ARG=""
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --continue)
+      USE_CONTINUE=true
+      ;;
+    --provider)
+      shift
+      [ $# -gt 0 ] && PROVIDER_ARG="$1"
+      ;;
+  esac
+  shift
 done
+
+if [ -z "$PROVIDER_ARG" ] && [ -n "${SLEEPCODE_PROVIDER:-}" ]; then
+  PROVIDER_ARG="$SLEEPCODE_PROVIDER"
+fi
+
+PROVIDER="$(printf '%s' "$PROVIDER_ARG" | tr '[:upper:]' '[:lower:]')"
+[ -z "$PROVIDER" ] && PROVIDER="claude"
+[ "$PROVIDER" = "auto" ] && PROVIDER="claude"
+if [ "$PROVIDER" != "claude" ] && [ "$PROVIDER" != "codex" ]; then
+  PROVIDER="claude"
+fi
+export SLEEPCODE_PROVIDER="$PROVIDER"
 
 log() {
   echo "[$(date '+%Y-%m-%d %H:%M:%S')] $1" | tee -a "$LOG_FILE"
 }
 
-log "=== AI Night Worker 시작 ==="
-if [ "$USE_CONTINUE" = true ]; then
-  log "세션 연속 모드 활성화 (--continue)"
-fi
-log "로그 파일: $LOG_FILE"
+build_codex_prompt_file() {
+  local tasks_file="$1"
+  local out_file="$2"
+  local wrote=0
 
-# .env 로드 (API 키 등)
+  : > "$out_file"
+  if [ -f .sleepcode/scripts/base_rules.md ]; then
+    cat .sleepcode/scripts/base_rules.md >> "$out_file"
+    wrote=1
+  fi
+  if [ -f .sleepcode/rules.md ]; then
+    if [ "$wrote" -eq 1 ]; then
+      printf '\n\n---\n\n' >> "$out_file"
+    fi
+    cat .sleepcode/rules.md >> "$out_file"
+    wrote=1
+  fi
+  if [ "$wrote" -eq 1 ]; then
+    printf '\n\n---\n\n' >> "$out_file"
+  fi
+  printf '# Task List\n\n' >> "$out_file"
+  cat "$tasks_file" >> "$out_file"
+}
+
+log "=== AI Night Worker start ==="
+if [ "$USE_CONTINUE" = true ]; then
+  log "continue mode enabled (--continue)"
+fi
+log "provider: $PROVIDER"
+log "log file: $LOG_FILE"
+
 if [ -f .sleepcode/.env ]; then
   set -a
   source .sleepcode/.env
   set +a
-  log ".env 로드 완료"
+  log ".env loaded"
 fi
 
 ITERATION=0
 
 while true; do
   ITERATION=$((ITERATION + 1))
-  log "--- 반복 #${ITERATION} 시작 ---"
+  log "--- iteration #${ITERATION} start ---"
 
-  # Notion 동기화: pull (Notion → tasks.md)
   if [ -n "$NOTION_API_KEY" ] && [ -n "$NOTION_DB_ID" ]; then
     SYNC_OUTPUT=$(python3 .sleepcode/scripts/notion_sync.py pull 2>&1)
     SYNC_EXIT=$?
     if [ $SYNC_EXIT -ne 0 ]; then
-      log "Notion 동기화 실패 (pull): $SYNC_OUTPUT"
+      log "Notion sync failed (pull): $SYNC_OUTPUT"
     else
-      log "Notion 동기화 완료 (pull)"
+      log "Notion sync complete (pull)"
     fi
   fi
 
-  # 미완료 태스크가 있는지 확인
   REMAINING=$(grep -c '\[ \]' .sleepcode/tasks.md 2>/dev/null || echo "0")
-  log "남은 태스크: ${REMAINING}개"
+  log "remaining tasks: ${REMAINING}"
 
   if [ "$REMAINING" -eq 0 ]; then
-    log "=== 모든 태스크 완료. 종료합니다. ==="
+    log "=== all tasks are complete. exiting. ==="
     exit 0
   fi
 
-  # CLAUDE.md 동기화 (base_rules + rules → CLAUDE.md, 프롬프트 캐싱)
+  # Keep CLAUDE.md synced for claude prompt-cache behavior.
   {
     BASE_RULES=$(cat .sleepcode/scripts/base_rules.md 2>/dev/null || true)
     RULES=$(cat .sleepcode/rules.md 2>/dev/null || true)
@@ -71,40 +114,60 @@ while true; do
     fi
   }
 
-  # --continue 모드: 2회차부터 이전 세션 이어서 실행
-  if [ "$USE_CONTINUE" = true ] && [ "$ITERATION" -gt 1 ]; then
-    PROMPT="다음 태스크를 진행하세요."
-    log "claude 실행 중... (세션 연속)"
-    claude --continue -p "$PROMPT" --dangerously-skip-permissions --output-format stream-json --verbose 2>&1 \
-      | python3 .sleepcode/scripts/log_filter.py \
-      | tee -a "$LOG_FILE"
+  if [ "$PROVIDER" = "codex" ]; then
+    if [ "$USE_CONTINUE" = true ] && [ "$ITERATION" -gt 1 ]; then
+      TMP_PROMPT="$(mktemp)"
+      printf '%s' 'Continue with the next tasks.' > "$TMP_PROMPT"
+      log "codex running... (resume)"
+      cat "$TMP_PROMPT" | codex exec resume --last --json --dangerously-bypass-approvals-and-sandbox - 2>&1 \
+        | python3 .sleepcode/scripts/log_filter.py \
+        | tee -a "$LOG_FILE"
+      EXIT_CODE=${PIPESTATUS[0]}
+      rm -f "$TMP_PROMPT"
+    else
+      TMP_PROMPT="$(mktemp)"
+      build_codex_prompt_file ".sleepcode/tasks.md" "$TMP_PROMPT"
+      log "codex running..."
+      cat "$TMP_PROMPT" | codex exec --json --dangerously-bypass-approvals-and-sandbox - 2>&1 \
+        | python3 .sleepcode/scripts/log_filter.py \
+        | tee -a "$LOG_FILE"
+      EXIT_CODE=${PIPESTATUS[0]}
+      rm -f "$TMP_PROMPT"
+    fi
   else
-    # 첫 실행 또는 일반 모드: tasks.md 전체 전달
-    PROMPT=$(cat .sleepcode/tasks.md)
-    log "claude 실행 중..."
-    claude -p "$PROMPT" --dangerously-skip-permissions --output-format stream-json --verbose 2>&1 \
-      | python3 .sleepcode/scripts/log_filter.py \
-      | tee -a "$LOG_FILE"
+    if [ "$USE_CONTINUE" = true ] && [ "$ITERATION" -gt 1 ]; then
+      PROMPT='Continue with the next tasks.'
+      log "claude running... (continue)"
+      claude --continue -p "$PROMPT" --dangerously-skip-permissions --output-format stream-json --verbose 2>&1 \
+        | python3 .sleepcode/scripts/log_filter.py \
+        | tee -a "$LOG_FILE"
+      EXIT_CODE=${PIPESTATUS[0]}
+    else
+      PROMPT=$(cat .sleepcode/tasks.md)
+      log "claude running..."
+      claude -p "$PROMPT" --dangerously-skip-permissions --output-format stream-json --verbose 2>&1 \
+        | python3 .sleepcode/scripts/log_filter.py \
+        | tee -a "$LOG_FILE"
+      EXIT_CODE=${PIPESTATUS[0]}
+    fi
   fi
-  EXIT_CODE=${PIPESTATUS[0]}
-  log "claude 종료 (exit code: $EXIT_CODE)"
 
-  # 미커밋 변경사항 체크
+  log "$PROVIDER exit code: $EXIT_CODE"
+
   if [[ -n $(git status --porcelain) ]]; then
-    log "경고: 커밋되지 않은 변경사항 감지"
+    log "warning: uncommitted changes detected"
   fi
 
-  # Notion 동기화: push (tasks.md → Notion)
   if [ -n "$NOTION_API_KEY" ] && [ -n "$NOTION_DB_ID" ]; then
     SYNC_OUTPUT=$(python3 .sleepcode/scripts/notion_sync.py push 2>&1)
     SYNC_EXIT=$?
     if [ $SYNC_EXIT -ne 0 ]; then
-      log "Notion 동기화 실패 (push): $SYNC_OUTPUT"
+      log "Notion sync failed (push): $SYNC_OUTPUT"
     else
-      log "Notion 동기화 완료 (push)"
+      log "Notion sync complete (push)"
     fi
   fi
 
-  log "--- 반복 #${ITERATION} 종료, {{SLEEP_INTERVAL}}초 대기 ---"
+  log "--- iteration #${ITERATION} end, sleep {{SLEEP_INTERVAL}}s ---"
   sleep {{SLEEP_INTERVAL}}
 done

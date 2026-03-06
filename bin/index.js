@@ -1617,6 +1617,18 @@ function spawnWorker(ws, py, onDone, onUpdate, pushLog) {
   });
 
   claudeProc.on('close', (code) => {
+    // 버퍼에 남은 마지막 줄 처리 (result 메시지에 cost_usd 포함)
+    if (buffer.trim()) {
+      logStream.write(buffer + '\n');
+      try {
+        const obj = JSON.parse(buffer);
+        processStreamEvent(ws, obj, onUpdate, pushLog);
+      } catch {
+        // JSON 아닌 줄 무시
+      }
+      buffer = '';
+    }
+
     logLine(`=== Worker ${ws.name} 종료 (code: ${code}) ===`);
     logStream.end();
 

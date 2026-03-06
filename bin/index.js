@@ -323,6 +323,55 @@ function parseNotionDbId(input) {
   return input;
 }
 
+/**
+ * 입력된 Notion ID가 실제 DB인지 검증.
+ * 페이지 URL이면 해당 페이지 안의 DB를 자동 탐색.
+ * @returns {Promise<string>} 유효한 DB ID
+ */
+async function validateNotionDbId(apiKey, rawId) {
+  if (!rawId) return '';
+
+  // 1. DB로 직접 조회 시도
+  try {
+    await notionApiRequest('GET', `/databases/${rawId}`, apiKey);
+    return rawId; // DB ID가 맞음
+  } catch {
+    // DB가 아님 — 페이지일 수 있음
+  }
+
+  // 2. 페이지로 조회 시도
+  try {
+    const page = await notionApiRequest('GET', `/pages/${rawId}`, apiKey);
+    if (page && page.object === 'page') {
+      // 페이지 내 자식 DB 검색
+      try {
+        const blocks = await notionApiRequest('GET', `/blocks/${rawId}/children?page_size=100`, apiKey);
+        if (blocks && blocks.results) {
+          const childDb = blocks.results.find(b => b.type === 'child_database');
+          if (childDb) {
+            return childDb.id.replace(/-/g, '');
+          }
+        }
+      } catch {}
+
+      // 자식 DB가 없으면 에러
+      throw new Error(
+        `입력한 URL은 Notion 페이지입니다 (DB가 아닙니다).\n` +
+        `  해당 페이지 안에 데이터베이스가 없습니다.\n` +
+        `  Notion 데이터베이스의 URL 또는 ID를 입력해주세요.\n` +
+        `  ${C.dim}(DB URL 예: https://www.notion.so/workspace/abc123...?v=...)${C.reset}`
+      );
+    }
+  } catch (e) {
+    if (e.message.includes('Notion 페이지입니다')) throw e;
+  }
+
+  throw new Error(
+    `유효하지 않은 Notion ID입니다.\n` +
+    `  데이터베이스 URL 또는 ID를 확인해주세요.`
+  );
+}
+
 // ─── Notion DB 생성 ───
 
 function notionApiRequest(method, endpoint, apiKey, body) {
@@ -3190,7 +3239,14 @@ async function main() {
         process.exit(1);
       }
     } else {
-      notionDbId = parseNotionDbId(cliArgs.notionDb || '');
+      const rawId = parseNotionDbId(cliArgs.notionDb || '');
+      console.log(`${C.dim}Notion DB 확인 중...${C.reset}`);
+      try {
+        notionDbId = await validateNotionDbId(notionKey, rawId);
+      } catch (e) {
+        console.error(`${C.red}${e.message}${C.reset}`);
+        process.exit(1);
+      }
     }
     const notionFilter = cliArgs.notionFilter || '';
     const sleepInterval = cliArgs.interval || '30';
@@ -3198,7 +3254,7 @@ async function main() {
     console.log(`${C.dim}타입: ${typeConfig.label}${C.reset}`);
     console.log(`${C.dim}이름: ${projectName}${C.reset}`);
     console.log(`${C.dim}역할: ${role}${C.reset}`);
-    if (notionDbId) console.log(`${C.dim}태스크: Notion DB${C.reset}`);
+    console.log(`${C.dim}태스크: Notion DB${C.reset}`);
 
     generateFiles(targetDir, {
       typeKey,
@@ -3300,9 +3356,21 @@ async function main() {
 
     if (taskSource.key === 'notion') {
       const dbInput = await ask(rl, '할 일을 저장해 둔 Notion DB (URL 또는 ID)', '');
-      notionDbId = parseNotionDbId(dbInput);
-      if (!notionDbId) {
+      const rawId = parseNotionDbId(dbInput);
+      if (!rawId) {
         console.error(`${C.red}유효한 Notion DB URL 또는 ID를 입력해주세요.${C.reset}`);
+        process.exit(1);
+      }
+      console.log(`${C.dim}Notion DB 확인 중...${C.reset}`);
+      try {
+        notionDbId = await validateNotionDbId(notionKey, rawId);
+        if (notionDbId !== rawId) {
+          console.log(`${C.green}✓${C.reset} 페이지 내 DB를 자동 감지했습니다.`);
+        } else {
+          console.log(`${C.green}✓${C.reset} Notion DB 확인 완료`);
+        }
+      } catch (e) {
+        console.error(`${C.red}${e.message}${C.reset}`);
         process.exit(1);
       }
     } else if (taskSource.key === 'notion-create') {

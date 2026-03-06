@@ -2674,6 +2674,16 @@ function cmdWatch() {
         props[schema.cost_prop] = { number: Math.round(perTaskCost * 10000) / 10000 };
       }
 
+      if (schema.completed_at_prop && isDone) {
+        const now = new Date();
+        const kstOffset = 9 * 60 * 60 * 1000;
+        const kst = new Date(now.getTime() + kstOffset);
+        const isoStr = kst.toISOString().replace('Z', '+09:00');
+        props[schema.completed_at_prop] = {
+          date: { start: isoStr },
+        };
+      }
+
       if (schema.log_prop) {
         const logText = isDone
           ? `완료 ($${(totalCost / notionTasks.length).toFixed(4)})`

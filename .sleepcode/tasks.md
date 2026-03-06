@@ -4,4 +4,4 @@
 
 ---
 
-- [x] sleepcode watch 일 때도 sleepcode run 일때처럼 터미널이 대시보드랑 로그 등으로 그렇게 구성되게 해줘 <!-- notion:31bad790-3b5d-8078-8d92-e72cca8a9b16 -->
+- [x] Task 종료 후, 노션 DB의 Completed At 컬럼에 완료한 시각도 업데이트 되게 해줘 <!-- notion:31bad790-3b5d-808e-a2f2-dd7b2a1606aa -->

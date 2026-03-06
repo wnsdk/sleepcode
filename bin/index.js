@@ -173,6 +173,12 @@ const PROJECT_TYPES = {
     testCmd: 'npm test',
     lintCmd: 'npx next lint',
   },
+  godot: {
+    label: 'Godot 4 (GDScript)',
+    buildCmd: 'godot --headless --check-only --script res://project.godot 2>&1 || true',
+    testCmd: '',
+    lintCmd: '',
+  },
   custom: {
     label: 'Custom (직접 설정)',
     buildCmd: '',

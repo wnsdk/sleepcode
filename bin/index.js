@@ -1107,15 +1107,21 @@ function boxLine(content, innerWidth) {
 /** 대시보드 하단 메뉴 렌더링 */
 const MENU_ITEMS = ['마무리 후 종료', '즉시 종료'];
 
-function renderMenuLine(selectedIndex, innerWidth) {
+function renderMenuLine(selectedIndex, innerWidth, confirmPending) {
   const parts = MENU_ITEMS.map((label, i) => {
     if (i === selectedIndex) {
       return `${C.cyan}${C.bold}▸ ${label}${C.reset}`;
     }
     return `${C.dim}  ${label}${C.reset}`;
   });
-  const content = parts.join('    ');
-  return boxLine(`◀ ${content}  ▶`, innerWidth);
+  let content = parts.join('    ');
+  if (confirmPending) {
+    content += `  ${C.yellow}← Enter로 확인${C.reset}`;
+  }
+  const raw = `  ${content}  `;
+  const vw = visualWidth(raw.replace(/\x1b\[[0-9;]*m/g, ''));
+  const pad = Math.max(0, innerWidth - vw);
+  return `  ${content}  ${' '.repeat(pad)}`;
 }
 
 /** 대시보드 메뉴 키 입력 핸들러 설정 */
@@ -1123,6 +1129,8 @@ function setupMenuInput(state, onRender, onGraceful, onImmediate) {
   if (!process.stdin.isTTY) return null;
   process.stdin.setRawMode(true);
   process.stdin.resume();
+
+  state.confirmPending = false;
 
   const handler = (data) => {
     const key = data.toString();
@@ -1135,13 +1143,20 @@ function setupMenuInput(state, onRender, onGraceful, onImmediate) {
 
     // 좌우 화살표 (ESC [ D / ESC [ C)
     if (key === '\x1b[D' || key === '\x1b[C') {
+      state.confirmPending = false;
       state.menuIndex = state.menuIndex === 0 ? 1 : 0;
       onRender();
       return;
     }
 
-    // Enter
+    // Enter: 한 번 누르면 확인 대기, 다시 누르면 실행
     if (key === '\r' || key === '\n') {
+      if (!state.confirmPending) {
+        state.confirmPending = true;
+        onRender();
+        return;
+      }
+      state.confirmPending = false;
       if (state.menuIndex === 0) {
         onGraceful();
       } else {
@@ -1664,15 +1679,15 @@ function runParallelWorkers(targetDir, workerInfos) {
       lines.push(boxLine('', W));
     }
 
-    // 메뉴
-    lines.push(`${C.dim}├${'─'.repeat(W + 2)}┤${C.reset}`);
-    if (gracefulShutdown) {
-      lines.push(boxLine(`${C.yellow}마무리 중... 현재 작업 완료 후 종료됩니다${C.reset}`, W));
-    } else {
-      lines.push(renderMenuLine(menuState.menuIndex, W));
-    }
-
+    // 테이블 닫기
     lines.push(`${C.dim}╰${'─'.repeat(W + 2)}╯${C.reset}`);
+
+    // 메뉴 (테이블 밖)
+    if (gracefulShutdown) {
+      lines.push(`  ${C.yellow}마무리 중... 현재 작업 완료 후 종료됩니다${C.reset}`);
+    } else {
+      lines.push(renderMenuLine(menuState.menuIndex, W, menuState.confirmPending));
+    }
     lines.push(`${C.dim} ─── logs ${'─'.repeat(W - 7)}${C.reset}`);
 
     // Alternate Screen: 절대 좌표로 대시보드 렌더링
@@ -2245,15 +2260,15 @@ function runSingleWithDashboard(targetDir, cont) {
       lines.push(boxLine('', W));
     }
 
-    // 메뉴
-    lines.push(`${C.dim}├${'─'.repeat(W + 2)}┤${C.reset}`);
-    if (gracefulShutdown) {
-      lines.push(boxLine(`${C.yellow}마무리 중... 현재 작업 완료 후 종료됩니다${C.reset}`, W));
-    } else {
-      lines.push(renderMenuLine(menuState.menuIndex, W));
-    }
-
+    // 테이블 닫기
     lines.push(`${C.dim}╰${'─'.repeat(W + 2)}╯${C.reset}`);
+
+    // 메뉴 (테이블 밖)
+    if (gracefulShutdown) {
+      lines.push(`  ${C.yellow}마무리 중... 현재 작업 완료 후 종료됩니다${C.reset}`);
+    } else {
+      lines.push(renderMenuLine(menuState.menuIndex, W, menuState.confirmPending));
+    }
     lines.push(`${C.dim} ─── logs ${'─'.repeat(W - 7)}${C.reset}`);
 
     // Alternate Screen: 절대 좌표로 대시보드 렌더링
@@ -2705,15 +2720,15 @@ function cmdWatch() {
       lines.push(boxLine('', W));
     }
 
-    // 메뉴
-    lines.push(`${C.dim}├${'─'.repeat(W + 2)}┤${C.reset}`);
-    if (gracefulShutdown) {
-      lines.push(boxLine(`${C.yellow}마무리 중... 현재 작업 완료 후 종료됩니다${C.reset}`, W));
-    } else {
-      lines.push(renderMenuLine(menuState.menuIndex, W));
-    }
-
+    // 테이블 닫기
     lines.push(`${C.dim}╰${'─'.repeat(W + 2)}╯${C.reset}`);
+
+    // 메뉴 (테이블 밖)
+    if (gracefulShutdown) {
+      lines.push(`  ${C.yellow}마무리 중... 현재 작업 완료 후 종료됩니다${C.reset}`);
+    } else {
+      lines.push(renderMenuLine(menuState.menuIndex, W, menuState.confirmPending));
+    }
     lines.push(`${C.dim} ─── logs ${'─'.repeat(W - 7)}${C.reset}`);
 
     // Alternate Screen: 절대 좌표로 대시보드 렌더링

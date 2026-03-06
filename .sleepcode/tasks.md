@@ -1,4 +1,4 @@
 # 작업 목록
 
 ## @worker feature-1
-- [x] docs/proposal-runtime-task-addition.md 파일의 7번 방안을 구현할 경우, 구체적으로 어떤 시스템으로 할건지 계획만 정리해줘
+- [x] sleepcode가 실행되는 컴퓨터가 아닌 다른 원격 컴퓨터에서 tasks를 손쉽게 설정하고 손쉽게 '시작' 시키고 싶은데 아이디어 좀 줘봐.

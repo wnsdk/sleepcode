@@ -564,7 +564,11 @@ function syncClaudeMd(targetDir) {
   if (fs.existsSync(rulesPath)) parts.push(fs.readFileSync(rulesPath, 'utf-8'));
 
   if (parts.length > 0) {
-    fs.writeFileSync(claudeMdPath, parts.join('\n\n---\n\n'));
+    let content = parts.join('\n\n---\n\n');
+    // API 키가 CLAUDE.md에 노출되지 않도록 마스킹
+    content = content.replace(/API Key: `[^`]+`/g, 'API Key는 .sleepcode/.env 참조');
+    content = content.replace(/\(API Key: [^)]+\)/g, '(API Key는 .sleepcode/.env 참조)');
+    fs.writeFileSync(claudeMdPath, content);
   }
 }
 
@@ -615,9 +619,9 @@ function generateFiles(targetDir, { typeKey, projectName, role, buildCmd, testCm
       baseRules = baseRules.replace('\n{{FIGMA_SECTION}}\n', '');
     }
 
-    // Notion 섹션
+    // Notion 섹션 (API 키는 .env에서 관리, CLAUDE.md에 노출하지 않음)
     if (notionKey) {
-      let notionSection = `\n## Notion\n\n- **기획/문서**: Notion MCP 도구로 직접 조회 가능 (API Key: \`${notionKey}\`)`;
+      let notionSection = `\n## Notion\n\n- **기획/문서**: Notion MCP 도구로 직접 조회 가능 (API Key는 .sleepcode/.env 참조)`;
       if (notionPages) {
         notionSection += `\n- **참고 페이지**: ${notionPages}`;
       }

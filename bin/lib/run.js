@@ -2,7 +2,7 @@ const fs = require('fs');
 const path = require('path');
 const { execSync, spawn } = require('child_process');
 const { C, SLEEPCODE_BADGE, IS_WIN, PROVIDERS, notionLink } = require('./constants');
-const { countTasks, progressBar, visualWidth, loadEnvFileToProcessEnv } = require('./utils');
+const { countTasks, progressBar, visualWidth, padEndVisual, loadEnvFileToProcessEnv } = require('./utils');
 const { detectPython } = require('./prerequisites');
 const { resolveProviderPlan, providerLabel, providerLabelWithModel, getProviderRunCommand, buildExecutionPrompt, assessTaskDifficulty } = require('./provider');
 const { isOverBudget, recordCost } = require('./config');
@@ -182,18 +182,19 @@ function runSingleWithDashboard(targetDir, cont, cliProvider) {
     const statusIcon = ws.status === 'running' ? `${C.cyan}⟳${C.reset}`
       : ws.status === 'done' ? `${C.green}✓${C.reset}`
       : `${C.red}✗${C.reset}`;
-    const statusText = ws.status === 'running' ? '실행 중' : ws.status === 'done' ? '완료' : '실패';
-    const bar = progressBar(ws.done, ws.total, 20);
+    const bar = progressBar(ws.done, ws.total, 15);
     const costStr = `$${ws.cost.toFixed(4)}`;
 
-    lines.push(`${C.dim}╔${'═'.repeat(W + 2)}╗${C.reset}`);
-    const difficultyInfo = ws.difficultyLabel ? `  ${C.yellow}${ws.difficultyLabel}${C.reset}` : '';
-    lines.push(boxLine(`${SLEEPCODE_BADGE} run  ${C.dim}[${providerLabelWithModel(ws.provider, ws.model)}]${C.reset} ${statusIcon} ${statusText}${difficultyInfo}${notionLink(process.env.NOTION_DB_ID)}`, W));
-    lines.push(`${C.dim}╠${'═'.repeat(W + 2)}╣${C.reset}`);
     const pct = ws.total > 0 ? Math.round(ws.done / ws.total * 100) : 0;
-    lines.push(boxLine(`${bar}  ${String(ws.done).padStart(2)}/${String(ws.total).padEnd(2)} tasks  ${C.cyan}${pct}%${C.reset}`, W));
+
+    lines.push(`${C.dim}╔${'═'.repeat(W + 2)}╗${C.reset}`);
+    lines.push(boxLine(`${SLEEPCODE_BADGE} run${notionLink(process.env.NOTION_DB_ID)}`, W));
+    lines.push(`${C.dim}╠${'═'.repeat(W + 2)}╣${C.reset}`);
+    const diffTag = ws.difficultyLabel ? ` ${C.yellow}${ws.difficulty}${C.reset}` : '';
+    const providerStr = providerLabelWithModel(ws.provider, ws.model);
+    lines.push(boxLine(`${statusIcon} ${C.bold}${padEndVisual(providerStr, 18)}${C.reset} ${bar} ${String(ws.done).padStart(2)}/${String(ws.total).padEnd(2)} ${C.cyan}${String(pct).padStart(3)}%${C.reset}${diffTag}`, W));
     if (ws.currentTask && ws.status === 'running') {
-      const maxTaskW = W - 4;
+      const maxTaskW = W - 6;
       let task = ws.currentTask;
       if (visualWidth(task) > maxTaskW) {
         let tw = 0;
@@ -206,12 +207,12 @@ function runSingleWithDashboard(targetDir, cont, cliProvider) {
         }
         task = task.slice(0, cut) + '...';
       }
-      lines.push(boxLine(`${C.dim}> ${task}${C.reset}`, W));
+      lines.push(boxLine(`  ${C.dim}> ${task}${C.reset}`, W));
     } else {
       lines.push(boxLine('', W));
     }
     lines.push(`${C.dim}╠${'═'.repeat(W + 2)}╣${C.reset}`);
-    lines.push(boxLine(`${C.dim}비용${C.reset} ${C.yellow}${costStr}${C.reset}  ${C.dim}·  경과${C.reset} ${C.cyan}${elapsedStr}${C.reset}`, W));
+    lines.push(boxLine(`${C.dim}비용${C.reset} ${C.yellow}${costStr}${C.reset}  ${C.dim}·  경과${C.reset} ${C.cyan}${elapsedStr}${C.reset}  ${C.dim}·  진행${C.reset} ${ws.done}/${ws.total} ${C.cyan}${pct}%${C.reset}`, W));
     const budgetInfo = isOverBudget(targetDir);
     if (budgetInfo) {
       const pct = Math.min(100, (budgetInfo.total / budgetInfo.budget * 100)).toFixed(0);
@@ -253,7 +254,7 @@ function runSingleWithDashboard(targetDir, cont, cliProvider) {
   console.log(`${C.cyan}${modeLabel}${C.reset}`);
 
   // Alternate Screen 초기화
-  const dashboardHeight = 12;
+  const dashboardHeight = 13;
   if (process.stdout.isTTY) {
     process.stdout.write('\x1b[?1049h');
     process.stdout.write('\x1b[H');

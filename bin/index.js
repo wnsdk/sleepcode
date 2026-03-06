@@ -3061,7 +3061,8 @@ function cmdWatch(cliProvider) {
             : ws.status === 'budget_stop' ? `${C.yellow}■${C.reset}`
             : `${C.red}✗${C.reset}`;
           const wPct = ws.total > 0 ? Math.round(ws.done / ws.total * 100) : 0;
-          lines.push(boxLine(`${statusIcon} ${C.bold}${padEndVisual(ws.name, 18)}${C.reset} ${bar} ${String(ws.done).padStart(2)}/${String(ws.total).padEnd(2)} ${C.cyan}${String(wPct).padStart(3)}%${C.reset}`, W));
+          const wModel = ws.provider ? `${C.dim}[${providerLabel(ws.provider)}]${C.reset} ` : '';
+          lines.push(boxLine(`${statusIcon} ${C.bold}${padEndVisual(ws.name, 18)}${C.reset} ${wModel}${bar} ${String(ws.done).padStart(2)}/${String(ws.total).padEnd(2)} ${C.cyan}${String(wPct).padStart(3)}%${C.reset}`, W));
           if (ws.currentTask && ws.status === 'running') {
             const maxTaskW = W - 6;
             let task = ws.currentTask;
@@ -3086,7 +3087,8 @@ function cmdWatch(cliProvider) {
           : ws.status === 'done' ? `${C.green}✓${C.reset}`
           : `${C.red}✗${C.reset}`;
         const statusText = ws.status === 'running' ? '실행 중' : ws.status === 'done' ? '완료' : '실패';
-        lines.push(boxLine(`${SLEEPCODE_BADGE} watch  ${statusIcon} ${statusText}${notionLink(dbId)}`, W));
+        const modelTag = ws.provider ? ` ${C.dim}[${providerLabel(ws.provider)}]${C.reset}` : '';
+        lines.push(boxLine(`${SLEEPCODE_BADGE} watch  ${statusIcon} ${statusText}${modelTag}${notionLink(dbId)}`, W));
         lines.push(`${C.dim}╠${'═'.repeat(W + 2)}╣${C.reset}`);
 
         const bar = progressBar(ws.done, ws.total, 20);

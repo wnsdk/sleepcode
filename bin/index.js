@@ -19,6 +19,30 @@ const C = {
   brightWhite: '\x1b[97m',
 };
 
+/** 브랜치/워커명에 대해 고유한 색상 코드를 반환 */
+const BRANCH_COLORS = [
+  '\x1b[36m',   // cyan
+  '\x1b[33m',   // yellow
+  '\x1b[35m',   // magenta
+  '\x1b[32m',   // green
+  '\x1b[34m',   // blue
+  '\x1b[91m',   // bright red
+  '\x1b[96m',   // bright cyan
+  '\x1b[93m',   // bright yellow
+  '\x1b[95m',   // bright magenta
+  '\x1b[92m',   // bright green
+];
+const _branchColorCache = {};
+function branchColor(name) {
+  if (!name || name === 'SYSTEM') return C.dim;
+  if (_branchColorCache[name]) return _branchColorCache[name];
+  let hash = 0;
+  for (let i = 0; i < name.length; i++) hash = (hash * 31 + name.charCodeAt(i)) | 0;
+  const color = BRANCH_COLORS[Math.abs(hash) % BRANCH_COLORS.length];
+  _branchColorCache[name] = color;
+  return color;
+}
+
 // sleepcode 뱃지 (pill 형태: 반블록 + 마젠타 배경 + 흰색 볼드)
 const SLEEPCODE_BADGE = `${C.magenta}▐${C.bgMagenta}${C.brightWhite}${C.bold} sleepcode ${C.reset}${C.magenta}▌${C.reset}`;
 
@@ -1617,7 +1641,8 @@ function runParallelWorkers(targetDir, workerInfos) {
   }
 
   function pushLog(workerName, msg) {
-    const tag = `${C.dim}[${workerName}]${C.reset}`;
+    const color = branchColor(workerName);
+    const tag = `${color}[${workerName}]${C.reset}`;
     const fullMsg = `${tag} ${msg}`;
     logBuffer.push(fullMsg);
     if (logBuffer.length > MAX_LOG_BUFFER) logBuffer.shift();
@@ -2647,8 +2672,9 @@ function cmdWatch() {
 
   function watchPushLog(name, msg) {
     const t = new Date().toLocaleTimeString();
+    const color = branchColor(name);
     const formatted = name && name !== 'SYSTEM'
-      ? `${C.dim}[${t}] [${name}]${C.reset} ${msg}`
+      ? `${C.dim}[${t}]${C.reset} ${color}[${name}]${C.reset} ${msg}`
       : `${C.dim}[${t}]${C.reset} ${msg}`;
     logBuffer.push(formatted);
     if (logBuffer.length > MAX_LOG_BUFFER) logBuffer.shift();

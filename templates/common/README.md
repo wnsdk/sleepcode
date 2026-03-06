@@ -4,35 +4,9 @@ AI codes while you sleep — 밤새 개발 작업을 자동화하는 시스템�
 
 ---
 
-## 폴더 구조
+## 사용법
 
-```
-.sleepcode/
-  rules.md           # ✏️ AI 역할 + 작업 규칙 (수정하세요)
-  tasks.md           # ✏️ 오늘 진행할 작업 목록 (수정하세요)
-  docs/              # ✏️ 개발 참고 자료 (피그마 스크린샷, 기획서 등)
-  scripts/           # ⚙️ 시스템 (수정하지 마세요)
-    base_rules.md    #    공통 작업 규칙
-    ai_worker.*      #    1회 실행 스크립트
-    run_forever.*    #    무한 루프 감시자 스크립트
-    log_filter.py    #    로그 필터 (핵심 메시지만 추출)
-  logs/              # 실행 로그 (자동 생성)
-```
-
----
-
-## 작동 원리
-
-1. `claude -p` 로 비대화형 모드 실행
-2. `rules.md` + `tasks.md` 를 합쳐서 프롬프트로 전달
-3. AI가 코드 작성 → 빌드/테스트 → 오류 수정 → git commit
-4. 대기 후 다시 반복
-
----
-
-## 실행 방법
-
-### 1. (최초 1회) --dangerously-skip-permissions 수락
+### 1. (최초 1회) Claude CLI 권한 설정
 
 ```bash
 claude --dangerously-skip-permissions
@@ -40,7 +14,29 @@ claude --dangerously-skip-permissions
 
 동의 프롬프트가 뜨면 수락 후 `Ctrl + C`로 나옵니다.
 
-### 2. 실행
+### 2. 작업 목록 작성
+
+**자동 생성 (추천)**
+
+```bash
+npx sleepcode generate
+```
+
+참고 자료(docs/, Figma, Notion)와 프로젝트 구조를 분석해서 `tasks.md`를 자동 생성합니다.
+
+**직접 작성**
+
+`.sleepcode/tasks.md`:
+
+```markdown
+# 작업 목록
+
+- [ ] 로그인 화면 구현
+- [ ] 회원가입 API 연동
+- [ ] 홈 화면 UI 개선
+```
+
+### 3. 실행
 
 ```bash
 # 1회 실행
@@ -50,9 +46,7 @@ npx sleepcode run
 npx sleepcode run --loop
 ```
 
-OS에 맞는 스크립트를 자동으로 선택합니다.
-
-### 3. 병렬 실행 (여러 기능 동시 개발)
+### 4. 병렬 실행 (여러 기능 동시 개발)
 
 `tasks.md`에 `@worker`로 워커별 태스크를 나누면 여러 기능을 동시에 개발할 수 있습니다.
 각 워커가 독립된 git worktree에서 작업하므로 충돌 없이 동시에 진행됩니다.
@@ -75,58 +69,35 @@ OS에 맞는 스크립트를 자동으로 선택합니다.
 **실행:**
 
 ```bash
-# 병렬 실행 (실시간 대시보드 표시)
-npx sleepcode parallel
-
-# worktree만 먼저 생성 (실행 전 확인용)
-npx sleepcode parallel --setup
-
-# 워커 상태 확인
-npx sleepcode parallel --status
-
-# 완료된 브랜치 자동 머지
-npx sleepcode parallel --merge
-
-# worktree 정리
-npx sleepcode parallel --clean
+npx sleepcode parallel              # 병렬 실행 (실시간 대시보드 표시)
+npx sleepcode parallel --setup      # worktree만 먼저 생성 (실행 전 확인용)
+npx sleepcode parallel --status     # 워커 상태 확인
+npx sleepcode parallel --merge      # 완료된 브랜치 자동 머지
+npx sleepcode parallel --clean      # worktree 정리
 ```
 
-**실시간 대시보드:**
+### 5. Notion 제어판 모드 (원격 태스크 관리)
 
-병렬 실행 중 터미널에 각 워커의 진행률, 비용, 경과 시간이 표시됩니다:
+Notion DB를 제어판으로 사용하여 원격으로 태스크를 관리합니다.
 
-```
-┌─ sleepcode parallel — 3/3 workers active ──────────────────┐
-│  ⟳ feature-auth       ████████░░░░░░░░ 2/4  JWT 토큰 관리 │
-│  ⟳ feature-home       ██████░░░░░░░░░░ 1/3  상품 목록 API  │
-│  ✓ bugfix             ████████████████ 1/1  완료           │
-│──────────────────────────────────────────────────────────── │
-│  💰 $0.45   ⏱ 12m 34s   📋 4/8 done                       │
-└────────────────────────────────────────────────────────────┘
+```bash
+npx sleepcode watch
 ```
 
-**작업 흐름:**
+30초마다 Notion DB를 폴링하여 **Run** 체크 또는 **Status = Start** 인 태스크를 감지하고 자동 실행합니다.
 
-```
-tasks.md (@worker별 분리) → git worktree 생성 → 동시 실행 → --merge로 통합
-```
+### 6. tmux 분리 (백그라운드 전환, macOS/Linux)
 
-### 4. tmux 분리 (백그라운드 전환, macOS/Linux)
+```bash
+# tmux 세션에서 실행
+tmux new -s ai 'npx sleepcode run --loop'
 
-```
+# 백그라운드 전환
 Ctrl + B → D
+
+# 세션 재접속
+tmux attach -t ai
 ```
-
----
-
-## 관리 명령어
-
-| 동작 | 명령어 |
-|------|--------|
-| 세션 재접속 | `tmux attach -t ai` |
-| 실시간 로그 | `tail -f .sleepcode/logs/worker_*.log` |
-| 종료 | `tmux attach -t ai` → `Ctrl + C` |
-| 세션 삭제 | `tmux kill-session -t ai` |
 
 ---
 
@@ -138,6 +109,52 @@ git log --oneline --since="12 hours ago"
 
 # 로그 확인
 tail -100 .sleepcode/logs/worker_*.log
+
+# 주간 사용량 확인
+npx sleepcode usage
+```
+
+---
+
+## 주간 예산 관리
+
+API 비용을 추적하고 주간 한도를 설정합니다.
+
+```bash
+# 예산 설정
+npx sleepcode --budget 50 --threshold 90
+
+# 사용량 확인
+npx sleepcode usage
+```
+
+- 매주 월요일 기준으로 사용량 리셋
+- 임계값 도달 시 진행 중인 태스크까지만 완료 후 종료
+
+---
+
+## 폴더 구조
+
+```
+.sleepcode/
+  rules.md           # AI 역할 + 작업 규칙 (수정하세요)
+  tasks.md           # 오늘 진행할 작업 목록 (수정하세요)
+  docs/              # 개발 참고 자료 (피그마 스크린샷, 기획서 등)
+  config.json        # 주간 예산 설정 (budget 설정 시)
+  scripts/           # 시스템 (수정하지 마세요)
+    base_rules.md    #   공통 작업 규칙
+    ai_worker.*      #   1회 실행 스크립트
+    run_forever.*    #   무한 루프 감시자 스크립트
+    log_filter.py    #   로그 필터 (핵심 메시지만 추출)
+  logs/              # 실행 로그 (자동 생성)
+```
+
+---
+
+## 작동 원리
+
+```
+rules.md + tasks.md → 프롬프트 조합 → claude -p → 코드 작성 → git commit → 반복
 ```
 
 ---
@@ -147,3 +164,4 @@ tail -100 .sleepcode/logs/worker_*.log
 - **역할/규칙 변경**: `.sleepcode/rules.md` 수정
 - **태스크 변경**: `.sleepcode/tasks.md` 수정
 - **참고 자료 추가**: `.sleepcode/docs/` 에 파일 추가
+- **주간 예산 변경**: `.sleepcode/config.json` 수정

@@ -447,10 +447,10 @@ async function createNotionDb(apiKey, parentPageId, dbTitle) {
       'Status': {
         select: {
           options: [
-            { name: 'Not started', color: 'default' },
-            { name: 'Queued', color: 'purple' },
-            { name: 'In Progress', color: 'blue' },
-            { name: 'Done', color: 'green' },
+            { name: 'Idle', color: 'default' },
+            { name: 'Pending', color: 'purple' },
+            { name: 'Running', color: 'blue' },
+            { name: 'Success', color: 'green' },
             { name: 'Failed', color: 'red' },
           ],
         },
@@ -2895,8 +2895,8 @@ function cmdWatch() {
     return statuses;
   }
 
-  // 태스크 완료 감지 시 다음 대기 태스크를 In Progress로 업데이트
-  const notionInProgressIds = new Set(); // 이미 In Progress로 설정된 태스크 ID 추적
+  // 태스크 완료 감지 시 다음 대기 태스크를 Running으로 업데이트
+  const notionInProgressIds = new Set(); // 이미 Running으로 설정된 태스크 ID 추적
 
   function updateNextTaskStatus(workerPaths) {
     if (!currentSchema || !currentNotionTasks || currentNotionTasks.length === 0) return;
@@ -2921,7 +2921,7 @@ function cmdWatch() {
           // 이 태스크가 현재 실행 중이어야 함
           if (!notionInProgressIds.has(task.id)) {
             notionInProgressIds.add(task.id);
-            const sp = buildStatusProps(currentSchema, 'In Progress');
+            const sp = buildStatusProps(currentSchema, 'Running');
             if (sp) notionUpdatePage(task.id, sp);
           }
           foundRunning = true;
@@ -2956,7 +2956,7 @@ function cmdWatch() {
 
     watchPushLog('SYSTEM', `${C.bold}▶ ${tasks.length}개 태스크 실행 시작${C.reset}`);
 
-    // Notion 상태: 첫 번째 태스크만 In Progress, 나머지는 Queued + Run 해제
+    // Notion 상태: 첫 번째 태스크만 Running, 나머지는 Pending + Run 해제
     notionInProgressIds.clear();
     const firstTaskPerWorker = new Set();
     for (const [, wTasks] of Object.entries(workerGroups)) {
@@ -2964,8 +2964,8 @@ function cmdWatch() {
     }
     for (const task of tasks) {
       const props = {};
-      const statusValue = firstTaskPerWorker.has(task.id) ? 'In Progress' : 'Queued';
-      if (statusValue === 'In Progress') notionInProgressIds.add(task.id);
+      const statusValue = firstTaskPerWorker.has(task.id) ? 'Running' : 'Pending';
+      if (statusValue === 'Running') notionInProgressIds.add(task.id);
       const sp = buildStatusProps(schema, statusValue);
       if (sp) Object.assign(props, sp);
       if (schema.run_prop) props[schema.run_prop] = { checkbox: false };
@@ -3108,7 +3108,7 @@ function cmdWatch() {
     // Notion 업데이트
     for (const task of notionTasks) {
       const isDone = taskCompletion[task.id] || false;
-      const newStatus = isDone ? 'Done' : 'Failed';
+      const newStatus = isDone ? 'Success' : 'Failed';
       const props = {};
 
       const sp = buildStatusProps(schema, newStatus);
@@ -3219,10 +3219,10 @@ function cmdWatch() {
       currentNotionTasks.push(task);
     }
 
-    // Notion 상태: Queued + Run 해제 (실행 중인 태스크 감지 시 In Progress로 전환됨)
+    // Notion 상태: Pending + Run 해제 (실행 중인 태스크 감지 시 Running으로 전환됨)
     for (const task of newTasks) {
       const props = {};
-      const sp = buildStatusProps(schema, 'Queued');
+      const sp = buildStatusProps(schema, 'Pending');
       if (sp) Object.assign(props, sp);
       if (schema.run_prop) props[schema.run_prop] = { checkbox: false };
       if (Object.keys(props).length > 0) notionUpdatePage(task.id, props);
@@ -3374,7 +3374,7 @@ function cmdWatch() {
       tasksToRun = data.tasks.filter(t => {
         if (!t.run) return false;
         const status = (t.status || '').toLowerCase();
-        return !['in progress', '진행 중'].includes(status);
+        return !['in progress', '진행 중', 'running', 'pending'].includes(status);
       });
     }
 
@@ -3421,7 +3421,7 @@ function cmdWatch() {
         }
       } catch {}
     }
-    // 완료된 태스크 감지 → 다음 대기 태스크를 In Progress로 업데이트
+    // 완료된 태스크 감지 → 다음 대기 태스크를 Running으로 업데이트
     const workerPaths = currentWorkerStates.map(ws => ws.path);
     updateNextTaskStatus(workerPaths);
     scheduleRender();

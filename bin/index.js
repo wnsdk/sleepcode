@@ -448,6 +448,7 @@ async function createNotionDb(apiKey, parentPageId, dbTitle) {
         select: {
           options: [
             { name: 'Not started', color: 'default' },
+            { name: 'Queued', color: 'purple' },
             { name: 'In Progress', color: 'blue' },
             { name: 'Done', color: 'green' },
             { name: 'Failed', color: 'red' },
@@ -2876,6 +2877,60 @@ function cmdWatch() {
     return null;
   }
 
+  // tasks.md에서 개별 태스크의 완료 상태를 파싱 (notion page ID 매칭)
+  function parseTaskStatuses(workerPaths) {
+    const statuses = {}; // { notionId: boolean (true=done) }
+    for (const wsPath of workerPaths) {
+      const tp = path.join(wsPath, '.sleepcode', 'tasks.md');
+      if (!fs.existsSync(tp)) continue;
+      try {
+        const content = fs.readFileSync(tp, 'utf-8');
+        const pattern = /^- \[([ x])\] .+<!-- notion:([a-f0-9-]+) -->/gm;
+        let match;
+        while ((match = pattern.exec(content)) !== null) {
+          statuses[match[2]] = match[1] === 'x';
+        }
+      } catch {}
+    }
+    return statuses;
+  }
+
+  // 태스크 완료 감지 시 다음 대기 태스크를 In Progress로 업데이트
+  const notionInProgressIds = new Set(); // 이미 In Progress로 설정된 태스크 ID 추적
+
+  function updateNextTaskStatus(workerPaths) {
+    if (!currentSchema || !currentNotionTasks || currentNotionTasks.length === 0) return;
+    const statuses = parseTaskStatuses(workerPaths);
+
+    // 워커 그룹별로 처리
+    const workerGroups = {};
+    for (const task of currentNotionTasks) {
+      const rawWorker = (task.worker || '').trim();
+      const workerKey = rawWorker.replace(/^@worker\s*/i, '').trim() || 'main';
+      if (!workerGroups[workerKey]) workerGroups[workerKey] = [];
+      workerGroups[workerKey].push(task);
+    }
+
+    for (const [, wTasks] of Object.entries(workerGroups)) {
+      // 현재 워커 그룹에서 아직 완료되지 않은 첫 번째 태스크 찾기
+      let foundRunning = false;
+      for (const task of wTasks) {
+        const isDone = statuses[task.id] || false;
+        if (isDone) continue;
+        if (!foundRunning) {
+          // 이 태스크가 현재 실행 중이어야 함
+          if (!notionInProgressIds.has(task.id)) {
+            notionInProgressIds.add(task.id);
+            const sp = buildStatusProps(currentSchema, 'In Progress');
+            if (sp) notionUpdatePage(task.id, sp);
+          }
+          foundRunning = true;
+        }
+        // 나머지는 Queued 상태 유지 (이미 설정되어 있으므로 업데이트 불필요)
+      }
+    }
+  }
+
   // ─── 태스크 실행 ───
 
   function executeNotionTasks(tasks, schema) {
@@ -2901,10 +2956,17 @@ function cmdWatch() {
 
     watchPushLog('SYSTEM', `${C.bold}▶ ${tasks.length}개 태스크 실행 시작${C.reset}`);
 
-    // Notion 상태: In Progress + Run 해제
+    // Notion 상태: 첫 번째 태스크만 In Progress, 나머지는 Queued + Run 해제
+    notionInProgressIds.clear();
+    const firstTaskPerWorker = new Set();
+    for (const [, wTasks] of Object.entries(workerGroups)) {
+      if (wTasks.length > 0) firstTaskPerWorker.add(wTasks[0].id);
+    }
     for (const task of tasks) {
       const props = {};
-      const sp = buildStatusProps(schema, 'In Progress');
+      const statusValue = firstTaskPerWorker.has(task.id) ? 'In Progress' : 'Queued';
+      if (statusValue === 'In Progress') notionInProgressIds.add(task.id);
+      const sp = buildStatusProps(schema, statusValue);
       if (sp) Object.assign(props, sp);
       if (schema.run_prop) props[schema.run_prop] = { checkbox: false };
       if (Object.keys(props).length > 0) notionUpdatePage(task.id, props);
@@ -3157,10 +3219,10 @@ function cmdWatch() {
       currentNotionTasks.push(task);
     }
 
-    // Notion 상태: In Progress + Run 해제
+    // Notion 상태: Queued + Run 해제 (실행 중인 태스크 감지 시 In Progress로 전환됨)
     for (const task of newTasks) {
       const props = {};
-      const sp = buildStatusProps(schema, 'In Progress');
+      const sp = buildStatusProps(schema, 'Queued');
       if (sp) Object.assign(props, sp);
       if (schema.run_prop) props[schema.run_prop] = { checkbox: false };
       if (Object.keys(props).length > 0) notionUpdatePage(task.id, props);
@@ -3259,6 +3321,10 @@ function cmdWatch() {
       }
     }
 
+    // 새 태스크 추가 후 즉시 다음 실행 태스크 상태 업데이트
+    const workerPaths = currentWorkerStates.map(ws => ws.path);
+    updateNextTaskStatus(workerPaths);
+
     scheduleRender();
   }
 
@@ -3340,7 +3406,7 @@ function cmdWatch() {
   // 대시보드 갱신 타이머 (카운트다운을 위해 1초 간격)
   const dashboardInterval = setInterval(renderDashboard, 1000);
 
-  // 5초마다 tasks.md를 읽어 진행률 갱신
+  // 5초마다 tasks.md를 읽어 진행률 갱신 + 개별 태스크 Notion 상태 업데이트
   const taskProgressInterval = setInterval(() => {
     if (watchPhase !== 'executing' || currentWorkerStates.length === 0) return;
     for (const ws of currentWorkerStates) {
@@ -3355,6 +3421,9 @@ function cmdWatch() {
         }
       } catch {}
     }
+    // 완료된 태스크 감지 → 다음 대기 태스크를 In Progress로 업데이트
+    const workerPaths = currentWorkerStates.map(ws => ws.path);
+    updateNextTaskStatus(workerPaths);
     scheduleRender();
   }, 5000);
 

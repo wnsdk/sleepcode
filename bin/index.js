@@ -204,11 +204,12 @@ function parseArgs() {
     else if (args[i] === '--interval' && args[i + 1]) parsed.interval = args[++i];
     else if (args[i] === '--budget' && args[i + 1]) parsed.budget = args[++i];
     else if (args[i] === '--threshold' && args[i + 1]) parsed.threshold = args[++i];
+    else if (args[i] === '--continue' || args[i] === '-c') parsed.continue = true;
     else if (args[i] === '--force' || args[i] === '-f') parsed.force = true;
     else if (args[i] === '--help' || args[i] === '-h') {
       console.log(`
 사용법: sleepcode [옵션]
-       sleepcode run [--loop]
+       sleepcode run [--loop] [--continue]
        sleepcode generate
        sleepcode sources
        sleepcode parallel [--setup|--clean|--merge|--status]
@@ -218,7 +219,9 @@ function parseArgs() {
 
 명령어:
   run              1회 실행 (대시보드 + 실시간 로그)
+  run --continue   이전 세션 이어서 실행 (컨텍스트 유지)
   run --loop       무한 루프 실행 (run_forever 스크립트)
+  run --loop --continue  루프 실행 시 세션 연속 (2회차부터 --continue)
   generate         참고자료 기반으로 tasks.md 자동 생성
   sources          참고자료 URL 관리 (sources.json)
   parallel         @worker 섹션 기반 병렬 실행
@@ -241,6 +244,7 @@ function parseArgs() {
   --interval <sec>     반복 간격 (초, 기본 30)
   --budget <usd>       주간 예산 ($, 예: 50)
   --threshold <pct>    사용량 임계값 (%, 기본 90)
+  -c, --continue       이전 Claude 세션 이어서 실행 (토큰 절약)
   -f, --force          기존 .sleepcode/ 덮어쓰기
   -h, --help           도움말
 `);
@@ -1607,7 +1611,7 @@ function processStreamEvent(ws, obj, onUpdate, pushLog) {
 }
 
 // ─── 실행 명령어 ───
-function runWorker(loop) {
+function runWorker(loop, cont) {
   const targetDir = process.cwd();
 
   // 예산 체크
@@ -1637,8 +1641,10 @@ function runWorker(loop) {
       process.exit(1);
     }
 
-    const cmd = IS_WIN ? `powershell -File "${scriptPath}"` : `"${scriptPath}"`;
-    console.log(`${C.cyan}무한 루프 실행: ${scriptName}${C.reset}\n`);
+    const contFlag = cont ? ' --continue' : '';
+    const cmd = IS_WIN ? `powershell -File "${scriptPath}"${contFlag}` : `"${scriptPath}"${contFlag}`;
+    const modeLabel = cont ? '무한 루프 실행 (세션 연속 모드)' : '무한 루프 실행';
+    console.log(`${C.cyan}${modeLabel}: ${scriptName}${C.reset}\n`);
 
     try {
       execSync(cmd, { stdio: 'inherit', cwd: targetDir });
@@ -1649,10 +1655,10 @@ function runWorker(loop) {
   }
 
   // 1회 실행: 대시보드 모드
-  runSingleWithDashboard(targetDir);
+  runSingleWithDashboard(targetDir, cont);
 }
 
-function runSingleWithDashboard(targetDir) {
+function runSingleWithDashboard(targetDir, cont) {
   const scDir = path.join(targetDir, '.sleepcode');
   const logDir = path.join(scDir, 'logs');
   fs.mkdirSync(logDir, { recursive: true });
@@ -1794,7 +1800,8 @@ function runSingleWithDashboard(targetDir) {
     dashboardLines = lines.length;
   }
 
-  console.log(`${C.cyan}1회 실행 (대시보드 모드)${C.reset}\n`);
+  const modeLabel = cont ? '1회 실행 (세션 연속 모드)' : '1회 실행 (대시보드 모드)';
+  console.log(`${C.cyan}${modeLabel}${C.reset}\n`);
   renderDashboard();
 
   const dashboardInterval = setInterval(renderDashboard, 3000);
@@ -1839,11 +1846,15 @@ function runSingleWithDashboard(targetDir) {
   const env = { ...process.env };
   delete env.CLAUDECODE;
 
-  const claudeProc = spawn('claude', [
-    '-p', '--dangerously-skip-permissions',
+  const claudeArgs = [];
+  if (cont) {
+    claudeArgs.push('--continue');
+  }
+  claudeArgs.push('-p', '--dangerously-skip-permissions',
     '--output-format', 'stream-json',
-    '--verbose',
-  ], {
+    '--verbose');
+
+  const claudeProc = spawn('claude', claudeArgs, {
     cwd: targetDir,
     env,
     stdio: ['pipe', 'pipe', 'pipe'],
@@ -1852,7 +1863,9 @@ function runSingleWithDashboard(targetDir) {
 
   ws._proc = claudeProc;
 
-  claudeProc.stdin.write(prompt);
+  // --continue 모드에서는 간결한 프롬프트 전달
+  const stdinPrompt = cont ? '다음 태스크를 진행하세요.' : prompt;
+  claudeProc.stdin.write(stdinPrompt);
   claudeProc.stdin.end();
 
   // 로그 파일
@@ -2060,7 +2073,8 @@ async function main() {
   const firstArg = process.argv[2];
   if (firstArg === 'run') {
     const loop = process.argv.includes('--loop');
-    runWorker(loop);
+    const cont = process.argv.includes('--continue') || process.argv.includes('-c');
+    runWorker(loop, cont);
     return;
   }
   if (firstArg === 'generate') {

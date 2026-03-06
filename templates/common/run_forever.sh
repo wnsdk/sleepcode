@@ -2,6 +2,7 @@
 
 # AI Night Worker - 감시자 스크립트
 # 사용법: tmux new -s ai './.sleepcode/scripts/run_forever.sh'
+#         ./.sleepcode/scripts/run_forever.sh --continue  (세션 연속 모드)
 
 cd "$(dirname "$0")/../.." || exit 1
 
@@ -9,11 +10,22 @@ LOG_DIR=".sleepcode/logs"
 mkdir -p "$LOG_DIR"
 LOG_FILE="$LOG_DIR/worker_$(date +%Y%m%d_%H%M%S).log"
 
+# --continue 플래그 파싱
+USE_CONTINUE=false
+for arg in "$@"; do
+  if [ "$arg" = "--continue" ]; then
+    USE_CONTINUE=true
+  fi
+done
+
 log() {
   echo "[$(date '+%Y-%m-%d %H:%M:%S')] $1" | tee -a "$LOG_FILE"
 }
 
 log "=== AI Night Worker 시작 ==="
+if [ "$USE_CONTINUE" = true ]; then
+  log "세션 연속 모드 활성화 (--continue)"
+fi
 log "로그 파일: $LOG_FILE"
 
 # .env 로드 (API 키 등)
@@ -54,14 +66,21 @@ while true; do
     fi
   }
 
-  # tasks.md만 프롬프트로 전달 (규칙은 CLAUDE.md로 자동 로드됨)
-  PROMPT=$(cat .sleepcode/tasks.md)
-
-  log "claude 실행 중..."
-  # stream-json → log_filter.py 로 핵심 메시지만 추출
-  claude -p "$PROMPT" --dangerously-skip-permissions --output-format stream-json --verbose 2>&1 \
-    | python3 .sleepcode/scripts/log_filter.py \
-    | tee -a "$LOG_FILE"
+  # --continue 모드: 2회차부터 이전 세션 이어서 실행
+  if [ "$USE_CONTINUE" = true ] && [ "$ITERATION" -gt 1 ]; then
+    PROMPT="다음 태스크를 진행하세요."
+    log "claude 실행 중... (세션 연속)"
+    claude --continue -p "$PROMPT" --dangerously-skip-permissions --output-format stream-json --verbose 2>&1 \
+      | python3 .sleepcode/scripts/log_filter.py \
+      | tee -a "$LOG_FILE"
+  else
+    # 첫 실행 또는 일반 모드: tasks.md 전체 전달
+    PROMPT=$(cat .sleepcode/tasks.md)
+    log "claude 실행 중..."
+    claude -p "$PROMPT" --dangerously-skip-permissions --output-format stream-json --verbose 2>&1 \
+      | python3 .sleepcode/scripts/log_filter.py \
+      | tee -a "$LOG_FILE"
+  fi
   EXIT_CODE=${PIPESTATUS[0]}
   log "claude 종료 (exit code: $EXIT_CODE)"
 

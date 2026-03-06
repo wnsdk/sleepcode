@@ -4,7 +4,7 @@ const { execSync, spawn } = require('child_process');
 const { C, SLEEPCODE_BADGE, IS_WIN, PROVIDERS, notionLink } = require('./constants');
 const { countTasks, progressBar, visualWidth, loadEnvFileToProcessEnv } = require('./utils');
 const { detectPython } = require('./prerequisites');
-const { resolveProviderPlan, providerLabel, getProviderRunCommand, buildExecutionPrompt } = require('./provider');
+const { resolveProviderPlan, providerLabel, getProviderRunCommand, buildExecutionPrompt, assessTaskDifficulty } = require('./provider');
 const { isOverBudget, recordCost } = require('./config');
 const { syncClaudeMd } = require('./files');
 const { boxLine, renderMenuLine, setupMenuInput } = require('./dashboard');
@@ -187,7 +187,8 @@ function runSingleWithDashboard(targetDir, cont, cliProvider) {
     const costStr = `$${ws.cost.toFixed(4)}`;
 
     lines.push(`${C.dim}╔${'═'.repeat(W + 2)}╗${C.reset}`);
-    lines.push(boxLine(`${SLEEPCODE_BADGE} run  ${C.dim}[${providerLabel(ws.provider)}]${C.reset} ${statusIcon} ${statusText}${notionLink(process.env.NOTION_DB_ID)}`, W));
+    const difficultyInfo = ws.difficultyLabel ? `  ${C.yellow}${ws.difficultyLabel}${C.reset}` : '';
+    lines.push(boxLine(`${SLEEPCODE_BADGE} run  ${C.dim}[${providerLabel(ws.provider)}]${C.reset} ${statusIcon} ${statusText}${difficultyInfo}${notionLink(process.env.NOTION_DB_ID)}`, W));
     lines.push(`${C.dim}╠${'═'.repeat(W + 2)}╣${C.reset}`);
     const pct = ws.total > 0 ? Math.round(ws.done / ws.total * 100) : 0;
     lines.push(boxLine(`${bar}  ${String(ws.done).padStart(2)}/${String(ws.total).padEnd(2)} tasks  ${C.cyan}${pct}%${C.reset}`, W));
@@ -397,11 +398,27 @@ function runSingleWithDashboard(targetDir, cont, cliProvider) {
     }
   }
 
+  // 난이도 평가 (Claude provider일 때만)
+  if (ws.provider === PROVIDERS.CLAUDE && !cont) {
+    try {
+      const assessment = assessTaskDifficulty(prompt, targetDir);
+      ws.difficulty = assessment.difficulty;
+      ws.difficultyLabel = assessment.label;
+      ws.model = assessment.model;
+      pushLog(ws.name, `${C.cyan}[DIFFICULTY]${C.reset} ${assessment.label} (${assessment.difficulty}/5) → ${assessment.model}`);
+      scheduleRender();
+    } catch {
+      ws.difficulty = 3;
+      ws.difficultyLabel = '★★★☆☆';
+      ws.model = 'claude-sonnet-4-6';
+    }
+  }
+
   const env = { ...process.env };
   delete env.CLAUDECODE;
 
   const logStream = fs.createWriteStream(ws.logFile, { flags: 'a' });
-  logStream.write(`[${new Date().toISOString()}] === Run start (provider: ${ws.provider}) ===\n`);
+  logStream.write(`[${new Date().toISOString()}] === Run start (provider: ${ws.provider}, model: ${ws.model || 'default'}, difficulty: ${ws.difficulty || 'N/A'}) ===\n`);
 
   const continuePrompt = '다음 태스크를 진행하세요.';
 
@@ -424,7 +441,7 @@ function runSingleWithDashboard(targetDir, cont, cliProvider) {
 
   function runAttempt(provider, allowFallback) {
     ws.provider = provider;
-    const invoke = getProviderRunCommand(provider, cont);
+    const invoke = getProviderRunCommand(provider, cont, ws.model);
     const stdinPrompt = cont ? continuePrompt : (promptsByProvider[provider] || prompt);
 
     const proc = spawn(invoke.command, invoke.args, {

@@ -3,7 +3,7 @@ const path = require('path');
 const { spawn } = require('child_process');
 const { C, PROVIDERS } = require('./constants');
 const { countTasks, visualWidth } = require('./utils');
-const { isProviderAvailable, resolveProviderPlan, providerLabel, otherProvider, getProviderRunCommand, buildExecutionPrompt } = require('./provider');
+const { isProviderAvailable, resolveProviderPlan, providerLabel, otherProvider, getProviderRunCommand, buildExecutionPrompt, assessTaskDifficulty } = require('./provider');
 const { recordCost } = require('./config');
 const { syncClaudeMd } = require('./files');
 
@@ -167,9 +167,25 @@ function spawnWorker(ws, py, onDone, onUpdate, pushLog, cliProvider) {
     return;
   }
 
+  // 난이도 평가 (Claude provider일 때만)
+  if (ws.provider === PROVIDERS.CLAUDE && !ws.difficulty) {
+    try {
+      const assessment = assessTaskDifficulty(prompt, ws.targetDir || wtDir);
+      ws.difficulty = assessment.difficulty;
+      ws.difficultyLabel = assessment.label;
+      ws.model = assessment.model;
+      pushLog(ws.name, `${C.cyan}[DIFFICULTY]${C.reset} ${assessment.label} (${assessment.difficulty}/5) → ${assessment.model}`);
+    } catch {
+      ws.difficulty = 3;
+      ws.difficultyLabel = '★★★☆☆';
+      ws.model = 'claude-sonnet-4-6';
+    }
+    onUpdate();
+  }
+
   const logStream = fs.createWriteStream(ws.logFile, { flags: 'a' });
   const logLine = (msg) => logStream.write(`[${new Date().toISOString()}] ${msg}\n`);
-  logLine(`=== Worker ${ws.name} start (provider: ${ws.provider}) ===`);
+  logLine(`=== Worker ${ws.name} start (provider: ${ws.provider}, model: ${ws.model || 'default'}, difficulty: ${ws.difficulty || 'N/A'}) ===`);
 
   const env = { ...process.env };
   delete env.CLAUDECODE;
@@ -194,7 +210,7 @@ function spawnWorker(ws, py, onDone, onUpdate, pushLog, cliProvider) {
 
   function runAttempt(provider, allowFallback) {
     ws.provider = provider;
-    const invoke = getProviderRunCommand(provider, false);
+    const invoke = getProviderRunCommand(provider, false, ws.model);
     const stdinPrompt = promptsByProvider[provider] || prompt;
 
     const proc = spawn(invoke.command, invoke.args, {

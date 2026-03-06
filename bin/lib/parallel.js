@@ -686,7 +686,8 @@ function runParallelWorkers(targetDir, workerInfos, cliProvider) {
         : ws.status === 'budget_stop' ? `${C.yellow}■${C.reset}`
         : `${C.red}✗${C.reset}`;
       const wPct = ws.total > 0 ? Math.round(ws.done / ws.total * 100) : 0;
-      lines.push(boxLine(`${statusIcon} ${C.bold}${padEndVisual(ws.name, 18)}${C.reset} ${bar} ${String(ws.done).padStart(2)}/${String(ws.total).padEnd(2)} ${C.cyan}${String(wPct).padStart(3)}%${C.reset}`, W));
+      const diffTag = ws.difficultyLabel ? ` ${C.yellow}${ws.difficulty}${C.reset}` : '';
+      lines.push(boxLine(`${statusIcon} ${C.bold}${padEndVisual(ws.name, 18)}${C.reset} ${bar} ${String(ws.done).padStart(2)}/${String(ws.total).padEnd(2)} ${C.cyan}${String(wPct).padStart(3)}%${C.reset}${diffTag}`, W));
       if (ws.currentTask && ws.status === 'running') {
         const maxTaskW = W - 6;
         let task = ws.currentTask;

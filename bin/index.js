@@ -2328,6 +2328,7 @@ function cmdWatch() {
   // ─── 대시보드 상태 ───
   let watchPhase = 'waiting'; // 'waiting' | 'executing'
   let pollInfo = { total: 0, pending: 0 };
+  let lastPollTime = null;
   let currentWorkerStates = [];
   let execStartTime = null;
   let currentDashboardHeight = 9;
@@ -2468,7 +2469,8 @@ function cmdWatch() {
       // Waiting mode
       lines.push(boxLine(`${SLEEPCODE_BADGE} watch  ${C.dim}◆${C.reset} 대기 중`, W));
       lines.push(`${C.dim}├${'─'.repeat(W + 2)}┤${C.reset}`);
-      lines.push(boxLine(`DB: ${dbId.slice(0, 8)}...  ${C.dim}·${C.reset}  폴링: ${pollIntervalSec}초`, W));
+      const remaining = lastPollTime ? Math.max(0, pollIntervalSec - Math.floor((Date.now() - lastPollTime) / 1000)) : pollIntervalSec;
+      lines.push(boxLine(`DB: ${dbId.slice(0, 8)}...  ${C.dim}·${C.reset}  다음 폴링: ${remaining}초`, W));
       lines.push(boxLine(`전체: ${pollInfo.total}  ${C.dim}·${C.reset}  대기: ${pollInfo.pending}`, W));
       lines.push(`${C.dim}├${'─'.repeat(W + 2)}┤${C.reset}`);
     }
@@ -2826,6 +2828,7 @@ function cmdWatch() {
 
   function doPoll() {
     if (isExecuting) return;
+    lastPollTime = Date.now();
 
     // graceful_stop 체크
     if (fs.existsSync(path.join(scDir, 'graceful_stop'))) {
@@ -2886,8 +2889,8 @@ function cmdWatch() {
     }
   }
 
-  // 대시보드 갱신 타이머
-  const dashboardInterval = setInterval(renderDashboard, 3000);
+  // 대시보드 갱신 타이머 (카운트다운을 위해 1초 간격)
+  const dashboardInterval = setInterval(renderDashboard, 1000);
 
   // 초기 폴링
   doPoll();

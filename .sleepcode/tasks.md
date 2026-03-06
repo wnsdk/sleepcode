@@ -4,4 +4,4 @@
 
 ---
 
-- [x] npm publish 하기 전, 버전 수정해줘 <!-- notion:31bad790-3b5d-80fe-953d-cf200054a8ed -->
+- [x] sleepcode watch 대시보드에서 폴링 남은 초 카운트다운으로 보여주도록 해. <!-- notion:31bad790-3b5d-80a5-8434-c74e1ea9b226 -->

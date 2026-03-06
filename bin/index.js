@@ -216,7 +216,7 @@ ${SLEEPCODE_BADGE}  v${pkg.version}
   run --loop       무한 루프 실행 (run_forever 스크립트)
   run --loop --continue  루프 실행 시 세션 연속 (2회차부터 --continue)
   watch            Notion DB 감시 (제어판 모드, 자동 실행)
-  generate         참고자료 기반으로 tasks.md 자동 생성
+  generate         참고자료 기반으로 태스크 자동 생성
   sources          참고자료 URL 관리 (sources.json)
   parallel         @worker 섹션 기반 병렬 실행
   usage            주간 사용량 확인
@@ -667,20 +667,7 @@ function generateFiles(targetDir, { typeKey, projectName, role, buildCmd, testCm
     writeFile(sourcesPath, JSON.stringify(sourcesData, null, 2) + '\n');
   }
 
-  // tasks.md (Notion DB 모드가 아닐 때만 기본 템플릿 생성)
-  if (!notionDbId) {
-    writeFile(
-      path.join(scDir, 'tasks.md'),
-      `# 작업 목록
-
-아래 태스크를 순서대로 진행하세요. 완료한 항목은 \`[x]\`로 체크하세요.
-
----
-
-- [ ] 여기에 첫 번째 작업을 적어주세요
-`
-    );
-  }
+  // tasks.md는 Notion에서 동적으로 생성됨 (로컬 기본 템플릿 폐기)
 
   // rules.md
   const rulesTemplate = path.join(TEMPLATES_DIR, 'rules', `${typeKey}.md`);
@@ -732,11 +719,7 @@ function printResult(notionDbId) {
 
   console.log(`\n${C.bold}파일 생성 완료:${C.reset}\n`);
   console.log(`  ${C.green}✓${C.reset} .sleepcode/rules.md          ${C.dim}← 수정하세요${C.reset}`);
-  if (notionDbId) {
-    console.log(`  ${C.green}✓${C.reset} .sleepcode/scripts/notion_sync.py`);
-  } else {
-    console.log(`  ${C.green}✓${C.reset} .sleepcode/tasks.md          ${C.dim}← 수정하세요${C.reset}`);
-  }
+  console.log(`  ${C.green}✓${C.reset} .sleepcode/scripts/notion_sync.py`);
   console.log(`  ${C.green}✓${C.reset} .sleepcode/sources.json      ${C.dim}← 참고자료 URL 추가${C.reset}`);
   console.log(`  ${C.green}✓${C.reset} .sleepcode/docs/             ${C.dim}← 참고자료 파일 추가${C.reset}`);
   console.log(`  ${C.green}✓${C.reset} .sleepcode/scripts/base_rules.md`);
@@ -747,11 +730,7 @@ function printResult(notionDbId) {
   console.log(`  ${C.green}✓${C.reset} .claude/settings.local.json`);
   console.log(`  ${C.green}✓${C.reset} CLAUDE.md                    ${C.dim}← 프롬프트 캐싱 (자동 생성)${C.reset}`);
 
-  const taskStep = notionDbId
-    ? `${C.bold}3.${C.reset} Notion DB에 할 일을 작성해두세요 (첫 실행 시 자동 동기화)`
-    : `${C.bold}3.${C.reset} 태스크 생성:
-     ${C.cyan}npx sleepcode generate${C.reset}     ${C.dim}# 참고자료 기반 tasks.md 자동 생성${C.reset}
-     ${C.dim}또는 .sleepcode/tasks.md 를 직접 작성${C.reset}`;
+  const taskStep = `${C.bold}3.${C.reset} Notion DB에 할 일을 작성해두세요 (실행 시 자동 동기화)`;
 
   console.log(`
 ${C.bold}${C.green}완료!${C.reset} 다음 단계:
@@ -3180,6 +3159,14 @@ async function main() {
     const figmaKey = cliArgs.figmaKey || '';
     const figmaFileNames = cliArgs.figmaFileNames || '';
     const notionKey = cliArgs.notionKey || '';
+    if (!notionKey) {
+      console.error(`${C.red}--notion-key <KEY> 는 필수입니다.${C.reset}`);
+      process.exit(1);
+    }
+    if (!cliArgs.notionDb) {
+      console.error(`${C.red}--notion-db <ID|URL|create> 는 필수입니다.${C.reset}`);
+      process.exit(1);
+    }
     const notionPages = cliArgs.notionPages || '';
     let notionDbId = '';
     if (cliArgs.notionDb === 'create') {
@@ -3193,7 +3180,7 @@ async function main() {
         console.error(`${C.red}--notion-parent <페이지 URL 또는 ID> 를 지정해주세요.${C.reset}`);
         process.exit(1);
       }
-      const dbName = cliArgs.notionDbName || '.sleepcode';
+      const dbName = cliArgs.notionDbName || `${projectName} - sleepcode tasks`;
       console.log(`${C.dim}Notion DB 생성 중...${C.reset}`);
       try {
         notionDbId = await createNotionDb(notionKey, parentPageId, dbName);
@@ -3293,45 +3280,50 @@ async function main() {
       figmaFileNames = await ask(rl, '참고할 Figma 파일명 (예: 홈화면, 로그인)', '');
     }
 
-    // Notion 연동
+    // Notion 연동 (필수)
     let notionKey = '';
     let notionPages = '';
     let notionDbId = '';
     let notionFilter = '';
-    const notionKeyInput = await ask(rl, 'Notion API Key (없으면 Enter)', '');
-    if (notionKeyInput) {
-      notionKey = notionKeyInput;
+    notionKey = await ask(rl, 'Notion API Key', '');
+    if (!notionKey) {
+      console.error(`\n${C.red}Notion API Key는 필수입니다.${C.reset}`);
+      console.log(`${C.dim}Notion 통합에서 API Key를 발급받으세요: https://www.notion.so/my-integrations${C.reset}`);
+      process.exit(1);
+    }
 
-      // 태스크 관리 방식 선택
-      const taskSource = await select(rl, '할 일(Task) 관리 방식', [
-        { key: 'md', label: 'tasks.md (로컬 파일에 직접 작성)' },
-        { key: 'notion', label: 'Notion DB (기존 Notion 데이터베이스 연결)' },
-        { key: 'notion-create', label: 'Notion DB 새로 만들기 (자동 생성)' },
-      ]);
+    // Notion DB 선택 (필수)
+    const taskSource = await select(rl, '할 일(Task) 관리 방식', [
+      { key: 'notion', label: 'Notion DB (기존 Notion 데이터베이스 연결)' },
+      { key: 'notion-create', label: 'Notion DB 새로 만들기 (자동 생성)' },
+    ]);
 
-      if (taskSource.key === 'notion') {
-        const dbInput = await ask(rl, '할 일을 저장해 둔 Notion DB (URL 또는 ID)', '');
-        notionDbId = parseNotionDbId(dbInput);
-      } else if (taskSource.key === 'notion-create') {
-        const parentInput = await ask(rl, 'DB를 생성할 Notion 페이지 (URL 또는 ID)', '');
-        const parentPageId = parseNotionDbId(parentInput);
-        if (!parentPageId) {
-          console.error(`${C.red}유효한 Notion 페이지 URL 또는 ID를 입력해주세요.${C.reset}`);
-          process.exit(1);
-        }
-        const dbName = await ask(rl, 'DB 이름', '.sleepcode');
-        console.log(`\n${C.dim}Notion DB 생성 중...${C.reset}`);
-        try {
-          notionDbId = await createNotionDb(notionKey, parentPageId, dbName);
-          console.log(`${C.green}✓${C.reset} Notion DB 생성 완료 (ID: ${notionDbId})`);
-        } catch (e) {
-          console.error(`${C.red}Notion DB 생성 실패: ${e.message}${C.reset}`);
-          process.exit(1);
-        }
-      } else {
-        notionPages = await ask(rl, '참고할 Notion 페이지명 (예: 기획서, API명세)', '');
+    if (taskSource.key === 'notion') {
+      const dbInput = await ask(rl, '할 일을 저장해 둔 Notion DB (URL 또는 ID)', '');
+      notionDbId = parseNotionDbId(dbInput);
+      if (!notionDbId) {
+        console.error(`${C.red}유효한 Notion DB URL 또는 ID를 입력해주세요.${C.reset}`);
+        process.exit(1);
+      }
+    } else if (taskSource.key === 'notion-create') {
+      const parentInput = await ask(rl, 'DB를 생성할 Notion 페이지 (URL 또는 ID)', '');
+      const parentPageId = parseNotionDbId(parentInput);
+      if (!parentPageId) {
+        console.error(`${C.red}유효한 Notion 페이지 URL 또는 ID를 입력해주세요.${C.reset}`);
+        process.exit(1);
+      }
+      const dbName = await ask(rl, 'DB 이름', `${projectName} - sleepcode tasks`);
+      console.log(`\n${C.dim}Notion DB 생성 중...${C.reset}`);
+      try {
+        notionDbId = await createNotionDb(notionKey, parentPageId, dbName);
+        console.log(`${C.green}✓${C.reset} Notion DB 생성 완료 (ID: ${notionDbId})`);
+      } catch (e) {
+        console.error(`${C.red}Notion DB 생성 실패: ${e.message}${C.reset}`);
+        process.exit(1);
       }
     }
+
+    notionPages = await ask(rl, '참고할 Notion 페이지명 (없으면 Enter)', '');
 
     const sleepInterval = await ask(rl, '반복 간격 (초)', '30');
 

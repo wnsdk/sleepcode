@@ -44,8 +44,13 @@ while true; do
 
   # Notion 동기화: pull (Notion → tasks.md)
   if [ -n "$NOTION_API_KEY" ] && [ -n "$NOTION_DB_ID" ]; then
-    python3 .sleepcode/scripts/notion_sync.py pull
-    log "Notion 동기화 완료 (pull)"
+    SYNC_OUTPUT=$(python3 .sleepcode/scripts/notion_sync.py pull 2>&1)
+    SYNC_EXIT=$?
+    if [ $SYNC_EXIT -ne 0 ]; then
+      log "Notion 동기화 실패 (pull): $SYNC_OUTPUT"
+    else
+      log "Notion 동기화 완료 (pull)"
+    fi
   fi
 
   # 미완료 태스크가 있는지 확인
@@ -91,8 +96,13 @@ while true; do
 
   # Notion 동기화: push (tasks.md → Notion)
   if [ -n "$NOTION_API_KEY" ] && [ -n "$NOTION_DB_ID" ]; then
-    python3 .sleepcode/scripts/notion_sync.py push
-    log "Notion 동기화 완료 (push)"
+    SYNC_OUTPUT=$(python3 .sleepcode/scripts/notion_sync.py push 2>&1)
+    SYNC_EXIT=$?
+    if [ $SYNC_EXIT -ne 0 ]; then
+      log "Notion 동기화 실패 (push): $SYNC_OUTPUT"
+    else
+      log "Notion 동기화 완료 (push)"
+    fi
   fi
 
   log "--- 반복 #${ITERATION} 종료, {{SLEEP_INTERVAL}}초 대기 ---"

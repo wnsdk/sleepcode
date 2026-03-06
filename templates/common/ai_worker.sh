@@ -16,7 +16,11 @@ fi
 
 # Notion 동기화: pull (Notion → tasks.md)
 if [ -n "$NOTION_API_KEY" ] && [ -n "$NOTION_DB_ID" ]; then
-  python3 .sleepcode/scripts/notion_sync.py pull
+  SYNC_OUTPUT=$(python3 .sleepcode/scripts/notion_sync.py pull 2>&1)
+  SYNC_EXIT=$?
+  if [ $SYNC_EXIT -ne 0 ]; then
+    echo "[$(date '+%Y-%m-%d %H:%M:%S')] Notion 동기화 실패 (pull): $SYNC_OUTPUT"
+  fi
 fi
 
 # CLAUDE.md 동기화 (base_rules + rules → CLAUDE.md, 프롬프트 캐싱)
@@ -37,7 +41,11 @@ claude -p "$PROMPT" --dangerously-skip-permissions --output-format stream-json -
 
 # Notion 동기화: push (tasks.md → Notion)
 if [ -n "$NOTION_API_KEY" ] && [ -n "$NOTION_DB_ID" ]; then
-  python3 .sleepcode/scripts/notion_sync.py push
+  SYNC_OUTPUT=$(python3 .sleepcode/scripts/notion_sync.py push 2>&1)
+  SYNC_EXIT=$?
+  if [ $SYNC_EXIT -ne 0 ]; then
+    echo "[$(date '+%Y-%m-%d %H:%M:%S')] Notion 동기화 실패 (push): $SYNC_OUTPUT"
+  fi
 fi
 
 echo "[$(date '+%Y-%m-%d %H:%M:%S')] AI 단일 실행 종료"

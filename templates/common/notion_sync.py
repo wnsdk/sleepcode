@@ -9,6 +9,7 @@ Usage:
 import json
 import os
 import re
+import subprocess
 import sys
 import urllib.request
 import urllib.error
@@ -379,6 +380,37 @@ def append_content(api_key, page_id):
     print(f"[notion_sync] 보고 내용 기록 완료: {page_id}")
 
 
+# ─── Git commit 시각 조회 ───
+
+
+def get_commit_time_for_task(page_id, cwd=None):
+    """tasks.md에서 특정 태스크가 [x]로 표시된 git commit의 ISO 타임스탬프를 반환"""
+    try:
+        result = subprocess.run(
+            ["git", "log", "--format=COMMIT %aI", "-p", "--", ".sleepcode/tasks.md"],
+            capture_output=True,
+            text=True,
+            cwd=cwd or ".",
+            timeout=30,
+        )
+        if result.returncode != 0:
+            return None
+        current_time = None
+        for line in result.stdout.split("\n"):
+            if line.startswith("COMMIT "):
+                current_time = line[7:].strip()
+            elif (
+                line.startswith("+")
+                and not line.startswith("+++")
+                and "[x]" in line
+                and f"notion:{page_id}" in line
+            ):
+                return current_time
+        return None
+    except Exception:
+        return None
+
+
 # ─── PULL: Notion → tasks.md ───
 
 
@@ -447,7 +479,16 @@ def pull(api_key, db_id, notion_filter=None, status_prop_name=None, status_type_
 
 
 def push(api_key, db_id):
-    title_prop, status_prop, status_type = get_db_schema(api_key, db_id)
+    # 전체 스키마 조회 (completed_at_prop 포함)
+    watch_schema = get_watch_schema(api_key, db_id)
+    if not watch_schema:
+        print("[notion_sync] DB 스키마 조회 실패", file=sys.stderr)
+        return False
+
+    status_prop = watch_schema["status_prop"]
+    status_type = watch_schema["status_type"]
+    completed_at_prop = watch_schema["completed_at_prop"]
+
     if not status_prop:
         print("[notion_sync] 완료 상태 프로퍼티를 찾지 못해 push를 건너뜁니다.", file=sys.stderr)
         return False
@@ -488,6 +529,12 @@ def push(api_key, db_id):
                 props = {status_prop: {"select": {"name": select_name}}}
             else:
                 continue
+
+            # 완료 시 "Completed At"에 git commit 시각 설정
+            if done and completed_at_prop:
+                commit_time = get_commit_time_for_task(page_id)
+                if commit_time:
+                    props[completed_at_prop] = {"date": {"start": commit_time}}
 
             result = api_request("PATCH", f"/pages/{page_id}", api_key, {"properties": props})
             if result:

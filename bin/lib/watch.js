@@ -687,119 +687,15 @@ function cmdWatch(cliProvider) {
   // ─── 실행 중 새 태스크 추가 ───
 
   function addTasksDuringExecution(newTasks, schema) {
-    const timestamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
-
-    // 새 태스크 ID 등록
+    // 아이디어 1: mid-run 태스크는 현재 배치에 포함하지 않고 다음 폴링 사이클로 연기
+    // - currentNotionTasks에 추가하지 않음 → finishExecution이 Task B를 처리하지 않음 (Bug 1, 2 해결)
+    // - tasks.md에도 추가하지 않음 → 현재 워커가 실행하지 않음 (double-run 방지)
+    // - Run 체크박스를 false로 리셋하지 않음 → finishExecution 후 다음 폴링에서 Run=true 감지
+    // - executingTaskIds에만 추가 → 현재 실행 중 중복 감지 방지
     for (const task of newTasks) {
       executingTaskIds.add(task.id);
-      currentNotionTasks.push(task);
+      watchPushLog('SYSTEM', `${C.yellow}↷${C.reset} ${task.title} — 현재 배치 완료 후 다음 실행`);
     }
-
-    // Notion 상태: Pending + Run 해제 (실행 중인 태스크 감지 시 Running으로 전환됨)
-    for (const task of newTasks) {
-      const props = {};
-      const sp = buildStatusProps(schema, 'Pending');
-      if (sp) Object.assign(props, sp);
-      if (schema.run_prop) props[schema.run_prop] = { checkbox: false };
-      if (Object.keys(props).length > 0) notionUpdatePage(task.id, props);
-    }
-
-    // 새 태스크에 worker가 설정된 것이 있는지 확인
-    const hasWorker = newTasks.some(t => (t.worker || '').trim());
-
-    if (hasWorker) {
-      // worker가 설정된 태스크 → 병렬 모드로 새 워커 spawn
-      const workerGroups = {};
-      for (const task of newTasks) {
-        const rawWorker = (task.worker || '').trim();
-        const workerKey = rawWorker.replace(/^@worker\s*/i, '').trim() || 'main';
-        if (!workerGroups[workerKey]) workerGroups[workerKey] = [];
-        workerGroups[workerKey].push(task);
-      }
-
-      for (const [workerName, wTasks] of Object.entries(workerGroups)) {
-        // 이미 같은 이름의 워커가 실행 중인지 확인
-        const existingWorker = currentWorkerStates.find(
-          ws => ws.name === workerName && ws.status === 'running'
-        );
-
-        if (existingWorker) {
-          // 기존 실행 중인 워커의 tasks.md에 태스크 추가
-          const tp = path.join(existingWorker.path, '.sleepcode', 'tasks.md');
-          if (fs.existsSync(tp)) {
-            let content = fs.readFileSync(tp, 'utf-8');
-            const newLines = wTasks.map(t => `- [ ] ${t.title} <!-- notion:${t.id} -->`).join('\n');
-            content = content.trimEnd() + '\n' + newLines + '\n';
-            fs.writeFileSync(tp, content);
-            const tc = countTasks(content);
-            existingWorker.total = tc.total;
-            existingWorker.done = tc.done;
-            watchPushLog('SYSTEM', `${C.cyan}+${wTasks.length}${C.reset} 태스크 → ${C.bold}${workerName}${C.reset} (기존 워커에 추가)`);
-          }
-        } else {
-          // 새 워커 생성 (worktree 기반)
-          const workerTaskLines = ['# 작업 목록\n', '아래 태스크를 순서대로 진행하세요.\n', '---\n'];
-          for (const t of wTasks) {
-            workerTaskLines.push(`- [ ] ${t.title} <!-- notion:${t.id} -->`);
-          }
-          const workerTaskContent = workerTaskLines.join('\n') + '\n';
-
-          // worktree용 tasks.md 작성 (임시로 main의 tasks.md에 @worker 섹션 추가)
-          const tempWorkers = [{ name: workerName, tasks: workerTaskContent, remaining: wTasks.length }];
-          const created = createWorktrees(targetDir, tempWorkers);
-
-          if (created.length > 0) {
-            const w = created[0];
-            const ws = {
-              ...w,
-              targetDir,
-              status: 'running',
-              currentTask: '',
-              done: 0,
-              total: wTasks.length,
-              cost: 0,
-              reportLines: [],
-              _proc: null,
-              logFile: path.join(path.join(scDir, 'logs'), `watch_${w.name}_${timestamp}.log`),
-            };
-
-            currentWorkerStates.push(ws);
-            setWatchPhase('executing');
-
-            watchPushLog('SYSTEM', `${C.green}+${C.reset} 새 워커 ${C.bold}${workerName}${C.reset} spawn (${wTasks.length}개 태스크)`);
-
-            spawnWorker(ws, py, () => {
-              // 워커 완료 시: 모든 워커가 끝났는지 확인
-              const allDone = currentWorkerStates.every(s => s.status !== 'running');
-              scheduleRender();
-              if (allDone) {
-                finishExecution(currentNotionTasks, currentSchema, currentWorkerStates);
-              }
-            }, scheduleRender, watchPushLog, cliProvider);
-          }
-        }
-      }
-    } else {
-      // worker 없는 태스크 → 단일 모드의 main 워커 tasks.md에 추가
-      const mainWorker = currentWorkerStates.find(ws => ws.name === 'main' && ws.status === 'running');
-      if (mainWorker) {
-        const tp = path.join(mainWorker.path, '.sleepcode', 'tasks.md');
-        if (fs.existsSync(tp)) {
-          let content = fs.readFileSync(tp, 'utf-8');
-          const newLines = newTasks.map(t => `- [ ] ${t.title} <!-- notion:${t.id} -->`).join('\n');
-          content = content.trimEnd() + '\n' + newLines + '\n';
-          fs.writeFileSync(tp, content);
-          const tc = countTasks(content);
-          mainWorker.total = tc.total;
-          mainWorker.done = tc.done;
-          watchPushLog('SYSTEM', `${C.cyan}+${newTasks.length}${C.reset} 태스크 대기열에 추가`);
-        }
-      }
-    }
-
-    // 새 태스크 추가 후 즉시 다음 실행 태스크 상태 업데이트
-    const workerPaths = currentWorkerStates.map(ws => ws.path);
-    updateNextTaskStatus(workerPaths);
 
     scheduleRender();
   }

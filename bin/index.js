@@ -1639,7 +1639,8 @@ function runParallelWorkers(targetDir, workerInfos) {
         : ws.status === 'done' ? `${C.green}✓${C.reset}`
         : ws.status === 'budget_stop' ? `${C.yellow}■${C.reset}`
         : `${C.red}✗${C.reset}`;
-      lines.push(boxLine(`${statusIcon} ${C.bold}${padEndVisual(ws.name, 18)}${C.reset} ${bar} ${String(ws.done).padStart(2)}/${String(ws.total).padEnd(2)}`, W));
+      const wPct = ws.total > 0 ? Math.round(ws.done / ws.total * 100) : 0;
+      lines.push(boxLine(`${statusIcon} ${C.bold}${padEndVisual(ws.name, 18)}${C.reset} ${bar} ${String(ws.done).padStart(2)}/${String(ws.total).padEnd(2)} ${C.cyan}${String(wPct).padStart(3)}%${C.reset}`, W));
       if (ws.currentTask && ws.status === 'running') {
         const maxTaskW = W - 6;
         let task = ws.currentTask;
@@ -1668,7 +1669,8 @@ function runParallelWorkers(targetDir, workerInfos) {
       : elapsed >= 60
         ? `${Math.floor(elapsed / 60)}m ${elapsed % 60}s`
         : `${elapsed}s`;
-    lines.push(boxLine(`비용: ${costStr}  ${C.dim}·${C.reset}  경과: ${elapsedStr}  ${C.dim}·${C.reset}  진행: ${totalDone}/${totalTasks}`, W));
+    const totalPct = totalTasks > 0 ? Math.round(totalDone / totalTasks * 100) : 0;
+    lines.push(boxLine(`비용: ${costStr}  ${C.dim}·${C.reset}  경과: ${elapsedStr}  ${C.dim}·${C.reset}  진행: ${totalDone}/${totalTasks} ${C.cyan}${totalPct}%${C.reset}`, W));
     const budgetInfo = isOverBudget(targetDir);
     if (budgetInfo) {
       const pct = Math.min(100, (budgetInfo.total / budgetInfo.budget * 100)).toFixed(0);
@@ -1786,6 +1788,23 @@ function runParallelWorkers(targetDir, workerInfos) {
   // 대시보드 갱신 타이머
   const dashboardInterval = setInterval(renderDashboard, 3000);
 
+  // 5초마다 tasks.md를 읽어 진행률 갱신
+  const taskProgressInterval = setInterval(() => {
+    for (const ws of workerStates) {
+      if (ws.status !== 'running') continue;
+      const tp = path.join(ws.path, '.sleepcode', 'tasks.md');
+      try {
+        if (fs.existsSync(tp)) {
+          const content = fs.readFileSync(tp, 'utf-8');
+          const tc = countTasks(content);
+          ws.done = tc.done;
+          ws.total = tc.total;
+        }
+      } catch {}
+    }
+    scheduleRender();
+  }, 5000);
+
   // 예산 체크 타이머 (30초마다)
   let budgetStopped = false;
   const budgetCheckInterval = setInterval(() => {
@@ -1814,6 +1833,7 @@ function runParallelWorkers(targetDir, workerInfos) {
     if (activeWorkers === 0) {
       clearInterval(dashboardInterval);
       clearInterval(budgetCheckInterval);
+      clearInterval(taskProgressInterval);
       renderDashboard();
       if (cleanupMenuInput) cleanupMenuInput();
       process.removeListener('SIGINT', sigintHandler);
@@ -2229,7 +2249,8 @@ function runSingleWithDashboard(targetDir, cont) {
     lines.push(`${C.dim}╭${'─'.repeat(W + 2)}╮${C.reset}`);
     lines.push(boxLine(`${SLEEPCODE_BADGE} run  ${statusIcon} ${statusText}`, W));
     lines.push(`${C.dim}├${'─'.repeat(W + 2)}┤${C.reset}`);
-    lines.push(boxLine(`${bar}  ${String(ws.done).padStart(2)}/${String(ws.total).padEnd(2)} tasks`, W));
+    const pct = ws.total > 0 ? Math.round(ws.done / ws.total * 100) : 0;
+    lines.push(boxLine(`${bar}  ${String(ws.done).padStart(2)}/${String(ws.total).padEnd(2)} tasks  ${C.cyan}${pct}%${C.reset}`, W));
     if (ws.currentTask && ws.status === 'running') {
       const maxTaskW = W - 4;
       let task = ws.currentTask;
@@ -2361,6 +2382,20 @@ function runSingleWithDashboard(targetDir, cont) {
 
   const dashboardInterval = setInterval(renderDashboard, 3000);
 
+  // 5초마다 tasks.md를 읽어 진행률 갱신
+  const taskProgressInterval = setInterval(() => {
+    if (ws.status !== 'running') return;
+    try {
+      if (fs.existsSync(tasksPath)) {
+        const content = fs.readFileSync(tasksPath, 'utf-8');
+        const tc = countTasks(content);
+        ws.done = tc.done;
+        ws.total = tc.total;
+      }
+    } catch {}
+    scheduleRender();
+  }, 5000);
+
   // 예산 체크 타이머
   const budgetCheckInterval = setInterval(() => {
     const result = isOverBudget(targetDir);
@@ -2376,6 +2411,7 @@ function runSingleWithDashboard(targetDir, cont) {
   function onDone() {
     clearInterval(dashboardInterval);
     clearInterval(budgetCheckInterval);
+    clearInterval(taskProgressInterval);
     renderDashboard();
     if (cleanupMenuInput) cleanupMenuInput();
     process.removeListener('SIGINT', sigintHandler);
@@ -2640,7 +2676,8 @@ function cmdWatch() {
             : ws.status === 'done' ? `${C.green}✓${C.reset}`
             : ws.status === 'budget_stop' ? `${C.yellow}■${C.reset}`
             : `${C.red}✗${C.reset}`;
-          lines.push(boxLine(`${statusIcon} ${C.bold}${padEndVisual(ws.name, 18)}${C.reset} ${bar} ${String(ws.done).padStart(2)}/${String(ws.total).padEnd(2)}`, W));
+          const wPct = ws.total > 0 ? Math.round(ws.done / ws.total * 100) : 0;
+          lines.push(boxLine(`${statusIcon} ${C.bold}${padEndVisual(ws.name, 18)}${C.reset} ${bar} ${String(ws.done).padStart(2)}/${String(ws.total).padEnd(2)} ${C.cyan}${String(wPct).padStart(3)}%${C.reset}`, W));
           if (ws.currentTask && ws.status === 'running') {
             const maxTaskW = W - 6;
             let task = ws.currentTask;
@@ -2669,7 +2706,8 @@ function cmdWatch() {
         lines.push(`${C.dim}├${'─'.repeat(W + 2)}┤${C.reset}`);
 
         const bar = progressBar(ws.done, ws.total, 20);
-        lines.push(boxLine(`${bar}  ${String(ws.done).padStart(2)}/${String(ws.total).padEnd(2)} tasks`, W));
+        const pct = ws.total > 0 ? Math.round(ws.done / ws.total * 100) : 0;
+        lines.push(boxLine(`${bar}  ${String(ws.done).padStart(2)}/${String(ws.total).padEnd(2)} tasks  ${C.cyan}${pct}%${C.reset}`, W));
         if (ws.currentTask && ws.status === 'running') {
           const maxTaskW = W - 4;
           let task = ws.currentTask;
@@ -2699,7 +2737,10 @@ function cmdWatch() {
         : elapsed >= 60
           ? `${Math.floor(elapsed / 60)}m ${elapsed % 60}s`
           : `${elapsed}s`;
-      lines.push(boxLine(`비용: ${costStr}  ${C.dim}·${C.reset}  경과: ${elapsedStr}`, W));
+      const totalDone = currentWorkerStates.reduce((s, w) => s + w.done, 0);
+      const totalTasks = currentWorkerStates.reduce((s, w) => s + w.total, 0);
+      const totalPct = totalTasks > 0 ? Math.round(totalDone / totalTasks * 100) : 0;
+      lines.push(boxLine(`비용: ${costStr}  ${C.dim}·${C.reset}  경과: ${elapsedStr}  ${C.dim}·${C.reset}  ${C.cyan}${totalPct}%${C.reset}`, W));
     } else {
       // Waiting mode
       lines.push(boxLine(`${SLEEPCODE_BADGE} watch  ${C.dim}◆${C.reset} 대기 중`, W));
@@ -3298,6 +3339,24 @@ function cmdWatch() {
   // 대시보드 갱신 타이머 (카운트다운을 위해 1초 간격)
   const dashboardInterval = setInterval(renderDashboard, 1000);
 
+  // 5초마다 tasks.md를 읽어 진행률 갱신
+  const taskProgressInterval = setInterval(() => {
+    if (watchPhase !== 'executing' || currentWorkerStates.length === 0) return;
+    for (const ws of currentWorkerStates) {
+      if (ws.status !== 'running') continue;
+      const tp = path.join(ws.path, '.sleepcode', 'tasks.md');
+      try {
+        if (fs.existsSync(tp)) {
+          const content = fs.readFileSync(tp, 'utf-8');
+          const tc = countTasks(content);
+          ws.done = tc.done;
+          ws.total = tc.total;
+        }
+      } catch {}
+    }
+    scheduleRender();
+  }, 5000);
+
   // 초기 폴링
   doPoll();
 
@@ -3326,6 +3385,7 @@ function cmdWatch() {
       if (cleanupMenuInput) cleanupMenuInput();
       clearInterval(pollTimer);
       clearInterval(dashboardInterval);
+      clearInterval(taskProgressInterval);
       for (const ws of currentWorkerStates) {
         if (ws._proc) try { ws._proc.kill(); } catch {}
       }
@@ -3340,6 +3400,7 @@ function cmdWatch() {
     if (cleanupMenuInput) cleanupMenuInput();
     clearInterval(pollTimer);
     clearInterval(dashboardInterval);
+    clearInterval(taskProgressInterval);
     // 실행 중인 워커 프로세스 종료
     for (const ws of currentWorkerStates) {
       if (ws._proc) try { ws._proc.kill(); } catch {}

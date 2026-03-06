@@ -1379,8 +1379,9 @@ function boxLine(content, innerWidth) {
 /** 대시보드 하단 메뉴 렌더링 */
 const MENU_ITEMS = ['마무리 후 종료', '즉시 종료'];
 
-function renderMenuLine(selectedIndex, innerWidth, confirmPending) {
-  const parts = MENU_ITEMS.map((label, i) => {
+function renderMenuLine(selectedIndex, innerWidth, confirmPending, menuItems) {
+  const items = menuItems || MENU_ITEMS;
+  const parts = items.map((label, i) => {
     if (i === selectedIndex) {
       return `${C.cyan}${C.bold}▸ ${label}${C.reset}`;
     }
@@ -1397,12 +1398,15 @@ function renderMenuLine(selectedIndex, innerWidth, confirmPending) {
 }
 
 /** 대시보드 메뉴 키 입력 핸들러 설정 */
-function setupMenuInput(state, onRender, onGraceful, onImmediate) {
+function setupMenuInput(state, onRender, onGraceful, onImmediate, extraActions) {
   if (!process.stdin.isTTY) return null;
   process.stdin.setRawMode(true);
   process.stdin.resume();
 
   state.confirmPending = false;
+  const actions = [onGraceful, onImmediate, ...(extraActions || []).map(a => a.handler)];
+  state._menuItems = extraActions ? [...MENU_ITEMS, ...extraActions.map(a => a.label)] : MENU_ITEMS;
+  const itemCount = state._menuItems.length;
 
   const handler = (data) => {
     const key = data.toString();
@@ -1414,26 +1418,36 @@ function setupMenuInput(state, onRender, onGraceful, onImmediate) {
     }
 
     // 좌우 화살표 (ESC [ D / ESC [ C)
-    if (key === '\x1b[D' || key === '\x1b[C') {
+    if (key === '\x1b[D') {
       state.confirmPending = false;
-      state.menuIndex = state.menuIndex === 0 ? 1 : 0;
+      state.menuIndex = (state.menuIndex - 1 + itemCount) % itemCount;
+      onRender();
+      return;
+    }
+    if (key === '\x1b[C') {
+      state.confirmPending = false;
+      state.menuIndex = (state.menuIndex + 1) % itemCount;
       onRender();
       return;
     }
 
-    // Enter: 한 번 누르면 확인 대기, 다시 누르면 실행
+    // Enter: 한 번 누르면 확인 대기, 다시 누르면 실행 (즉시 폴링은 확인 없이 바로 실행)
     if (key === '\r' || key === '\n') {
+      const action = actions[state.menuIndex];
+      // extraActions에 noConfirm이 설정된 경우 확인 없이 바로 실행
+      const extraIdx = state.menuIndex - 2;
+      const isNoConfirm = extraIdx >= 0 && extraActions && extraActions[extraIdx] && extraActions[extraIdx].noConfirm;
+      if (isNoConfirm) {
+        action();
+        return;
+      }
       if (!state.confirmPending) {
         state.confirmPending = true;
         onRender();
         return;
       }
       state.confirmPending = false;
-      if (state.menuIndex === 0) {
-        onGraceful();
-      } else {
-        onImmediate();
-      }
+      action();
     }
   };
 
@@ -1974,7 +1988,7 @@ function runParallelWorkers(targetDir, workerInfos, cliProvider) {
     if (gracefulShutdown) {
       lines.push(`  ${C.yellow}⏳ 마무리 중... 현재 작업 완료 후 종료됩니다${C.reset}`);
     } else {
-      lines.push(renderMenuLine(menuState.menuIndex, W, menuState.confirmPending));
+      lines.push(renderMenuLine(menuState.menuIndex, W, menuState.confirmPending, menuState._menuItems));
     }
     lines.push(`${C.dim} ══ ${C.reset}${C.cyan}logs${C.reset}${C.dim} ${'═'.repeat(W - 6)}${C.reset}`);
 
@@ -2643,7 +2657,7 @@ function runSingleWithDashboard(targetDir, cont, cliProvider) {
     if (gracefulShutdown) {
       lines.push(`  ${C.yellow}⏳ 마무리 중... 현재 작업 완료 후 종료됩니다${C.reset}`);
     } else {
-      lines.push(renderMenuLine(menuState.menuIndex, W, menuState.confirmPending));
+      lines.push(renderMenuLine(menuState.menuIndex, W, menuState.confirmPending, menuState._menuItems));
     }
     lines.push(`${C.dim} ══ ${C.reset}${C.cyan}logs${C.reset}${C.dim} ${'═'.repeat(W - 6)}${C.reset}`);
 
@@ -3139,7 +3153,7 @@ function cmdWatch(cliProvider) {
     if (gracefulShutdown) {
       lines.push(`  ${C.yellow}⏳ 마무리 중... 현재 작업 완료 후 종료됩니다${C.reset}`);
     } else {
-      lines.push(renderMenuLine(menuState.menuIndex, W, menuState.confirmPending));
+      lines.push(renderMenuLine(menuState.menuIndex, W, menuState.confirmPending, menuState._menuItems));
     }
     lines.push(`${C.dim} ══ ${C.reset}${C.cyan}logs${C.reset}${C.dim} ${'═'.repeat(W - 6)}${C.reset}`);
 
@@ -3831,7 +3845,13 @@ function cmdWatch(cliProvider) {
       cleanupAltScreen();
       console.log(`\n${C.yellow}즉시 종료됨${C.reset}`);
       process.exit(0);
-    }
+    },
+    // 추가 메뉴
+    [{ label: '즉시 폴링', noConfirm: true, handler: () => {
+      watchPushLog('SYSTEM', `${C.cyan}즉시 폴링 실행${C.reset}`);
+      doPoll();
+      renderDashboard();
+    }}]
   );
 
   // 종료 핸들러

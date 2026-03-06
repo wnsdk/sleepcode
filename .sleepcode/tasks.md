@@ -4,4 +4,4 @@
 
 ---
 
-- [x] 사용자가 sleepcode를 사용할 때 내려받는 README 문서를 업데이트 해줘 (사용방법이 문서 제일 처음에 소개되어야 함) <!-- notion:31bad790-3b5d-80de-ab0b-c7a11c6fdfe3 -->
+- [x] git commit 한 이후에 바로 git push 까지 진행하도록 해줘. <!-- notion:31bad790-3b5d-8079-8a22-ed4ae196f247 -->

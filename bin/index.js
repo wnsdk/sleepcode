@@ -1318,6 +1318,9 @@ function runParallelWorkers(targetDir, workerInfos) {
 
   // 대시보드 렌더링
   let dashboardLines = 0;
+  const startTime = Date.now();
+  let renderPending = false;
+
   function renderDashboard() {
     // 이전 출력 지우기
     if (dashboardLines > 0) {
@@ -1342,6 +1345,7 @@ function runParallelWorkers(targetDir, workerInfos) {
         : ws.status === 'budget_stop' ? `${C.yellow}■${C.reset}`
         : `${C.red}✗${C.reset}`;
       lines.push(boxLine(`${statusIcon} ${C.bold}${padEndVisual(ws.name, 18)}${C.reset} ${bar} ${String(ws.done).padStart(2)}/${String(ws.total).padEnd(2)}`, W));
+      // 현재 태스크 줄: 항상 표시 (없으면 빈 줄) → 라인 수 고정
       if (ws.currentTask && ws.status === 'running') {
         const maxTaskW = W - 6; // "    > " + padding
         let task = ws.currentTask;
@@ -1357,6 +1361,8 @@ function runParallelWorkers(targetDir, workerInfos) {
           task = task.slice(0, cut) + '...';
         }
         lines.push(boxLine(`  ${C.dim}> ${task}${C.reset}`, W));
+      } else {
+        lines.push(boxLine('', W));
       }
     }
 
@@ -1369,21 +1375,42 @@ function runParallelWorkers(targetDir, workerInfos) {
         ? `${Math.floor(elapsed / 60)}m ${elapsed % 60}s`
         : `${elapsed}s`;
     lines.push(boxLine(`비용: ${costStr}  |  경과: ${elapsedStr}  |  진행: ${totalDone}/${totalTasks}`, W));
-    // 예산 정보
+    // 예산 정보 줄: 항상 표시 → 라인 수 고정
     const budgetInfo = isOverBudget(targetDir);
     if (budgetInfo) {
       const pct = Math.min(100, (budgetInfo.total / budgetInfo.budget * 100)).toFixed(0);
       const budgetBar = progressBar(Math.min(budgetInfo.total, budgetInfo.budget), budgetInfo.budget, 10);
       const warn = budgetInfo.over ? ` ${C.red}한도 도달!${C.reset}` : '';
       lines.push(boxLine(`주간: $${budgetInfo.total.toFixed(2)}/$${budgetInfo.budget} (${pct}%) ${budgetBar}${warn}`, W));
+    } else {
+      lines.push(boxLine('', W));
     }
     lines.push(`${C.bold}└${'─'.repeat(W + 2)}┘${C.reset}`);
 
-    // 실시간 로그 출력
-    if (logBuffer.length > 0) {
-      lines.push('');
-      for (const log of logBuffer) {
-        lines.push(`  ${log}`);
+    // 실시간 로그 출력 (항상 MAX_LOG_LINES 줄 확보하여 라인 수 고정)
+    lines.push('');
+    for (let i = 0; i < MAX_LOG_LINES; i++) {
+      if (i < logBuffer.length) {
+        // 로그 줄이 터미널 폭을 넘지 않도록 truncate
+        const raw = logBuffer[i];
+        const maxLogW = W + 2; // 박스 폭에 맞춤
+        if (visualWidth(raw) > maxLogW) {
+          let tw = 0;
+          let cut = 0;
+          for (const ch of stripAnsi(raw)) {
+            const cw = visualWidth(ch);
+            if (tw + cw > maxLogW - 3) break;
+            tw += cw;
+            cut++;
+          }
+          // ANSI 코드를 포함하므로 plain text 기준으로 잘라내기
+          const plain = stripAnsi(raw);
+          lines.push(`  ${plain.slice(0, cut)}...`);
+        } else {
+          lines.push(`  ${raw}`);
+        }
+      } else {
+        lines.push('');
       }
     }
 
@@ -1392,7 +1419,16 @@ function runParallelWorkers(targetDir, workerInfos) {
     dashboardLines = lines.length;
   }
 
-  const startTime = Date.now();
+  /** 이벤트 기반 렌더 요청을 200ms 디바운스로 처리 (깜빡임 방지) */
+  function scheduleRender() {
+    if (renderPending) return;
+    renderPending = true;
+    setTimeout(() => {
+      renderPending = false;
+      renderDashboard();
+    }, 200);
+  }
+
   renderDashboard();
 
   // 대시보드 갱신 타이머
@@ -1460,7 +1496,7 @@ ${C.bold}다음 단계:${C.reset}
   }
 
   for (const ws of workerStates) {
-    spawnWorker(ws, py, onWorkerDone, renderDashboard, pushLog);
+    spawnWorker(ws, py, onWorkerDone, scheduleRender, pushLog);
   }
 }
 
@@ -1569,7 +1605,17 @@ function processStreamEvent(ws, obj, onUpdate, pushLog) {
       if (c.type === 'text') {
         const text = (c.text || '').trim();
         if (text) {
-          const short = text.length > 80 ? text.slice(0, 77) + '...' : text;
+          let short = text;
+          if (visualWidth(text) > 45) {
+            let tw = 0, cut = 0;
+            for (const ch of text) {
+              const cw = visualWidth(ch);
+              if (tw + cw > 42) break;
+              tw += cw;
+              cut += ch.length;
+            }
+            short = text.slice(0, cut) + '...';
+          }
           pushLog(ws.name, `${C.dim}${short}${C.reset}`);
           onUpdate();
         }
@@ -1593,7 +1639,18 @@ function processStreamEvent(ws, obj, onUpdate, pushLog) {
           detail = fp.split(/[/\\]/).pop() || fp;
         } else if (name === 'Bash') {
           const cmd = inp.command || '';
-          detail = cmd.length > 60 ? cmd.slice(0, 57) + '...' : cmd;
+          if (visualWidth(cmd) > 40) {
+            let tw = 0, cut = 0;
+            for (const ch of cmd) {
+              const cw = visualWidth(ch);
+              if (tw + cw > 37) break;
+              tw += cw;
+              cut += ch.length;
+            }
+            detail = cmd.slice(0, cut) + '...';
+          } else {
+            detail = cmd;
+          }
         } else if (name === 'Glob') {
           detail = inp.pattern || '';
         } else if (name === 'Grep') {
@@ -1625,7 +1682,17 @@ function processStreamEvent(ws, obj, onUpdate, pushLog) {
 
     const msg = typeof obj.message === 'string' ? obj.message : '';
     if (msg) {
-      const short = msg.length > 80 ? msg.slice(0, 77) + '...' : msg;
+      let short = msg;
+      if (visualWidth(msg) > 40) {
+        let tw = 0, cut = 0;
+        for (const ch of msg) {
+          const cw = visualWidth(ch);
+          if (tw + cw > 37) break;
+          tw += cw;
+          cut += ch.length;
+        }
+        short = msg.slice(0, cut) + '...';
+      }
       pushLog(ws.name, `${C.green}[DONE]${C.reset} ${short}`);
     }
     onUpdate();

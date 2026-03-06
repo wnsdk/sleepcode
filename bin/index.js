@@ -1287,6 +1287,60 @@ function mergeWorktrees(targetDir) {
   }
 }
 
+function autoMergeWorktrees(targetDir, workerStates) {
+  let currentBranch;
+  try {
+    currentBranch = execSync('git rev-parse --abbrev-ref HEAD', { cwd: targetDir, stdio: 'pipe' }).toString().trim();
+  } catch {
+    throw new Error('git 브랜치를 확인할 수 없습니다.');
+  }
+
+  // 머지 전 uncommitted changes 체크
+  try {
+    const status = execSync('git status --porcelain', { cwd: targetDir, stdio: 'pipe' }).toString().trim();
+    if (status) {
+      throw new Error('커밋되지 않은 변경사항이 있습니다.');
+    }
+  } catch (e) {
+    if (e.message.includes('커밋되지 않은')) throw e;
+  }
+
+  const results = { merged: [], conflicted: [], skipped: [] };
+
+  for (const ws of workerStates) {
+    const branch = `sleepcode/${ws.name}`;
+
+    try {
+      execSync(`git rev-parse --verify "${branch}"`, { cwd: targetDir, stdio: 'pipe' });
+    } catch {
+      results.skipped.push(ws.name);
+      continue;
+    }
+
+    try {
+      const diff = execSync(`git log "${currentBranch}..${branch}" --oneline`, { cwd: targetDir, stdio: 'pipe' }).toString().trim();
+      if (!diff) {
+        results.skipped.push(ws.name);
+        continue;
+      }
+    } catch {
+      // diff 실패 시 머지 시도
+    }
+
+    try {
+      execSync(`git merge "${branch}" --no-edit`, { cwd: targetDir, stdio: 'pipe' });
+      results.merged.push(ws.name);
+    } catch {
+      try {
+        execSync('git merge --abort', { cwd: targetDir, stdio: 'pipe' });
+      } catch {}
+      results.conflicted.push(ws.name);
+    }
+  }
+
+  return results;
+}
+
 function runParallel(subArgs) {
   const targetDir = process.cwd();
   const scDir = path.join(targetDir, '.sleepcode');
@@ -2789,6 +2843,33 @@ function cmdWatch() {
     // 비용 기록
     if (totalCost > 0) {
       recordCost(targetDir, totalCost, 'watch');
+    }
+
+    // 병렬 실행 후 자동 머지 및 워크트리 정리
+    if (workerStates && workerStates.length > 1) {
+      watchPushLog('SYSTEM', `${C.bold}자동 머지 시작${C.reset}`);
+      try {
+        const mergeResults = autoMergeWorktrees(targetDir, workerStates);
+        if (mergeResults.merged.length > 0) {
+          watchPushLog('SYSTEM', `${C.green}머지 성공: ${mergeResults.merged.join(', ')}${C.reset}`);
+        }
+        if (mergeResults.conflicted.length > 0) {
+          watchPushLog('SYSTEM', `${C.red}머지 충돌: ${mergeResults.conflicted.join(', ')} (수동 머지 필요)${C.reset}`);
+        }
+        if (mergeResults.skipped.length > 0) {
+          watchPushLog('SYSTEM', `${C.dim}머지 스킵: ${mergeResults.skipped.join(', ')}${C.reset}`);
+        }
+      } catch (e) {
+        watchPushLog('SYSTEM', `${C.red}자동 머지 실패: ${e.message}${C.reset}`);
+      }
+
+      watchPushLog('SYSTEM', `${C.bold}워크트리 정리${C.reset}`);
+      try {
+        cleanupWorktrees(targetDir, null);
+        watchPushLog('SYSTEM', `${C.green}워크트리 정리 완료${C.reset}`);
+      } catch (e) {
+        watchPushLog('SYSTEM', `${C.red}워크트리 정리 실패: ${e.message}${C.reset}`);
+      }
     }
 
     isExecuting = false;

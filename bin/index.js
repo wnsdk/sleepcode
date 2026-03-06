@@ -1400,18 +1400,6 @@ function runParallelWorkers(targetDir, workerInfos) {
   function appendLogToScreen(line) {
     if (!altScreenActive) return;
     const rows = process.stdout.rows || 24;
-    const termCols = process.stdout.columns || 80;
-    if (visualWidth(line) > termCols - 4) {
-      const plain = stripAnsi(line);
-      let tw = 0, cut = 0;
-      for (const ch of plain) {
-        const cw = visualWidth(ch);
-        if (tw + cw > termCols - 7) break;
-        tw += cw;
-        cut++;
-      }
-      line = `${plain.slice(0, cut)}...\x1b[0m`;
-    }
     process.stdout.write(`\x1b[${rows};1H`);
     process.stdout.write(`\n  ${line}\x1b[K`);
   }
@@ -1962,18 +1950,6 @@ function runSingleWithDashboard(targetDir, cont) {
   function appendLogToScreen(line) {
     if (!altScreenActive) return;
     const rows = process.stdout.rows || 24;
-    const termCols = process.stdout.columns || 80;
-    if (visualWidth(line) > termCols - 4) {
-      const plain = stripAnsi(line);
-      let tw = 0, cut = 0;
-      for (const ch of plain) {
-        const cw = visualWidth(ch);
-        if (tw + cw > termCols - 7) break;
-        tw += cw;
-        cut++;
-      }
-      line = `${plain.slice(0, cut)}...\x1b[0m`;
-    }
     process.stdout.write(`\x1b[${rows};1H`);
     process.stdout.write(`\n  ${line}\x1b[K`);
   }
@@ -2336,18 +2312,6 @@ function cmdWatch() {
   function appendLogToScreen(line) {
     if (!altScreenActive) return;
     const rows = process.stdout.rows || 24;
-    const termCols = process.stdout.columns || 80;
-    if (visualWidth(line) > termCols - 4) {
-      const plain = stripAnsi(line);
-      let tw = 0, cut = 0;
-      for (const ch of plain) {
-        const cw = visualWidth(ch);
-        if (tw + cw > termCols - 7) break;
-        tw += cw;
-        cut++;
-      }
-      line = `${plain.slice(0, cut)}...\x1b[0m`;
-    }
     process.stdout.write(`\x1b[${rows};1H`);
     process.stdout.write(`\n  ${line}\x1b[K`);
   }

@@ -205,6 +205,8 @@ function parseArgs() {
     else if (args[i] === '--notion-key' && args[i + 1]) parsed.notionKey = args[++i];
     else if (args[i] === '--notion-page' && args[i + 1]) parsed.notionPages = args[++i];
     else if (args[i] === '--notion-db' && args[i + 1]) parsed.notionDb = args[++i];
+    else if (args[i] === '--notion-parent' && args[i + 1]) parsed.notionParent = args[++i];
+    else if (args[i] === '--notion-db-name' && args[i + 1]) parsed.notionDbName = args[++i];
     else if (args[i] === '--notion-filter' && args[i + 1]) parsed.notionFilter = args[++i];
     else if (args[i] === '--interval' && args[i + 1]) parsed.interval = args[++i];
     else if (args[i] === '--budget' && args[i + 1]) parsed.budget = args[++i];
@@ -246,7 +248,9 @@ function parseArgs() {
   --figma-file <name>  Figma 참고 파일명
   --notion-key <key>   Notion API Key
   --notion-page <name> Notion 참고 페이지명
-  --notion-db <id|url> Notion DB (ID 또는 URL, 태스크 동기화용)
+  --notion-db <id|url|create> Notion DB (ID/URL 또는 'create'로 새로 생성)
+  --notion-parent <id|url>   새 DB 생성 시 상위 Notion 페이지
+  --notion-db-name <name>    새 DB 이름 (기본: .sleepcode)
   --notion-filter <f>  Notion 필터 (예: "Status = To Do")
   --interval <sec>     반복 간격 (초, 기본 30)
   --budget <usd>       주간 예산 ($, 예: 50)
@@ -297,6 +301,91 @@ function parseNotionDbId(input) {
   const dashless = input.replace(/-/g, '');
   if (/^[a-f0-9]{32}$/.test(dashless)) return dashless;
   return input;
+}
+
+// ─── Notion DB 생성 ───
+
+function notionApiRequest(method, endpoint, apiKey, body) {
+  const https = require('https');
+  return new Promise((resolve, reject) => {
+    const data = body ? JSON.stringify(body) : null;
+    const options = {
+      hostname: 'api.notion.com',
+      path: `/v1${endpoint}`,
+      method,
+      headers: {
+        'Authorization': `Bearer ${apiKey}`,
+        'Notion-Version': '2022-06-28',
+        'Content-Type': 'application/json',
+      },
+    };
+    const req = https.request(options, (res) => {
+      let body = '';
+      res.on('data', (chunk) => { body += chunk; });
+      res.on('end', () => {
+        try {
+          const json = JSON.parse(body);
+          if (res.statusCode >= 400) {
+            reject(new Error(`Notion API 오류 (${res.statusCode}): ${json.message || body}`));
+          } else {
+            resolve(json);
+          }
+        } catch {
+          reject(new Error(`Notion API 응답 파싱 오류: ${body}`));
+        }
+      });
+    });
+    req.on('error', (e) => reject(new Error(`네트워크 오류: ${e.message}`)));
+    if (data) req.write(data);
+    req.end();
+  });
+}
+
+async function createNotionDb(apiKey, parentPageId, dbTitle) {
+  const body = {
+    parent: { type: 'page_id', page_id: parentPageId },
+    title: [{ type: 'text', text: { content: dbTitle } }],
+    properties: {
+      'Task': { title: {} },
+      'Status': {
+        status: {
+          options: [
+            { name: 'Not started', color: 'default' },
+            { name: 'In progress', color: 'blue' },
+            { name: 'Done', color: 'green' },
+          ],
+          groups: [
+            { name: 'To-do', option_names: ['Not started'], color: 'default' },
+            { name: 'In progress', option_names: ['In progress'], color: 'blue' },
+            { name: 'Complete', option_names: ['Done'], color: 'green' },
+          ],
+        },
+      },
+      'Run': { checkbox: {} },
+      'Worker': { select: { options: [] } },
+      'Priority': { number: { format: 'number' } },
+      'Log': { rich_text: {} },
+      'Cost': { number: { format: 'number' } },
+      'Completed At': { date: {} },
+    },
+  };
+
+  const result = await notionApiRequest('POST', '/databases', apiKey, body);
+  return result.id.replace(/-/g, '');
+}
+
+async function searchNotionPages(apiKey, query) {
+  const body = {
+    query: query || '',
+    filter: { value: 'page', property: 'object' },
+    page_size: 10,
+  };
+  const result = await notionApiRequest('POST', '/search', apiKey, body);
+  return (result.results || []).map((p) => ({
+    id: p.id,
+    title: (p.properties?.title?.title || p.properties?.Name?.title || [])
+      .map((t) => t.plain_text).join('') || '(제목 없음)',
+  }));
 }
 
 // ─── sources.json 관리 ───
@@ -3033,7 +3122,30 @@ async function main() {
     const figmaFileNames = cliArgs.figmaFileNames || '';
     const notionKey = cliArgs.notionKey || '';
     const notionPages = cliArgs.notionPages || '';
-    const notionDbId = parseNotionDbId(cliArgs.notionDb || '');
+    let notionDbId = '';
+    if (cliArgs.notionDb === 'create') {
+      // 새 Notion DB 생성 모드
+      if (!notionKey) {
+        console.error(`${C.red}Notion DB 생성에는 --notion-key 가 필요합니다.${C.reset}`);
+        process.exit(1);
+      }
+      const parentPageId = parseNotionDbId(cliArgs.notionParent || '');
+      if (!parentPageId) {
+        console.error(`${C.red}--notion-parent <페이지 URL 또는 ID> 를 지정해주세요.${C.reset}`);
+        process.exit(1);
+      }
+      const dbName = cliArgs.notionDbName || '.sleepcode';
+      console.log(`${C.dim}Notion DB 생성 중...${C.reset}`);
+      try {
+        notionDbId = await createNotionDb(notionKey, parentPageId, dbName);
+        console.log(`${C.green}✓${C.reset} Notion DB 생성 완료 (ID: ${notionDbId})`);
+      } catch (e) {
+        console.error(`${C.red}Notion DB 생성 실패: ${e.message}${C.reset}`);
+        process.exit(1);
+      }
+    } else {
+      notionDbId = parseNotionDbId(cliArgs.notionDb || '');
+    }
     const notionFilter = cliArgs.notionFilter || '';
     const sleepInterval = cliArgs.interval || '30';
 
@@ -3134,12 +3246,29 @@ async function main() {
       // 태스크 관리 방식 선택
       const taskSource = await select(rl, '할 일(Task) 관리 방식', [
         { key: 'md', label: 'tasks.md (로컬 파일에 직접 작성)' },
-        { key: 'notion', label: 'Notion DB (Notion 데이터베이스에서 불러오기)' },
+        { key: 'notion', label: 'Notion DB (기존 Notion 데이터베이스 연결)' },
+        { key: 'notion-create', label: 'Notion DB 새로 만들기 (자동 생성)' },
       ]);
 
       if (taskSource.key === 'notion') {
         const dbInput = await ask(rl, '할 일을 저장해 둔 Notion DB (URL 또는 ID)', '');
         notionDbId = parseNotionDbId(dbInput);
+      } else if (taskSource.key === 'notion-create') {
+        const parentInput = await ask(rl, 'DB를 생성할 Notion 페이지 (URL 또는 ID)', '');
+        const parentPageId = parseNotionDbId(parentInput);
+        if (!parentPageId) {
+          console.error(`${C.red}유효한 Notion 페이지 URL 또는 ID를 입력해주세요.${C.reset}`);
+          process.exit(1);
+        }
+        const dbName = await ask(rl, 'DB 이름', '.sleepcode');
+        console.log(`\n${C.dim}Notion DB 생성 중...${C.reset}`);
+        try {
+          notionDbId = await createNotionDb(notionKey, parentPageId, dbName);
+          console.log(`${C.green}✓${C.reset} Notion DB 생성 완료 (ID: ${notionDbId})`);
+        } catch (e) {
+          console.error(`${C.red}Notion DB 생성 실패: ${e.message}${C.reset}`);
+          process.exit(1);
+        }
       } else {
         notionPages = await ask(rl, '참고할 Notion 페이지명 (예: 기획서, API명세)', '');
       }

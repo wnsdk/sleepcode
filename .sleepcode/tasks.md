@@ -4,4 +4,4 @@
 
 ---
 
-- [x] sleepcode가 task 단위별로 실행되잖아. 노션 DB 스타일로 실행했을 경우에, task 종료 후 ai가 유저에게 어떤 내용을 길게 보고 해야한다면 그 노션 DB Task의 노션 페이지 안에 보고를 남기도록 해줘. <!-- notion:31bad790-3b5d-80f2-9712-fd29d677c42f -->
+- [x] npm publish 하기 전, 버전 수정해줘 <!-- notion:31bad790-3b5d-80fe-953d-cf200054a8ed -->

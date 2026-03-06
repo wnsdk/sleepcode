@@ -212,6 +212,120 @@ function showParallelStatus(targetDir) {
   console.log('');
 }
 
+/**
+ * AI를 이용하여 merge conflict를 해결한다.
+ * merge가 진행 중인 상태(충돌 파일이 있는 상태)에서 호출해야 한다.
+ * @returns {boolean} 해결 성공 여부
+ */
+function resolveConflictsWithAI(targetDir, branch) {
+  // 충돌 파일 목록 가져오기
+  let conflictFiles;
+  try {
+    const output = execSync('git diff --name-only --diff-filter=U', {
+      cwd: targetDir,
+      stdio: 'pipe',
+    }).toString().trim();
+    conflictFiles = output ? output.split('\n').filter(Boolean) : [];
+  } catch {
+    return false;
+  }
+
+  if (conflictFiles.length === 0) return false;
+
+  // 충돌 파일들의 내용 수집
+  const conflictContents = [];
+  for (const file of conflictFiles) {
+    try {
+      const content = fs.readFileSync(path.join(targetDir, file), 'utf-8');
+      conflictContents.push(`--- ${file} ---\n${content}`);
+    } catch {
+      conflictContents.push(`--- ${file} --- (읽기 실패)`);
+    }
+  }
+
+  const prompt = `You are resolving git merge conflicts. Branch "${branch}" is being merged into the current branch.
+
+The following files have merge conflicts (marked with <<<<<<<, =======, >>>>>>>).
+Resolve each conflict by choosing the best combination of both sides. Keep all meaningful changes from both branches.
+
+For each file, output ONLY the resolved content in this exact format:
+===FILE: <filepath>===
+<resolved content>
+===END===
+
+Conflicted files:
+
+${conflictContents.join('\n\n')}
+
+IMPORTANT:
+- Remove ALL conflict markers (<<<<<<<, =======, >>>>>>>)
+- Preserve proper formatting and indentation
+- If both sides add different things, include both
+- Output nothing except the resolved files in the specified format`;
+
+  try {
+    const resolved = execSync(
+      'claude -p --output-format text',
+      {
+        input: prompt,
+        cwd: targetDir,
+        stdio: ['pipe', 'pipe', 'pipe'],
+        timeout: 300000,
+        maxBuffer: 10 * 1024 * 1024,
+      }
+    ).toString();
+
+    // 파싱: ===FILE: <path>=== ... ===END===
+    const filePattern = /===FILE:\s*(.+?)===\n([\s\S]*?)===END===/g;
+    let match;
+    let resolvedCount = 0;
+
+    while ((match = filePattern.exec(resolved)) !== null) {
+      const filePath = match[1].trim();
+      const content = match[2];
+
+      // 안전 검사: 충돌 마커가 남아있지 않은지 확인
+      if (content.includes('<<<<<<<') || content.includes('>>>>>>>')) {
+        continue;
+      }
+
+      // 충돌 파일 목록에 있는지 확인
+      if (!conflictFiles.includes(filePath)) continue;
+
+      try {
+        fs.writeFileSync(path.join(targetDir, filePath), content);
+        execSync(`git add "${filePath}"`, { cwd: targetDir, stdio: 'pipe' });
+        resolvedCount++;
+      } catch {
+        // 파일 쓰기/스테이징 실패
+      }
+    }
+
+    if (resolvedCount === 0) return false;
+
+    // 남은 충돌 파일 체크
+    try {
+      const remaining = execSync('git diff --name-only --diff-filter=U', {
+        cwd: targetDir,
+        stdio: 'pipe',
+      }).toString().trim();
+      if (remaining) return false; // 아직 해결되지 않은 파일이 있음
+    } catch {
+      // diff 명령 실패 = 충돌 없음으로 간주
+    }
+
+    // 머지 커밋 완료
+    try {
+      execSync('git commit --no-edit', { cwd: targetDir, stdio: 'pipe' });
+      return true;
+    } catch {
+      return false;
+    }
+  } catch {
+    return false;
+  }
+}
+
 function mergeWorktrees(targetDir) {
   const tasksPath = path.join(targetDir, '.sleepcode', 'tasks.md');
   const workers = parseParallelTasks(tasksPath);
@@ -276,24 +390,27 @@ function mergeWorktrees(targetDir) {
       console.log(`  ${C.green}✓${C.reset} ${branch} 머지 완료`);
       results.merged.push(worker.name);
     } catch (e) {
-      // 충돌 감지
+      // 충돌 감지 — AI로 해결 시도
       const stderr = e.stderr ? e.stderr.toString() : '';
       if (stderr.includes('CONFLICT') || stderr.includes('Merge conflict')) {
-        // 머지 중단
-        try {
-          execSync('git merge --abort', { cwd: targetDir, stdio: 'pipe' });
-        } catch {
-          // abort 실패 시 무시
+        console.log(`  ${C.yellow}⟳${C.reset} ${branch} ${C.yellow}충돌 발생${C.reset} — AI 자동 해결 시도 중...`);
+        const resolved = resolveConflictsWithAI(targetDir, branch);
+        if (resolved) {
+          console.log(`  ${C.green}✓${C.reset} ${branch} AI 머지 완료 (충돌 자동 해결)`);
+          results.merged.push(worker.name);
+        } else {
+          // AI 해결 실패 — 머지 중단
+          try {
+            execSync('git merge --abort', { cwd: targetDir, stdio: 'pipe' });
+          } catch {}
+          console.log(`  ${C.red}✗${C.reset} ${branch} ${C.red}AI 해결 실패${C.reset} — 수동 머지 필요`);
+          results.conflicted.push(worker.name);
         }
-        console.log(`  ${C.red}✗${C.reset} ${branch} ${C.yellow}충돌 발생${C.reset} — 수동 머지 필요`);
-        results.conflicted.push(worker.name);
       } else {
-        // 머지 중단 시도
+        // 충돌 외 머지 실패
         try {
           execSync('git merge --abort', { cwd: targetDir, stdio: 'pipe' });
-        } catch {
-          // abort 실패 시 무시
-        }
+        } catch {}
         console.log(`  ${C.red}✗${C.reset} ${branch} 머지 실패`);
         results.conflicted.push(worker.name);
       }
@@ -306,7 +423,7 @@ function mergeWorktrees(targetDir) {
     console.log(`  ${C.green}성공: ${results.merged.length}${C.reset} (${results.merged.join(', ')})`);
   }
   if (results.conflicted.length > 0) {
-    console.log(`  ${C.red}충돌: ${results.conflicted.length}${C.reset} (${results.conflicted.join(', ')})`);
+    console.log(`  ${C.red}충돌: ${results.conflicted.length}${C.reset} (${results.conflicted.join(', ')}) ${C.dim}(AI 자동 해결 실패)${C.reset}`);
     console.log(`\n${C.yellow}충돌 브랜치를 수동으로 머지하세요:${C.reset}`);
     for (const name of results.conflicted) {
       console.log(`  ${C.cyan}git merge sleepcode/${name}${C.reset}  ${C.dim}# 충돌 해결 후 git commit${C.reset}`);
@@ -366,10 +483,16 @@ function autoMergeWorktrees(targetDir, workerStates) {
       execSync(`git merge "${branch}" --no-edit`, { cwd: targetDir, stdio: 'pipe' });
       results.merged.push(ws.name);
     } catch {
-      try {
-        execSync('git merge --abort', { cwd: targetDir, stdio: 'pipe' });
-      } catch {}
-      results.conflicted.push(ws.name);
+      // 충돌 시 AI로 해결 시도
+      const resolved = resolveConflictsWithAI(targetDir, branch);
+      if (resolved) {
+        results.merged.push(ws.name);
+      } else {
+        try {
+          execSync('git merge --abort', { cwd: targetDir, stdio: 'pipe' });
+        } catch {}
+        results.conflicted.push(ws.name);
+      }
     }
   }
 

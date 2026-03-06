@@ -18,6 +18,19 @@ function providerLabel(provider) {
   return provider === PROVIDERS.CODEX ? 'Codex' : 'Claude';
 }
 
+/**
+ * 프로바이더 라벨을 OSC 8 하이퍼링크로 감싸서 마우스 호버 시 모델명을 보여준다.
+ * @param {string} provider - 프로바이더명
+ * @param {string} [model] - 구체적인 모델명 (예: claude-sonnet-4-6)
+ * @returns {string} 터미널에서 호버 시 모델명이 보이는 라벨
+ */
+function providerLabelWithModel(provider, model) {
+  const label = providerLabel(provider);
+  if (!model) return label;
+  // OSC 8 하이퍼링크: 호버 시 URL(모델명)이 터미널 하단에 표시됨
+  return `\x1b]8;;model://${model}\x07${label}\x1b]8;;\x07`;
+}
+
 function otherProvider(provider) {
   return provider === PROVIDERS.CLAUDE ? PROVIDERS.CODEX : PROVIDERS.CLAUDE;
 }
@@ -213,6 +226,7 @@ function runPromptForTaskGeneration(provider, prompt, targetDir, env) {
 module.exports = {
   normalizeProvider,
   providerLabel,
+  providerLabelWithModel,
   otherProvider,
   isProviderAvailable,
   resolveProviderPlan,

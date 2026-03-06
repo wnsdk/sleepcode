@@ -4,7 +4,7 @@ const { execSync } = require('child_process');
 const { C, SLEEPCODE_BADGE, IS_WIN, TEMPLATES_DIR, branchColor, notionLink } = require('./constants');
 const { countTasks, progressBar, visualWidth, padEndVisual, loadEnvFileToProcessEnv, parseNotionDbId } = require('./utils');
 const { detectPython } = require('./prerequisites');
-const { providerLabel } = require('./provider');
+const { providerLabel, providerLabelWithModel } = require('./provider');
 const { isOverBudget, recordCost } = require('./config');
 const { syncClaudeMd } = require('./files');
 const { boxLine, renderMenuLine, setupMenuInput } = require('./dashboard');
@@ -143,7 +143,7 @@ function cmdWatch(cliProvider) {
             : ws.status === 'budget_stop' ? `${C.yellow}■${C.reset}`
             : `${C.red}✗${C.reset}`;
           const wPct = ws.total > 0 ? Math.round(ws.done / ws.total * 100) : 0;
-          const wModel = ws.provider ? `${C.dim}[${providerLabel(ws.provider)}]${C.reset} ` : '';
+          const wModel = ws.provider ? `${C.dim}[${providerLabelWithModel(ws.provider, ws.model)}]${C.reset} ` : '';
           const wDiff = ws.difficultyLabel ? ` ${C.yellow}${ws.difficulty}${C.reset}` : '';
           lines.push(boxLine(`${statusIcon} ${C.bold}${padEndVisual(ws.name, 18)}${C.reset} ${wModel}${bar} ${String(ws.done).padStart(2)}/${String(ws.total).padEnd(2)} ${C.cyan}${String(wPct).padStart(3)}%${C.reset}${wDiff}`, W));
           if (ws.currentTask && ws.status === 'running') {
@@ -170,7 +170,7 @@ function cmdWatch(cliProvider) {
           : ws.status === 'done' ? `${C.green}✓${C.reset}`
           : `${C.red}✗${C.reset}`;
         const statusText = ws.status === 'running' ? '실행 중' : ws.status === 'done' ? '완료' : '실패';
-        const modelTag = ws.provider ? ` ${C.dim}[${providerLabel(ws.provider)}]${C.reset}` : '';
+        const modelTag = ws.provider ? ` ${C.dim}[${providerLabelWithModel(ws.provider, ws.model)}]${C.reset}` : '';
         const diffInfo = ws.difficultyLabel ? `  ${C.yellow}${ws.difficultyLabel}${C.reset}` : '';
         lines.push(boxLine(`${SLEEPCODE_BADGE} watch  ${statusIcon} ${statusText}${modelTag}${diffInfo}${notionLink(dbId)}`, W));
         lines.push(`${C.dim}╠${'═'.repeat(W + 2)}╣${C.reset}`);

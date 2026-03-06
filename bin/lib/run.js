@@ -4,7 +4,7 @@ const { execSync, spawn } = require('child_process');
 const { C, SLEEPCODE_BADGE, IS_WIN, PROVIDERS, notionLink } = require('./constants');
 const { countTasks, progressBar, visualWidth, loadEnvFileToProcessEnv } = require('./utils');
 const { detectPython } = require('./prerequisites');
-const { resolveProviderPlan, providerLabel, getProviderRunCommand, buildExecutionPrompt, assessTaskDifficulty } = require('./provider');
+const { resolveProviderPlan, providerLabel, providerLabelWithModel, getProviderRunCommand, buildExecutionPrompt, assessTaskDifficulty } = require('./provider');
 const { isOverBudget, recordCost } = require('./config');
 const { syncClaudeMd } = require('./files');
 const { boxLine, renderMenuLine, setupMenuInput } = require('./dashboard');
@@ -188,7 +188,7 @@ function runSingleWithDashboard(targetDir, cont, cliProvider) {
 
     lines.push(`${C.dim}╔${'═'.repeat(W + 2)}╗${C.reset}`);
     const difficultyInfo = ws.difficultyLabel ? `  ${C.yellow}${ws.difficultyLabel}${C.reset}` : '';
-    lines.push(boxLine(`${SLEEPCODE_BADGE} run  ${C.dim}[${providerLabel(ws.provider)}]${C.reset} ${statusIcon} ${statusText}${difficultyInfo}${notionLink(process.env.NOTION_DB_ID)}`, W));
+    lines.push(boxLine(`${SLEEPCODE_BADGE} run  ${C.dim}[${providerLabelWithModel(ws.provider, ws.model)}]${C.reset} ${statusIcon} ${statusText}${difficultyInfo}${notionLink(process.env.NOTION_DB_ID)}`, W));
     lines.push(`${C.dim}╠${'═'.repeat(W + 2)}╣${C.reset}`);
     const pct = ws.total > 0 ? Math.round(ws.done / ws.total * 100) : 0;
     lines.push(boxLine(`${bar}  ${String(ws.done).padStart(2)}/${String(ws.total).padEnd(2)} tasks  ${C.cyan}${pct}%${C.reset}`, W));

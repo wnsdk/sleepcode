@@ -1664,6 +1664,10 @@ function processStreamEvent(ws, obj, onUpdate, pushLog) {
       if (c.type === 'text') {
         const text = (c.text || '').trim();
         if (text) {
+          // AI 보고 텍스트 수집 (Notion 페이지 기록용)
+          if (!ws.reportLines) ws.reportLines = [];
+          ws.reportLines.push(text);
+
           let short = text;
           if (visualWidth(text) > 135) {
             let tw = 0, cut = 0;
@@ -1859,6 +1863,7 @@ function runSingleWithDashboard(targetDir, cont) {
     done: 0,
     total: 0,
     cost: 0,
+    reportLines: [],
     _proc: null,
     logFile: path.join(logDir, `run_${timestamp}.log`),
   };
@@ -2045,7 +2050,7 @@ function runSingleWithDashboard(targetDir, cont) {
     process.removeListener('SIGINT', sigintHandler);
     cleanupAltScreen();
 
-    // Notion 동기화: push
+    // Notion 동기화: push + 보고 기록
     if (process.env.NOTION_API_KEY && process.env.NOTION_DB_ID) {
       const py = detectPython();
       const syncScript = path.join(scDir, 'scripts', 'notion_sync.py');
@@ -2053,6 +2058,27 @@ function runSingleWithDashboard(targetDir, cont) {
         try {
           execSync(`${py.cmd} "${syncScript}" push`, { cwd: targetDir, stdio: 'pipe', timeout: 30000 });
         } catch {}
+
+        // AI 보고 내용을 Notion 페이지 본문에 기록
+        if (ws.reportLines && ws.reportLines.length > 0) {
+          const reportText = ws.reportLines.join('\n');
+          if (reportText.trim()) {
+            const tasksContent = fs.existsSync(tasksPath) ? fs.readFileSync(tasksPath, 'utf-8') : '';
+            const notionPattern = /<!-- notion:([a-f0-9-]+) -->/g;
+            let nm;
+            while ((nm = notionPattern.exec(tasksContent)) !== null) {
+              try {
+                execSync(`${py.cmd} "${syncScript}" append-content "${nm[1]}"`, {
+                  input: reportText,
+                  cwd: targetDir,
+                  stdio: ['pipe', 'pipe', 'pipe'],
+                  timeout: 60000,
+                  env: process.env,
+                });
+              } catch {}
+            }
+          }
+        }
       }
     }
 
@@ -2326,6 +2352,7 @@ ${C.bold}${C.magenta}sleepcode watch${C.reset} — Notion 제어판 모드
         done: 0,
         total: 0,
         cost: 0,
+        reportLines: [],
         _proc: null,
         logFile: path.join(logDir, `watch_${w.name}_${timestamp}.log`),
       }));
@@ -2376,6 +2403,7 @@ ${C.bold}${C.magenta}sleepcode watch${C.reset} — Notion 제어판 모드
         done: 0,
         total: 0,
         cost: 0,
+        reportLines: [],
         _proc: null,
         logFile: path.join(logDir, `watch_main_${timestamp}.log`),
       };
@@ -2450,6 +2478,26 @@ ${C.bold}${C.magenta}sleepcode watch${C.reset} — Notion 제어판 모드
 
       const icon = isDone ? `${C.green}✓${C.reset}` : `${C.red}✗${C.reset}`;
       console.log(`  ${icon} ${task.title} → ${newStatus}`);
+    }
+
+    // AI 보고 내용을 Notion 페이지 본문에 기록
+    const reportText = (workerStates && workerStates.length > 0)
+      ? workerStates.map(ws => (ws.reportLines || []).join('\n')).filter(t => t.trim()).join('\n\n---\n\n')
+      : '';
+
+    if (reportText.trim()) {
+      for (const task of notionTasks) {
+        try {
+          execSync(`${py.cmd} "${syncScript}" append-content "${task.id}"`, {
+            input: reportText,
+            cwd: targetDir,
+            stdio: ['pipe', 'pipe', 'pipe'],
+            timeout: 60000,
+            env: process.env,
+          });
+        } catch {}
+      }
+      console.log(`  ${C.dim}Notion 페이지에 보고 기록 완료${C.reset}`);
     }
 
     // 비용 기록
@@ -2854,8 +2902,6 @@ async function main() {
       if (taskSource.key === 'notion') {
         const dbInput = await ask(rl, '할 일을 저장해 둔 Notion DB (URL 또는 ID)', '');
         notionDbId = parseNotionDbId(dbInput);
-        console.log(`${C.dim}  예: Status = To Do, Sprint = v2.0${C.reset}`);
-        notionFilter = await ask(rl, '실행할 태스크 필터 (없으면 Enter)', '');
       } else {
         notionPages = await ask(rl, '참고할 Notion 페이지명 (예: 기획서, API명세)', '');
       }

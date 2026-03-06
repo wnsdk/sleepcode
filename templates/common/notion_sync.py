@@ -284,6 +284,89 @@ def update_page(api_key, page_id):
         print(json.dumps({"ok": False, "error": "update failed"}))
 
 
+# ─── APPEND-CONTENT: 페이지 본문에 보고 텍스트 추가 ───
+
+
+def append_content(api_key, page_id):
+    """페이지 본문에 보고 텍스트 추가 — stdin에서 텍스트 읽기"""
+    text = sys.stdin.read().strip()
+    if not text:
+        return
+
+    from datetime import datetime, timezone, timedelta
+
+    kst = timezone(timedelta(hours=9))
+    timestamp = datetime.now(kst).strftime("%Y-%m-%d %H:%M")
+
+    blocks = []
+
+    # 구분선
+    blocks.append({"object": "block", "type": "divider", "divider": {}})
+
+    # 헤더
+    blocks.append(
+        {
+            "object": "block",
+            "type": "heading_2",
+            "heading_2": {
+                "rich_text": [
+                    {
+                        "type": "text",
+                        "text": {"content": f"AI Report ({timestamp})"},
+                    }
+                ]
+            },
+        }
+    )
+
+    # 텍스트를 빈 줄 기준으로 문단 분리
+    paragraphs = text.split("\n")
+    current_para = []
+
+    def flush_para():
+        if not current_para:
+            return
+        para_text = "\n".join(current_para)
+        # 2000자 제한 처리
+        for i in range(0, len(para_text), 2000):
+            chunk = para_text[i : i + 2000]
+            blocks.append(
+                {
+                    "object": "block",
+                    "type": "paragraph",
+                    "paragraph": {
+                        "rich_text": [{"type": "text", "text": {"content": chunk}}]
+                    },
+                }
+            )
+
+    for line in paragraphs:
+        if not line.strip():
+            flush_para()
+            current_para = []
+        else:
+            current_para.append(line)
+
+    flush_para()
+
+    if len(blocks) <= 2:  # 헤더+구분선만 있으면 스킵
+        return
+
+    # 100블록씩 나누어 전송 (API 제한)
+    for i in range(0, len(blocks), 100):
+        chunk = blocks[i : i + 100]
+        result = api_request(
+            "PATCH", f"/blocks/{page_id}/children", api_key, {"children": chunk}
+        )
+        if not result:
+            print(
+                f"[notion_sync] 페이지 콘텐츠 추가 실패: {page_id}", file=sys.stderr
+            )
+            return
+
+    print(f"[notion_sync] 보고 내용 기록 완료: {page_id}")
+
+
 # ─── PULL: Notion → tasks.md ───
 
 
@@ -433,6 +516,13 @@ def main():
             print("Usage: notion_sync.py update-page <page_id>", file=sys.stderr)
             sys.exit(1)
         update_page(api_key, sys.argv[2])
+    elif cmd == "append-content":
+        if len(sys.argv) < 3:
+            print(
+                "Usage: notion_sync.py append-content <page_id>", file=sys.stderr
+            )
+            sys.exit(1)
+        append_content(api_key, sys.argv[2])
     else:
         print(f"알 수 없는 명령: {cmd}", file=sys.stderr)
         sys.exit(1)

@@ -1097,6 +1097,63 @@ function boxLine(content, innerWidth) {
   return `${C.dim}│${C.reset} ${padEndVisual(content, innerWidth)} ${C.dim}│${C.reset}`;
 }
 
+/** 대시보드 하단 메뉴 렌더링 */
+const MENU_ITEMS = ['마무리 후 종료', '즉시 종료'];
+
+function renderMenuLine(selectedIndex, innerWidth) {
+  const parts = MENU_ITEMS.map((label, i) => {
+    if (i === selectedIndex) {
+      return `${C.cyan}${C.bold}▸ ${label}${C.reset}`;
+    }
+    return `${C.dim}  ${label}${C.reset}`;
+  });
+  const content = parts.join('    ');
+  return boxLine(`◀ ${content}  ▶`, innerWidth);
+}
+
+/** 대시보드 메뉴 키 입력 핸들러 설정 */
+function setupMenuInput(state, onRender, onGraceful, onImmediate) {
+  if (!process.stdin.isTTY) return null;
+  process.stdin.setRawMode(true);
+  process.stdin.resume();
+
+  const handler = (data) => {
+    const key = data.toString();
+
+    // Ctrl+C → 즉시 종료
+    if (key === '\x03') {
+      onImmediate();
+      return;
+    }
+
+    // 좌우 화살표 (ESC [ D / ESC [ C)
+    if (key === '\x1b[D' || key === '\x1b[C') {
+      state.menuIndex = state.menuIndex === 0 ? 1 : 0;
+      onRender();
+      return;
+    }
+
+    // Enter
+    if (key === '\r' || key === '\n') {
+      if (state.menuIndex === 0) {
+        onGraceful();
+      } else {
+        onImmediate();
+      }
+    }
+  };
+
+  process.stdin.on('data', handler);
+
+  return () => {
+    process.stdin.removeListener('data', handler);
+    if (process.stdin.isTTY) {
+      process.stdin.setRawMode(false);
+      process.stdin.pause();
+    }
+  };
+}
+
 // ─── 설정/사용량 관리 ───
 function getMonday(date) {
   const d = new Date(date || Date.now());
@@ -1537,6 +1594,8 @@ function runParallelWorkers(targetDir, workerInfos) {
   // 대시보드 렌더링
   const startTime = Date.now();
   let renderPending = false;
+  const menuState = { menuIndex: 0 };
+  let gracefulShutdown = false;
 
   function renderDashboard() {
     if (!altScreenActive) return;
@@ -1597,6 +1656,15 @@ function runParallelWorkers(targetDir, workerInfos) {
     } else {
       lines.push(boxLine('', W));
     }
+
+    // 메뉴
+    lines.push(`${C.dim}├${'─'.repeat(W + 2)}┤${C.reset}`);
+    if (gracefulShutdown) {
+      lines.push(boxLine(`${C.yellow}마무리 중... 현재 작업 완료 후 종료됩니다${C.reset}`, W));
+    } else {
+      lines.push(renderMenuLine(menuState.menuIndex, W));
+    }
+
     lines.push(`${C.dim}╰${'─'.repeat(W + 2)}╯${C.reset}`);
     lines.push(`${C.dim} ─── logs ${'─'.repeat(W - 7)}${C.reset}`);
 
@@ -1617,7 +1685,7 @@ function runParallelWorkers(targetDir, workerInfos) {
   }
 
   // Alternate Screen 초기화
-  const dashboardHeight = 9 + workerStates.length * 2;
+  const dashboardHeight = 11 + workerStates.length * 2;
   if (process.stdout.isTTY) {
     process.stdout.write('\x1b[?1049h');
     process.stdout.write('\x1b[H');
@@ -1652,6 +1720,7 @@ function runParallelWorkers(targetDir, workerInfos) {
   });
 
   const sigintHandler = () => {
+    if (cleanupMenuInput) cleanupMenuInput();
     for (const ws of workerStates) {
       if (ws._proc) try { ws._proc.kill(); } catch {}
     }
@@ -1661,6 +1730,34 @@ function runParallelWorkers(targetDir, workerInfos) {
   };
   process.on('SIGINT', sigintHandler);
   process.on('exit', cleanupAltScreen);
+
+  // 메뉴 키 입력 핸들러
+  const cleanupMenuInput = setupMenuInput(
+    menuState,
+    renderDashboard,
+    // 마무리 후 종료: 현재 작업 완료 후 프로세스 종료
+    () => {
+      if (gracefulShutdown) return;
+      gracefulShutdown = true;
+      pushLog('SYSTEM', `${C.yellow}마무리 후 종료 요청 — 현재 작업 완료 후 종료됩니다${C.reset}`);
+      for (const ws of workerStates) {
+        if (ws.status === 'running' && ws._proc) {
+          try { ws._proc.kill('SIGINT'); } catch {}
+        }
+      }
+      renderDashboard();
+    },
+    // 즉시 종료
+    () => {
+      if (cleanupMenuInput) cleanupMenuInput();
+      for (const ws of workerStates) {
+        if (ws._proc) try { ws._proc.kill(); } catch {}
+      }
+      cleanupAltScreen();
+      console.log(`\n${C.yellow}즉시 종료됨${C.reset}`);
+      process.exit(0);
+    }
+  );
 
   renderDashboard();
 
@@ -1696,6 +1793,7 @@ function runParallelWorkers(targetDir, workerInfos) {
       clearInterval(dashboardInterval);
       clearInterval(budgetCheckInterval);
       renderDashboard();
+      if (cleanupMenuInput) cleanupMenuInput();
       process.removeListener('SIGINT', sigintHandler);
       cleanupAltScreen();
       onAllDone();
@@ -2085,6 +2183,8 @@ function runSingleWithDashboard(targetDir, cont) {
   // 대시보드 렌더링
   const startTime = Date.now();
   let renderPending = false;
+  const menuState = { menuIndex: 0 };
+  let gracefulShutdown = false;
 
   function renderDashboard() {
     if (!altScreenActive) return;
@@ -2137,6 +2237,15 @@ function runSingleWithDashboard(targetDir, cont) {
     } else {
       lines.push(boxLine('', W));
     }
+
+    // 메뉴
+    lines.push(`${C.dim}├${'─'.repeat(W + 2)}┤${C.reset}`);
+    if (gracefulShutdown) {
+      lines.push(boxLine(`${C.yellow}마무리 중... 현재 작업 완료 후 종료됩니다${C.reset}`, W));
+    } else {
+      lines.push(renderMenuLine(menuState.menuIndex, W));
+    }
+
     lines.push(`${C.dim}╰${'─'.repeat(W + 2)}╯${C.reset}`);
     lines.push(`${C.dim} ─── logs ${'─'.repeat(W - 7)}${C.reset}`);
 
@@ -2160,7 +2269,7 @@ function runSingleWithDashboard(targetDir, cont) {
   console.log(`${C.cyan}${modeLabel}${C.reset}`);
 
   // Alternate Screen 초기화
-  const dashboardHeight = 10;
+  const dashboardHeight = 12;
   if (process.stdout.isTTY) {
     process.stdout.write('\x1b[?1049h');
     process.stdout.write('\x1b[H');
@@ -2195,6 +2304,7 @@ function runSingleWithDashboard(targetDir, cont) {
   });
 
   const sigintHandler = () => {
+    if (cleanupMenuInput) cleanupMenuInput();
     if (ws._proc) try { ws._proc.kill(); } catch {}
     cleanupAltScreen();
     console.log(`\n${C.yellow}중단됨${C.reset}`);
@@ -2202,6 +2312,28 @@ function runSingleWithDashboard(targetDir, cont) {
   };
   process.on('SIGINT', sigintHandler);
   process.on('exit', cleanupAltScreen);
+
+  // 메뉴 키 입력 핸들러
+  const cleanupMenuInput = setupMenuInput(
+    menuState,
+    renderDashboard,
+    // 마무리 후 종료: SIGINT로 현재 작업 완료 후 종료
+    () => {
+      if (gracefulShutdown) return;
+      gracefulShutdown = true;
+      pushLog('SYSTEM', `${C.yellow}마무리 후 종료 요청 — 현재 작업 완료 후 종료됩니다${C.reset}`);
+      if (ws._proc) try { ws._proc.kill('SIGINT'); } catch {}
+      renderDashboard();
+    },
+    // 즉시 종료
+    () => {
+      if (cleanupMenuInput) cleanupMenuInput();
+      if (ws._proc) try { ws._proc.kill(); } catch {}
+      cleanupAltScreen();
+      console.log(`\n${C.yellow}즉시 종료됨${C.reset}`);
+      process.exit(0);
+    }
+  );
 
   renderDashboard();
 
@@ -2223,6 +2355,7 @@ function runSingleWithDashboard(targetDir, cont) {
     clearInterval(dashboardInterval);
     clearInterval(budgetCheckInterval);
     renderDashboard();
+    if (cleanupMenuInput) cleanupMenuInput();
     process.removeListener('SIGINT', sigintHandler);
     cleanupAltScreen();
 
@@ -2418,7 +2551,9 @@ function cmdWatch() {
   let lastPollTime = null;
   let currentWorkerStates = [];
   let execStartTime = null;
-  let currentDashboardHeight = 9;
+  let currentDashboardHeight = 11;
+  const menuState = { menuIndex: 0 };
+  let gracefulShutdown = false;
 
   // 로그 버퍼 (리사이즈 시 재렌더링용)
   const MAX_LOG_BUFFER = 200;
@@ -2426,9 +2561,9 @@ function cmdWatch() {
   let altScreenActive = false;
 
   function getDashboardHeight() {
-    if (watchPhase !== 'executing' || currentWorkerStates.length === 0) return 9;
-    if (currentWorkerStates.length === 1) return 10;
-    return 7 + currentWorkerStates.length * 2;
+    if (watchPhase !== 'executing' || currentWorkerStates.length === 0) return 11;
+    if (currentWorkerStates.length === 1) return 12;
+    return 9 + currentWorkerStates.length * 2;
   }
 
   function appendLogToScreen(line) {
@@ -2559,6 +2694,15 @@ function cmdWatch() {
     } else {
       lines.push(boxLine('', W));
     }
+
+    // 메뉴
+    lines.push(`${C.dim}├${'─'.repeat(W + 2)}┤${C.reset}`);
+    if (gracefulShutdown) {
+      lines.push(boxLine(`${C.yellow}마무리 중... 현재 작업 완료 후 종료됩니다${C.reset}`, W));
+    } else {
+      lines.push(renderMenuLine(menuState.menuIndex, W));
+    }
+
     lines.push(`${C.dim}╰${'─'.repeat(W + 2)}╯${C.reset}`);
     lines.push(`${C.dim} ─── logs ${'─'.repeat(W - 7)}${C.reset}`);
 
@@ -3002,8 +3146,40 @@ function cmdWatch() {
   // 주기적 폴링
   const pollTimer = setInterval(doPoll, pollIntervalMs);
 
+  // 메뉴 키 입력 핸들러
+  const cleanupMenuInput = setupMenuInput(
+    menuState,
+    renderDashboard,
+    // 마무리 후 종료
+    () => {
+      if (gracefulShutdown) return;
+      gracefulShutdown = true;
+      watchPushLog('SYSTEM', `${C.yellow}마무리 후 종료 요청 — 현재 작업 완료 후 종료됩니다${C.reset}`);
+      clearInterval(pollTimer);
+      for (const ws of currentWorkerStates) {
+        if (ws.status === 'running' && ws._proc) {
+          try { ws._proc.kill('SIGINT'); } catch {}
+        }
+      }
+      renderDashboard();
+    },
+    // 즉시 종료
+    () => {
+      if (cleanupMenuInput) cleanupMenuInput();
+      clearInterval(pollTimer);
+      clearInterval(dashboardInterval);
+      for (const ws of currentWorkerStates) {
+        if (ws._proc) try { ws._proc.kill(); } catch {}
+      }
+      cleanupAltScreen();
+      console.log(`\n${C.yellow}즉시 종료됨${C.reset}`);
+      process.exit(0);
+    }
+  );
+
   // 종료 핸들러
   const sigintHandler = () => {
+    if (cleanupMenuInput) cleanupMenuInput();
     clearInterval(pollTimer);
     clearInterval(dashboardInterval);
     // 실행 중인 워커 프로세스 종료

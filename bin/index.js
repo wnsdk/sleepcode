@@ -504,6 +504,37 @@ function parseParallelTasks(tasksPath) {
   }));
 }
 
+/**
+ * .sleepcode/ 디렉토리를 worktree로 복사 (worktrees/, logs/ 제외)
+ */
+function copySleepcodeDirToWorktree(srcDir, wtPath) {
+  const sleepcodeDir = path.join(srcDir, '.sleepcode');
+  const wtSleepcodeDir = path.join(wtPath, '.sleepcode');
+
+  if (!fs.existsSync(sleepcodeDir)) return;
+
+  // 복사에서 제외할 디렉토리 (재귀 방지 + 불필요한 파일)
+  const EXCLUDE_DIRS = new Set(['worktrees', 'logs']);
+
+  function copyDirRecursive(src, dest) {
+    fs.mkdirSync(dest, { recursive: true });
+    const entries = fs.readdirSync(src, { withFileTypes: true });
+    for (const entry of entries) {
+      const srcPath = path.join(src, entry.name);
+      const destPath = path.join(dest, entry.name);
+      if (entry.isDirectory()) {
+        // 최상위 .sleepcode/ 직속 하위인 경우만 제외 체크
+        if (src === sleepcodeDir && EXCLUDE_DIRS.has(entry.name)) continue;
+        copyDirRecursive(srcPath, destPath);
+      } else {
+        fs.copyFileSync(srcPath, destPath);
+      }
+    }
+  }
+
+  copyDirRecursive(sleepcodeDir, wtSleepcodeDir);
+}
+
 function createWorktrees(targetDir, workers) {
   const wtBase = path.join(targetDir, '.sleepcode', 'worktrees');
   fs.mkdirSync(wtBase, { recursive: true });
@@ -515,11 +546,15 @@ function createWorktrees(targetDir, workers) {
 
     if (fs.existsSync(wtPath)) {
       console.log(`  ${C.dim}-${C.reset} ${worker.name} ${C.dim}(이미 존재)${C.reset}`);
-      // 태스크 파일만 갱신
-      const wtTasksPath = path.join(wtPath, '.sleepcode', 'tasks.md');
-      if (fs.existsSync(path.dirname(wtTasksPath))) {
-        fs.writeFileSync(wtTasksPath, worker.tasks);
+      // .sleepcode 디렉토리가 없으면 복사
+      const wtSleepcodeDir = path.join(wtPath, '.sleepcode');
+      if (!fs.existsSync(wtSleepcodeDir)) {
+        copySleepcodeDirToWorktree(targetDir, wtPath);
       }
+      // 태스크 파일 갱신
+      const wtTasksPath = path.join(wtPath, '.sleepcode', 'tasks.md');
+      fs.mkdirSync(path.dirname(wtTasksPath), { recursive: true });
+      fs.writeFileSync(wtTasksPath, worker.tasks);
       created.push({ name: worker.name, path: wtPath, branch });
       continue;
     }
@@ -542,11 +577,13 @@ function createWorktrees(targetDir, workers) {
       }
     }
 
+    // .sleepcode 디렉토리를 worktree로 복사 (scripts, rules, docs 등)
+    copySleepcodeDirToWorktree(targetDir, wtPath);
+
     // worktree 안의 tasks.md를 해당 워커 태스크만으로 덮어쓰기
     const wtTasksPath = path.join(wtPath, '.sleepcode', 'tasks.md');
-    if (fs.existsSync(path.dirname(wtTasksPath))) {
-      fs.writeFileSync(wtTasksPath, worker.tasks);
-    }
+    fs.mkdirSync(path.dirname(wtTasksPath), { recursive: true });
+    fs.writeFileSync(wtTasksPath, worker.tasks);
 
     console.log(`  ${C.green}✓${C.reset} ${worker.name} ${C.dim}(${branch})${C.reset} — ${worker.remaining}개 태스크`);
     created.push({ name: worker.name, path: wtPath, branch });
@@ -1165,6 +1202,14 @@ function spawnWorker(ws, py, onDone, onUpdate, pushLog) {
   if (fs.existsSync(rulesPath)) parts.push(fs.readFileSync(rulesPath, 'utf-8'));
   if (fs.existsSync(tasksPath)) parts.push(fs.readFileSync(tasksPath, 'utf-8'));
   const prompt = parts.join('\n\n---\n\n');
+
+  if (!prompt.trim()) {
+    pushLog(ws.name, `${C.red}[오류] 프롬프트가 비어있습니다. .sleepcode/ 디렉토리를 확인하세요.${C.reset}`);
+    ws.status = 'failed';
+    ws.currentTask = '프롬프트 파일 누락';
+    onDone();
+    return;
+  }
 
   // 로그 파일 스트림
   const logStream = fs.createWriteStream(ws.logFile, { flags: 'a' });

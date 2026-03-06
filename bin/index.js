@@ -210,15 +210,17 @@ function parseArgs() {
 사용법: sleepcode [옵션]
        sleepcode run [--loop]
        sleepcode generate
+       sleepcode sources
        sleepcode parallel [--setup|--clean|--merge|--status]
        sleepcode usage
 
 옵션 없이 실행하면 인터랙티브 모드로 동작합니다.
 
 명령어:
-  run              1회 실행 (ai_worker 스크립트)
+  run              1회 실행 (대시보드 + 실시간 로그)
   run --loop       무한 루프 실행 (run_forever 스크립트)
   generate         참고자료 기반으로 tasks.md 자동 생성
+  sources          참고자료 URL 관리 (sources.json)
   parallel         @worker 섹션 기반 병렬 실행
   usage            주간 사용량 확인
   parallel --setup worktree 생성만 (실행하지 않음)
@@ -284,6 +286,151 @@ function parseNotionDbId(input) {
   const dashless = input.replace(/-/g, '');
   if (/^[a-f0-9]{32}$/.test(dashless)) return dashless;
   return input;
+}
+
+// ─── sources.json 관리 ───
+function loadSources(targetDir) {
+  const sourcesPath = path.join(targetDir, '.sleepcode', 'sources.json');
+  if (!fs.existsSync(sourcesPath)) return null;
+  try {
+    return JSON.parse(fs.readFileSync(sourcesPath, 'utf-8'));
+  } catch {
+    return null;
+  }
+}
+
+function createDefaultSources(targetDir) {
+  const sourcesPath = path.join(targetDir, '.sleepcode', 'sources.json');
+  const defaultSources = {
+    "$schema": "참고자료 URL 관리 파일 — generate 명령에서 자동으로 읽어 tasks.md 생성에 활용됩니다.",
+    notion: [],
+    figma: [],
+    urls: [],
+  };
+  fs.mkdirSync(path.dirname(sourcesPath), { recursive: true });
+  fs.writeFileSync(sourcesPath, JSON.stringify(defaultSources, null, 2) + '\n');
+  return defaultSources;
+}
+
+function fetchSourceContents(targetDir) {
+  const sources = loadSources(targetDir);
+  if (!sources) return '';
+
+  const parts = [];
+
+  // Notion 페이지 내용 가져오기 (claude CLI로 MCP 호출)
+  if (sources.notion && sources.notion.length > 0) {
+    parts.push('--- 참고 Notion 페이지 ---');
+    for (const entry of sources.notion) {
+      const url = typeof entry === 'string' ? entry : entry.url;
+      const label = (typeof entry === 'object' && entry.label) ? entry.label : url;
+      if (!url) continue;
+      parts.push(`\n[Notion: ${label}]\nURL: ${url}\n(AI가 Notion MCP 도구로 이 페이지를 직접 조회하여 참고하세요)`);
+    }
+  }
+
+  // Figma 파일 참고
+  if (sources.figma && sources.figma.length > 0) {
+    parts.push('\n--- 참고 Figma 디자인 ---');
+    for (const entry of sources.figma) {
+      const url = typeof entry === 'string' ? entry : entry.url;
+      const label = (typeof entry === 'object' && entry.label) ? entry.label : url;
+      if (!url) continue;
+      parts.push(`\n[Figma: ${label}]\nURL: ${url}\n(AI가 Figma MCP 도구로 이 디자인을 직접 조회하여 참고하세요)`);
+    }
+  }
+
+  // 일반 URL 참고
+  if (sources.urls && sources.urls.length > 0) {
+    parts.push('\n--- 참고 URL ---');
+    for (const entry of sources.urls) {
+      const url = typeof entry === 'string' ? entry : entry.url;
+      const label = (typeof entry === 'object' && entry.label) ? entry.label : url;
+      if (!url) continue;
+      parts.push(`\n[참고: ${label}]\nURL: ${url}`);
+    }
+  }
+
+  return parts.join('\n');
+}
+
+function showSources() {
+  const targetDir = process.cwd();
+  const scDir = path.join(targetDir, '.sleepcode');
+
+  if (!fs.existsSync(scDir)) {
+    console.error(`${C.red}.sleepcode/ 폴더가 없습니다. 먼저 'npx sleepcode'로 초기화하세요.${C.reset}`);
+    process.exit(1);
+  }
+
+  const sourcesPath = path.join(scDir, 'sources.json');
+  let sources = loadSources(targetDir);
+
+  if (!sources) {
+    sources = createDefaultSources(targetDir);
+    console.log(`${C.green}✓${C.reset} .sleepcode/sources.json 생성됨\n`);
+  }
+
+  const notionCount = (sources.notion || []).length;
+  const figmaCount = (sources.figma || []).length;
+  const urlCount = (sources.urls || []).length;
+  const total = notionCount + figmaCount + urlCount;
+
+  console.log(`\n${C.bold}참고자료 현황${C.reset} — ${sourcesPath}\n`);
+
+  if (total === 0) {
+    console.log(`  ${C.dim}(등록된 참고자료가 없습니다)${C.reset}\n`);
+  } else {
+    if (notionCount > 0) {
+      console.log(`  ${C.cyan}Notion${C.reset} (${notionCount}개):`);
+      for (const entry of sources.notion) {
+        const url = typeof entry === 'string' ? entry : entry.url;
+        const label = (typeof entry === 'object' && entry.label) ? entry.label : '';
+        console.log(`    ${label ? `${label}: ` : ''}${C.dim}${url}${C.reset}`);
+      }
+    }
+    if (figmaCount > 0) {
+      console.log(`  ${C.magenta}Figma${C.reset} (${figmaCount}개):`);
+      for (const entry of sources.figma) {
+        const url = typeof entry === 'string' ? entry : entry.url;
+        const label = (typeof entry === 'object' && entry.label) ? entry.label : '';
+        console.log(`    ${label ? `${label}: ` : ''}${C.dim}${url}${C.reset}`);
+      }
+    }
+    if (urlCount > 0) {
+      console.log(`  ${C.green}URL${C.reset} (${urlCount}개):`);
+      for (const entry of sources.urls) {
+        const url = typeof entry === 'string' ? entry : entry.url;
+        const label = (typeof entry === 'object' && entry.label) ? entry.label : '';
+        console.log(`    ${label ? `${label}: ` : ''}${C.dim}${url}${C.reset}`);
+      }
+    }
+  }
+
+  console.log(`
+${C.bold}사용법:${C.reset}
+
+  ${C.dim}sources.json을 직접 편집하여 참고자료를 추가하세요:${C.reset}
+
+  ${C.cyan}${sourcesPath}${C.reset}
+
+  ${C.dim}예시:${C.reset}
+  {
+    "notion": [
+      { "url": "https://www.notion.so/...", "label": "기획서" },
+      { "url": "https://www.notion.so/...", "label": "API 명세" }
+    ],
+    "figma": [
+      { "url": "https://www.figma.com/file/...", "label": "홈 화면" }
+    ],
+    "urls": [
+      { "url": "https://api-docs.example.com", "label": "외부 API 문서" }
+    ]
+  }
+
+  ${C.dim}등록 후:${C.reset}
+  ${C.cyan}npx sleepcode generate${C.reset}   ${C.dim}# sources.json + docs/ 기반으로 tasks.md 자동 생성${C.reset}
+`);
 }
 
 function writeFile(filePath, content) {
@@ -370,6 +517,23 @@ function generateFiles(targetDir, { typeKey, projectName, role, buildCmd, testCm
   // docs/.gitkeep
   writeFile(path.join(scDir, 'docs', '.gitkeep'), '');
 
+  // sources.json (참고자료 URL 관리)
+  const sourcesPath = path.join(scDir, 'sources.json');
+  if (!fs.existsSync(sourcesPath)) {
+    const sourcesData = { "$schema": "참고자료 URL 관리 파일 — generate 명령에서 자동으로 읽어 tasks.md 생성에 활용됩니다.", notion: [], figma: [], urls: [] };
+    if (notionPages) {
+      for (const page of notionPages.split(',').map(s => s.trim()).filter(Boolean)) {
+        sourcesData.notion.push({ url: '', label: page });
+      }
+    }
+    if (figmaFileNames) {
+      for (const file of figmaFileNames.split(',').map(s => s.trim()).filter(Boolean)) {
+        sourcesData.figma.push({ url: '', label: file });
+      }
+    }
+    writeFile(sourcesPath, JSON.stringify(sourcesData, null, 2) + '\n');
+  }
+
   // tasks.md (Notion DB 모드가 아닐 때만 기본 템플릿 생성)
   if (!notionDbId) {
     writeFile(
@@ -449,7 +613,8 @@ function printResult(notionDbId) {
   } else {
     console.log(`  ${C.green}✓${C.reset} .sleepcode/tasks.md          ${C.dim}← 수정하세요${C.reset}`);
   }
-  console.log(`  ${C.green}✓${C.reset} .sleepcode/docs/             ${C.dim}← 참고자료 추가${C.reset}`);
+  console.log(`  ${C.green}✓${C.reset} .sleepcode/sources.json      ${C.dim}← 참고자료 URL 추가${C.reset}`);
+  console.log(`  ${C.green}✓${C.reset} .sleepcode/docs/             ${C.dim}← 참고자료 파일 추가${C.reset}`);
   console.log(`  ${C.green}✓${C.reset} .sleepcode/scripts/base_rules.md`);
   console.log(`  ${C.green}✓${C.reset} .sleepcode/scripts/${workerScript}`);
   console.log(`  ${C.green}✓${C.reset} .sleepcode/scripts/${foreverScript}`);
@@ -467,7 +632,10 @@ function printResult(notionDbId) {
 ${C.bold}${C.green}완료!${C.reset} 다음 단계:
 
   ${C.bold}1.${C.reset} .sleepcode/rules.md 를 프로젝트에 맞게 수정
-  ${C.bold}2.${C.reset} .sleepcode/docs/ 에 참고 자료 추가 (기획서, 스크린샷 등)
+  ${C.bold}2.${C.reset} 참고 자료 추가:
+     ${C.dim}• .sleepcode/sources.json 에 Notion/Figma URL 등록${C.reset}
+     ${C.dim}• .sleepcode/docs/ 에 기획서, 스크린샷 등 파일 추가${C.reset}
+     ${C.cyan}npx sleepcode sources${C.reset}         ${C.dim}# 참고자료 현황 확인${C.reset}
   ${taskStep}
   ${C.bold}4.${C.reset} 실행:
      ${C.cyan}npx sleepcode run${C.reset}          ${C.dim}# 1회 실행${C.reset}
@@ -1419,6 +1587,18 @@ function generateTasks() {
     process.exit(1);
   }
 
+  // sources.json 상태 표시
+  const sources = loadSources(targetDir);
+  if (sources) {
+    const n = (sources.notion || []).length;
+    const f = (sources.figma || []).length;
+    const u = (sources.urls || []).length;
+    const total = n + f + u;
+    if (total > 0) {
+      console.log(`${C.dim}참고자료: Notion ${n}개, Figma ${f}개, URL ${u}개 (sources.json)${C.reset}`);
+    }
+  }
+
   console.log(`${C.cyan}태스크 자동 생성 중...${C.reset}\n`);
 
   // 참고 자료 수집
@@ -1466,7 +1646,13 @@ function generateTasks() {
     // git이 없거나 실패하면 무시
   }
 
-  // 5. 기존 tasks.md (있으면 참고)
+  // 5. sources.json (참고자료 URL)
+  const sourceContents = fetchSourceContents(targetDir);
+  if (sourceContents) {
+    parts.push(sourceContents);
+  }
+
+  // 6. 기존 tasks.md (있으면 참고)
   const tasksPath = path.join(scDir, 'tasks.md');
   if (fs.existsSync(tasksPath)) {
     const existing = fs.readFileSync(tasksPath, 'utf-8');
@@ -1487,8 +1673,9 @@ function generateTasks() {
 - 마크다운 체크리스트 형식으로 작성: \`- [ ] 태스크 내용\`
 - 구체적이고 실행 가능한 단위로 태스크를 나눌 것
 - 태스크 순서는 의존성을 고려하여 배치
-- Figma 디자인이 있으면 UI 구현 태스크도 포함
-- Notion 문서가 있으면 기획 내용을 반영
+- Figma 디자인 URL이 있으면 Figma MCP 도구로 디자인을 조회하여 UI 구현 태스크 포함
+- Notion 페이지 URL이 있으면 Notion MCP 도구로 페이지를 조회하여 기획 내용을 반영
+- 참고 URL이 있으면 WebFetch 도구로 내용을 가져와 반영
 - docs/ 폴더의 참고 자료를 반영
 - **이미 프로젝트에 구현되어 있는 기능은 태스크에 포함하지 않는다**
 - 현재 프로젝트 파일 목록을 분석하여 아직 구현되지 않은 것만 태스크로 작성
@@ -1543,6 +1730,10 @@ async function main() {
   }
   if (firstArg === 'generate') {
     generateTasks();
+    return;
+  }
+  if (firstArg === 'sources') {
+    showSources();
     return;
   }
   if (firstArg === 'parallel') {

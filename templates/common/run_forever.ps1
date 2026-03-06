@@ -37,11 +37,16 @@ while ($true) {
         exit 0
     }
 
-    # base_rules.md + rules.md + tasks.md 를 합쳐서 프롬프트 구성
-    $baseRules = Get-Content .sleepcode/scripts/base_rules.md -Raw -Encoding UTF8
-    $rules = Get-Content .sleepcode/rules.md -Raw -Encoding UTF8
-    $tasks = Get-Content .sleepcode/tasks.md -Raw -Encoding UTF8
-    $prompt = "$baseRules`n`n---`n`n$rules`n`n---`n`n$tasks"
+    # CLAUDE.md 동기화 (base_rules + rules → CLAUDE.md, 프롬프트 캐싱)
+    $baseRules = if (Test-Path .sleepcode/scripts/base_rules.md) { Get-Content .sleepcode/scripts/base_rules.md -Raw -Encoding UTF8 } else { "" }
+    $rules = if (Test-Path .sleepcode/rules.md) { Get-Content .sleepcode/rules.md -Raw -Encoding UTF8 } else { "" }
+    if ($baseRules -or $rules) {
+        $claudeMd = "$baseRules`n`n---`n`n$rules"
+        [System.IO.File]::WriteAllText("CLAUDE.md", $claudeMd, [System.Text.Encoding]::UTF8)
+    }
+
+    # tasks.md만 프롬프트로 전달 (규칙은 CLAUDE.md로 자동 로드됨)
+    $prompt = Get-Content .sleepcode/tasks.md -Raw -Encoding UTF8
 
     Log "claude 실행 중..."
     # 프롬프트를 임시 파일에 저장 후 cmd 네이티브 파이프로 실시간 스트리밍

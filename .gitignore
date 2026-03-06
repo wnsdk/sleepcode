@@ -1,2 +1,13 @@
 .npmrc
 .sleepcode/
+
+# AI worker logs
+.sleepcode/logs/
+
+# AI worker secrets (API keys)
+.sleepcode/.env
+
+# Notion sync state
+.sleepcode/.notion_state.json
+.sleepcode/worktrees/
+.sleepcode/usage.json

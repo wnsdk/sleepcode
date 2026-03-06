@@ -439,6 +439,26 @@ function writeFile(filePath, content) {
   fs.writeFileSync(filePath, content);
 }
 
+/**
+ * CLAUDE.md 동기화: base_rules.md + rules.md → 프로젝트 루트 CLAUDE.md
+ * Claude CLI가 CLAUDE.md를 시스템 프롬프트로 자동 로드하며, 프롬프트 캐싱 적용됨.
+ * -p 프롬프트에는 tasks.md만 전달하여 토큰 절약.
+ */
+function syncClaudeMd(targetDir) {
+  const scDir = path.join(targetDir, '.sleepcode');
+  const baseRulesPath = path.join(scDir, 'scripts', 'base_rules.md');
+  const rulesPath = path.join(scDir, 'rules.md');
+  const claudeMdPath = path.join(targetDir, 'CLAUDE.md');
+
+  const parts = [];
+  if (fs.existsSync(baseRulesPath)) parts.push(fs.readFileSync(baseRulesPath, 'utf-8'));
+  if (fs.existsSync(rulesPath)) parts.push(fs.readFileSync(rulesPath, 'utf-8'));
+
+  if (parts.length > 0) {
+    fs.writeFileSync(claudeMdPath, parts.join('\n\n---\n\n'));
+  }
+}
+
 function generateFiles(targetDir, { typeKey, projectName, role, buildCmd, testCmd, lintCmd, figmaKey, figmaFileNames, notionKey, notionPages, notionDbId, notionFilter, sleepInterval }) {
   const scDir = path.join(targetDir, '.sleepcode');
   const claudeDir = path.join(targetDir, '.claude');
@@ -600,6 +620,9 @@ function generateFiles(targetDir, { typeKey, projectName, role, buildCmd, testCm
       fs.appendFileSync(gitignorePath, '.sleepcode/usage.json\n');
     }
   }
+
+  // CLAUDE.md 생성 (base_rules + rules → 프로젝트 루트 CLAUDE.md)
+  syncClaudeMd(targetDir);
 }
 
 function printResult(notionDbId) {
@@ -621,6 +644,7 @@ function printResult(notionDbId) {
   console.log(`  ${C.green}✓${C.reset} .sleepcode/scripts/log_filter.py`);
   console.log(`  ${C.green}✓${C.reset} .sleepcode/README.md`);
   console.log(`  ${C.green}✓${C.reset} .claude/settings.local.json`);
+  console.log(`  ${C.green}✓${C.reset} CLAUDE.md                    ${C.dim}← 프롬프트 캐싱 (자동 생성)${C.reset}`);
 
   const taskStep = notionDbId
     ? `${C.bold}3.${C.reset} Notion DB에 할 일을 작성해두세요 (첫 실행 시 자동 동기화)`
@@ -1359,17 +1383,13 @@ ${C.bold}다음 단계:${C.reset}
 }
 
 function spawnWorker(ws, py, onDone, onUpdate, pushLog) {
-  // 프롬프트 구성 (base_rules + rules + tasks)
+  // CLAUDE.md 동기화 (base_rules + rules → CLAUDE.md, 프롬프트 캐싱)
   const wtDir = ws.path;
-  const baseRulesPath = path.join(wtDir, '.sleepcode', 'scripts', 'base_rules.md');
-  const rulesPath = path.join(wtDir, '.sleepcode', 'rules.md');
-  const tasksPath = path.join(wtDir, '.sleepcode', 'tasks.md');
+  syncClaudeMd(wtDir);
 
-  const parts = [];
-  if (fs.existsSync(baseRulesPath)) parts.push(fs.readFileSync(baseRulesPath, 'utf-8'));
-  if (fs.existsSync(rulesPath)) parts.push(fs.readFileSync(rulesPath, 'utf-8'));
-  if (fs.existsSync(tasksPath)) parts.push(fs.readFileSync(tasksPath, 'utf-8'));
-  const prompt = parts.join('\n\n---\n\n');
+  // 프롬프트 구성 (tasks.md만 전달 — 규칙은 CLAUDE.md로 자동 로드됨)
+  const tasksPath = path.join(wtDir, '.sleepcode', 'tasks.md');
+  const prompt = fs.existsSync(tasksPath) ? fs.readFileSync(tasksPath, 'utf-8') : '';
 
   if (!prompt.trim()) {
     pushLog(ws.name, `${C.red}[오류] 프롬프트가 비어있습니다. .sleepcode/ 디렉토리를 확인하세요.${C.reset}`);
@@ -1605,16 +1625,12 @@ function runSingleWithDashboard(targetDir) {
     }
   }
 
-  // 프롬프트 구성
-  const baseRulesPath = path.join(scDir, 'scripts', 'base_rules.md');
-  const rulesPath = path.join(scDir, 'rules.md');
-  const tasksPath = path.join(scDir, 'tasks.md');
+  // CLAUDE.md 동기화 (base_rules + rules → CLAUDE.md, 프롬프트 캐싱)
+  syncClaudeMd(targetDir);
 
-  const parts = [];
-  if (fs.existsSync(baseRulesPath)) parts.push(fs.readFileSync(baseRulesPath, 'utf-8'));
-  if (fs.existsSync(rulesPath)) parts.push(fs.readFileSync(rulesPath, 'utf-8'));
-  if (fs.existsSync(tasksPath)) parts.push(fs.readFileSync(tasksPath, 'utf-8'));
-  const prompt = parts.join('\n\n---\n\n');
+  // 프롬프트 구성 (tasks.md만 전달 — 규칙은 CLAUDE.md로 자동 로드됨)
+  const tasksPath = path.join(scDir, 'tasks.md');
+  const prompt = fs.existsSync(tasksPath) ? fs.readFileSync(tasksPath, 'utf-8') : '';
 
   if (!prompt.trim()) {
     console.error(`${C.red}프롬프트가 비어있습니다. .sleepcode/ 디렉토리를 확인하세요.${C.reset}`);

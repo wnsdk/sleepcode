@@ -45,20 +45,17 @@ while true; do
     exit 0
   fi
 
-  # base_rules.md + rules.md + tasks.md 를 합쳐서 프롬프트 구성
-  BASE_RULES=$(cat .sleepcode/scripts/base_rules.md)
-  RULES=$(cat .sleepcode/rules.md)
-  TASKS=$(cat .sleepcode/tasks.md)
+  # CLAUDE.md 동기화 (base_rules + rules → CLAUDE.md, 프롬프트 캐싱)
+  {
+    BASE_RULES=$(cat .sleepcode/scripts/base_rules.md 2>/dev/null || true)
+    RULES=$(cat .sleepcode/rules.md 2>/dev/null || true)
+    if [ -n "$BASE_RULES" ] || [ -n "$RULES" ]; then
+      printf '%s\n\n---\n\n%s' "$BASE_RULES" "$RULES" > CLAUDE.md
+    fi
+  }
 
-  PROMPT="${BASE_RULES}
-
----
-
-${RULES}
-
----
-
-${TASKS}"
+  # tasks.md만 프롬프트로 전달 (규칙은 CLAUDE.md로 자동 로드됨)
+  PROMPT=$(cat .sleepcode/tasks.md)
 
   log "claude 실행 중..."
   # stream-json → log_filter.py 로 핵심 메시지만 추출

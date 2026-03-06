@@ -19,19 +19,17 @@ if [ -n "$NOTION_API_KEY" ] && [ -n "$NOTION_DB_ID" ]; then
   python3 .sleepcode/scripts/notion_sync.py pull
 fi
 
-BASE_RULES=$(cat .sleepcode/scripts/base_rules.md)
-RULES=$(cat .sleepcode/rules.md)
-TASKS=$(cat .sleepcode/tasks.md)
+# CLAUDE.md 동기화 (base_rules + rules → CLAUDE.md, 프롬프트 캐싱)
+{
+  BASE_RULES=$(cat .sleepcode/scripts/base_rules.md 2>/dev/null || true)
+  RULES=$(cat .sleepcode/rules.md 2>/dev/null || true)
+  if [ -n "$BASE_RULES" ] || [ -n "$RULES" ]; then
+    printf '%s\n\n---\n\n%s' "$BASE_RULES" "$RULES" > CLAUDE.md
+  fi
+}
 
-PROMPT="${BASE_RULES}
-
----
-
-${RULES}
-
----
-
-${TASKS}"
+# tasks.md만 프롬프트로 전달 (규칙은 CLAUDE.md로 자동 로드됨)
+PROMPT=$(cat .sleepcode/tasks.md)
 
 # stream-json + verbose: 토큰 단위 실시간 출력
 claude -p "$PROMPT" --dangerously-skip-permissions --output-format stream-json --verbose 2>&1 \

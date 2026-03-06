@@ -428,6 +428,8 @@ function mergeWorktrees(targetDir) {
     for (const name of results.conflicted) {
       console.log(`  ${C.cyan}git merge sleepcode/${name}${C.reset}  ${C.dim}# 충돌 해결 후 git commit${C.reset}`);
     }
+    console.log(`\n${C.yellow}⚠ 충돌이 남아있으므로 워크트리를 정리하지 마세요.${C.reset}`);
+    console.log(`  ${C.dim}수동 머지 완료 후 'npx sleepcode parallel --clean'으로 정리하세요.${C.reset}`);
   }
   if (results.skipped.length > 0) {
     console.log(`  ${C.dim}스킵: ${results.skipped.length} (${results.skipped.join(', ')})${C.reset}`);

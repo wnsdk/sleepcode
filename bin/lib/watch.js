@@ -641,27 +641,34 @@ function cmdWatch(cliProvider) {
     // 병렬 실행 후 자동 머지 및 워크트리 정리
     if (workerStates && workerStates.length > 1) {
       watchPushLog('SYSTEM', `${C.bold}자동 머지 시작${C.reset}`);
+      let hasConflicts = false;
       try {
         const mergeResults = autoMergeWorktrees(targetDir, workerStates);
         if (mergeResults.merged.length > 0) {
           watchPushLog('SYSTEM', `${C.green}머지 성공: ${mergeResults.merged.join(', ')}${C.reset}`);
         }
         if (mergeResults.conflicted.length > 0) {
+          hasConflicts = true;
           watchPushLog('SYSTEM', `${C.red}머지 충돌: ${mergeResults.conflicted.join(', ')} (수동 머지 필요)${C.reset}`);
         }
         if (mergeResults.skipped.length > 0) {
           watchPushLog('SYSTEM', `${C.dim}머지 스킵: ${mergeResults.skipped.join(', ')}${C.reset}`);
         }
       } catch (e) {
+        hasConflicts = true;
         watchPushLog('SYSTEM', `${C.red}자동 머지 실패: ${e.message}${C.reset}`);
       }
 
-      watchPushLog('SYSTEM', `${C.bold}워크트리 정리${C.reset}`);
-      try {
-        cleanupWorktrees(targetDir, null);
-        watchPushLog('SYSTEM', `${C.green}워크트리 정리 완료${C.reset}`);
-      } catch (e) {
-        watchPushLog('SYSTEM', `${C.red}워크트리 정리 실패: ${e.message}${C.reset}`);
+      if (hasConflicts) {
+        watchPushLog('SYSTEM', `${C.yellow}머지 충돌이 남아있어 워크트리를 유지합니다. 수동 해결 후 'npx sleepcode parallel --clean'으로 정리하세요.${C.reset}`);
+      } else {
+        watchPushLog('SYSTEM', `${C.bold}워크트리 정리${C.reset}`);
+        try {
+          cleanupWorktrees(targetDir, null);
+          watchPushLog('SYSTEM', `${C.green}워크트리 정리 완료${C.reset}`);
+        } catch (e) {
+          watchPushLog('SYSTEM', `${C.red}워크트리 정리 실패: ${e.message}${C.reset}`);
+        }
       }
     }
 

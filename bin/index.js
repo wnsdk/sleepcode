@@ -337,21 +337,29 @@ function parseNotionDbId(input) {
 async function validateNotionDbId(apiKey, rawId) {
   if (!rawId) return '';
 
+  // 32자리 hex → 대시 포함 UUID 형식으로 변환 (Notion API 호환성)
+  let formattedId = rawId;
+  if (/^[a-f0-9]{32}$/.test(rawId)) {
+    formattedId = `${rawId.slice(0,8)}-${rawId.slice(8,12)}-${rawId.slice(12,16)}-${rawId.slice(16,20)}-${rawId.slice(20)}`;
+  }
+
+  let dbError = null;
+
   // 1. DB로 직접 조회 시도
   try {
-    await notionApiRequest('GET', `/databases/${rawId}`, apiKey);
+    await notionApiRequest('GET', `/databases/${formattedId}`, apiKey);
     return rawId; // DB ID가 맞음
-  } catch {
-    // DB가 아님 — 페이지일 수 있음
+  } catch (e) {
+    dbError = e;
   }
 
   // 2. 페이지로 조회 시도
   try {
-    const page = await notionApiRequest('GET', `/pages/${rawId}`, apiKey);
+    const page = await notionApiRequest('GET', `/pages/${formattedId}`, apiKey);
     if (page && page.object === 'page') {
       // 페이지 내 자식 DB 검색
       try {
-        const blocks = await notionApiRequest('GET', `/blocks/${rawId}/children?page_size=100`, apiKey);
+        const blocks = await notionApiRequest('GET', `/blocks/${formattedId}/children?page_size=100`, apiKey);
         if (blocks && blocks.results) {
           const childDb = blocks.results.find(b => b.type === 'child_database');
           if (childDb) {
@@ -372,9 +380,22 @@ async function validateNotionDbId(apiKey, rawId) {
     if (e.message.includes('Notion 페이지입니다')) throw e;
   }
 
+  // 실제 API 오류 메시지를 포함하여 원인 파악이 가능하도록 함
+  const apiMsg = dbError ? dbError.message : '';
+  if (apiMsg.includes('401') || apiMsg.includes('Unauthorized') || apiMsg.includes('unauthorized')) {
+    throw new Error(
+      `Notion API Key가 유효하지 않습니다.\n` +
+      `  API Key를 다시 확인해주세요.\n` +
+      `  ${C.dim}(발급: https://www.notion.so/my-integrations)${C.reset}`
+    );
+  }
+
   throw new Error(
-    `유효하지 않은 Notion ID입니다.\n` +
-    `  데이터베이스 URL 또는 ID를 확인해주세요.`
+    `Notion 데이터베이스에 접근할 수 없습니다.\n` +
+    `  다음 사항을 확인해주세요:\n` +
+    `  1. Notion 데이터베이스 페이지에서 ··· → 연결 → 통합(Integration)을 추가했는지 확인\n` +
+    `  2. 데이터베이스 URL 또는 ID가 올바른지 확인\n` +
+    `  ${C.dim}(입력한 ID: ${rawId})${C.reset}`
   );
 }
 

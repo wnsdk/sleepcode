@@ -2548,8 +2548,9 @@ function cmdWatch() {
         env: process.env,
       }).toString().trim();
       return JSON.parse(result);
-    } catch {
-      return null;
+    } catch (e) {
+      const stderr = e.stderr ? e.stderr.toString().trim() : '';
+      return { error: 'poll_failed', message: stderr || e.message || 'unknown error' };
     }
   }
 
@@ -2837,7 +2838,8 @@ function cmdWatch() {
     const data = notionPoll();
 
     if (!data || data.error) {
-      watchPushLog('SYSTEM', `${C.dim}폴링 실패${C.reset}`);
+      const errMsg = data && data.message ? `: ${data.message}` : '';
+      watchPushLog('SYSTEM', `${C.red}폴링 실패${errMsg}${C.reset}`);
       return;
     }
 

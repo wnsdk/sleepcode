@@ -484,7 +484,7 @@ def push(api_key, db_id):
                 status_name = "Done" if done else "Not started"
                 props = {status_prop: {"status": {"name": status_name}}}
             elif status_type == "select":
-                select_name = "Done" if done else "To Do"
+                select_name = "Done" if done else "Not started"
                 props = {status_prop: {"select": {"name": select_name}}}
             else:
                 continue

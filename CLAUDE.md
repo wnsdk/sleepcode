@@ -31,7 +31,8 @@
   3. `git commit` 한다. (커밋 메시지에 태스크 내용을 포함)
   4. 해당 항목에 `<!-- notion:PAGE_ID -->` 주석이 있으면, Notion MCP 도구(`notion-update-page`)로 해당 페이지를 업데이트한다:
      - `Status` → `Success`
-     - `Completed At` → 현재 날짜 (ISO-8601 형식, 예: `2026-03-07`)
+     - `Completed At` → 현재 날짜+시각 (ISO-8601 datetime 형식, 예: `2026-03-07T15:30:00+09:00`)
+     - `date:Completed At:is_datetime` → `1` (반드시 시각 포함)
   5. 그 다음 항목으로 넘어간다.
 - 여러 항목을 한꺼번에 작업하지 않는다. 반드시 1항목 = 1커밋이다.
 

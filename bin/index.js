@@ -22,6 +22,13 @@ const C = {
 // sleepcode 뱃지 (pill 형태: 반블록 + 마젠타 배경 + 흰색 볼드)
 const SLEEPCODE_BADGE = `${C.magenta}▐${C.bgMagenta}${C.brightWhite}${C.bold} sleepcode ${C.reset}${C.magenta}▌${C.reset}`;
 
+/** Notion DB 링크 (OSC 8 터미널 하이퍼링크) — DB ID가 없으면 빈 문자열 */
+function notionLink(dbId) {
+  if (!dbId) return '';
+  const url = `https://notion.so/${dbId.replace(/-/g, '')}`;
+  return `  \x1b]8;;${url}\x07${C.dim}[Notion]${C.reset}\x1b]8;;\x07`;
+}
+
 const TEMPLATES_DIR = path.join(__dirname, '..', 'templates');
 const IS_WIN = process.platform === 'win32';
 
@@ -1062,7 +1069,7 @@ function progressBar(done, total, width) {
 
 /** ANSI 이스케이프 코드를 제거한 문자열 반환 */
 function stripAnsi(str) {
-  return str.replace(/\x1b\[[0-9;]*m/g, '');
+  return str.replace(/\x1b\[[0-9;]*m/g, '').replace(/\x1b\]8;;[^\x07]*\x07/g, '');
 }
 
 /** 터미널에서의 실제 표시 너비 (CJK 문자 = 2칸, ANSI = 0칸) */
@@ -1631,7 +1638,7 @@ function runParallelWorkers(targetDir, workerInfos) {
     const totalCost = workerStates.reduce((s, w) => s + w.cost, 0);
 
     lines.push(`${C.dim}╭${'─'.repeat(W + 2)}╮${C.reset}`);
-    lines.push(boxLine(`${SLEEPCODE_BADGE} parallel  ${C.dim}${activeCount}/${workerStates.length} workers${C.reset}`, W));
+    lines.push(boxLine(`${SLEEPCODE_BADGE} parallel  ${C.dim}${activeCount}/${workerStates.length} workers${C.reset}${notionLink(process.env.NOTION_DB_ID)}`, W));
     lines.push(`${C.dim}├${'─'.repeat(W + 2)}┤${C.reset}`);
 
     for (const ws of workerStates) {
@@ -2248,7 +2255,7 @@ function runSingleWithDashboard(targetDir, cont) {
     const costStr = `$${ws.cost.toFixed(4)}`;
 
     lines.push(`${C.dim}╭${'─'.repeat(W + 2)}╮${C.reset}`);
-    lines.push(boxLine(`${SLEEPCODE_BADGE} run  ${statusIcon} ${statusText}`, W));
+    lines.push(boxLine(`${SLEEPCODE_BADGE} run  ${statusIcon} ${statusText}${notionLink(process.env.NOTION_DB_ID)}`, W));
     lines.push(`${C.dim}├${'─'.repeat(W + 2)}┤${C.reset}`);
     const pct = ws.total > 0 ? Math.round(ws.done / ws.total * 100) : 0;
     lines.push(boxLine(`${bar}  ${String(ws.done).padStart(2)}/${String(ws.total).padEnd(2)} tasks  ${C.cyan}${pct}%${C.reset}`, W));
@@ -2668,7 +2675,7 @@ function cmdWatch() {
 
       if (useParallel) {
         const activeCount = currentWorkerStates.filter(w => w.status === 'running').length;
-        lines.push(boxLine(`${SLEEPCODE_BADGE} watch  ${C.cyan}⟳${C.reset} ${activeCount}/${currentWorkerStates.length} workers`, W));
+        lines.push(boxLine(`${SLEEPCODE_BADGE} watch  ${C.cyan}⟳${C.reset} ${activeCount}/${currentWorkerStates.length} workers${notionLink(dbId)}`, W));
         lines.push(`${C.dim}├${'─'.repeat(W + 2)}┤${C.reset}`);
 
         for (const ws of currentWorkerStates) {
@@ -2703,7 +2710,7 @@ function cmdWatch() {
           : ws.status === 'done' ? `${C.green}✓${C.reset}`
           : `${C.red}✗${C.reset}`;
         const statusText = ws.status === 'running' ? '실행 중' : ws.status === 'done' ? '완료' : '실패';
-        lines.push(boxLine(`${SLEEPCODE_BADGE} watch  ${statusIcon} ${statusText}`, W));
+        lines.push(boxLine(`${SLEEPCODE_BADGE} watch  ${statusIcon} ${statusText}${notionLink(dbId)}`, W));
         lines.push(`${C.dim}├${'─'.repeat(W + 2)}┤${C.reset}`);
 
         const bar = progressBar(ws.done, ws.total, 20);
@@ -2745,7 +2752,7 @@ function cmdWatch() {
       lines.push(boxLine(`비용: ${costStr}  ${C.dim}·${C.reset}  경과: ${elapsedStr}  ${C.dim}·${C.reset}  ${C.cyan}${totalPct}%${C.reset}  ${C.dim}·${C.reset}  폴링: ${remaining}초`, W));
     } else {
       // Waiting mode
-      lines.push(boxLine(`${SLEEPCODE_BADGE} watch  ${C.dim}◆${C.reset} 대기 중`, W));
+      lines.push(boxLine(`${SLEEPCODE_BADGE} watch  ${C.dim}◆${C.reset} 대기 중${notionLink(dbId)}`, W));
       lines.push(`${C.dim}├${'─'.repeat(W + 2)}┤${C.reset}`);
       const remaining = lastPollTime ? Math.max(0, pollIntervalSec - Math.floor((Date.now() - lastPollTime) / 1000)) : pollIntervalSec;
       lines.push(boxLine(`DB: ${dbId.slice(0, 8)}...  ${C.dim}·${C.reset}  다음 폴링: ${remaining}초`, W));

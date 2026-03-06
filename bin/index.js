@@ -235,7 +235,7 @@ ${SLEEPCODE_BADGE}  v${pkg.version}
   --notion-page <name> Notion 참고 페이지명
   --notion-db <id|url|create> Notion DB (ID/URL 또는 'create'로 새로 생성)
   --notion-parent <id|url>   새 DB 생성 시 상위 Notion 페이지
-  --notion-db-name <name>    새 DB 이름 (기본: .sleepcode)
+  --notion-db-name <name>    새 DB 이름 (기본: <프로젝트명> - sleepcode tasks)
   --notion-filter <f>  Notion 필터 (예: "Status = To Do")
   --interval <sec>     반복 간격 (초, 기본 30)
   --budget <usd>       주간 예산 ($, 예: 50)

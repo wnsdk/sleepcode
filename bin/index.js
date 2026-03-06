@@ -2867,7 +2867,7 @@ function cmdWatch() {
       tasksToRun = data.tasks.filter(t => {
         if (!t.run) return false;
         const status = (t.status || '').toLowerCase();
-        return !['in progress', 'done', 'failed', '완료', '실패', '진행 중'].includes(status);
+        return !['in progress', '진행 중'].includes(status);
       });
     }
 

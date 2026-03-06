@@ -4,4 +4,4 @@
 
 ---
 
-- [x] 사용자가 처음 sleepcode 생성할때, 할일 관리 노션 DB 페이지를 생성할건지 물어보고, 생성한다고 답했으면 현재 나의 노션 DB 구조 그대로 똑같이 생성하게끔 해줘 <!-- notion:31bad790-3b5d-8072-971a-e863f7ec62de -->
+- [x] 노션 DB에서 status가 done인데 run이 체크되어있어도 실행가능하게 해 (in progress 만 아니면 된다는 뜻) <!-- notion:31bad790-3b5d-805c-ba91-ff408fbbcaa1 -->

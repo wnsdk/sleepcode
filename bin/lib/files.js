@@ -1,0 +1,210 @@
+const fs = require('fs');
+const path = require('path');
+const { C, TEMPLATES_DIR, IS_WIN, PROVIDERS } = require('./constants');
+const { writeFile } = require('./utils');
+
+/**
+ * CLAUDE.md 동기화: base_rules.md + rules.md → 프로젝트 루트 CLAUDE.md
+ * Claude CLI가 CLAUDE.md를 시스템 프롬프트로 자동 로드하며, 프롬프트 캐싱 적용됨.
+ * -p 프롬프트에는 tasks.md만 전달하여 토큰 절약.
+ */
+function syncClaudeMd(targetDir) {
+  const scDir = path.join(targetDir, '.sleepcode');
+  const baseRulesPath = path.join(scDir, 'scripts', 'base_rules.md');
+  const rulesPath = path.join(scDir, 'rules.md');
+  const claudeMdPath = path.join(targetDir, 'CLAUDE.md');
+
+  const parts = [];
+  if (fs.existsSync(baseRulesPath)) parts.push(fs.readFileSync(baseRulesPath, 'utf-8'));
+  if (fs.existsSync(rulesPath)) parts.push(fs.readFileSync(rulesPath, 'utf-8'));
+
+  if (parts.length > 0) {
+    let content = parts.join('\n\n---\n\n');
+    // API 키가 CLAUDE.md에 노출되지 않도록 마스킹
+    content = content.replace(/API Key: `[^`]+`/g, 'API Key는 .sleepcode/.env 참조');
+    content = content.replace(/\(API Key: [^)]+\)/g, '(API Key는 .sleepcode/.env 참조)');
+    fs.writeFileSync(claudeMdPath, content);
+  }
+}
+
+function generateFiles(targetDir, { typeKey, projectName, role, buildCmd, testCmd, lintCmd, figmaKey, figmaFileNames, notionKey, notionPages, notionDbId, notionFilter, sleepInterval, provider = PROVIDERS.CLAUDE }) {
+  const scDir = path.join(targetDir, '.sleepcode');
+  const claudeDir = path.join(targetDir, '.claude');
+  fs.mkdirSync(path.join(scDir, 'docs'), { recursive: true });
+  fs.mkdirSync(path.join(scDir, 'scripts'), { recursive: true });
+  fs.mkdirSync(path.join(scDir, 'logs'), { recursive: true });
+  fs.mkdirSync(claudeDir, { recursive: true });
+
+  // 스크립트 파일 → scripts/ 하위로 복사 (OS별 분기)
+  const scriptFiles = IS_WIN
+    ? ['ai_worker.ps1', 'run_forever.ps1']
+    : ['ai_worker.sh', 'run_forever.sh'];
+  const allScriptFiles = [...scriptFiles, 'log_filter.py'];
+  if (notionDbId) allScriptFiles.push('notion_sync.py');
+
+  for (const file of allScriptFiles) {
+    const src = path.join(TEMPLATES_DIR, 'common', file);
+    const dest = path.join(scDir, 'scripts', file);
+    if (fs.existsSync(src)) {
+      let content = fs.readFileSync(src, 'utf-8');
+      content = content.replace(/\{\{SLEEP_INTERVAL\}\}/g, sleepInterval);
+      // Shell/Python 스크립트는 반드시 LF 줄바꿈 (Windows에서도)
+      if (file.endsWith('.sh') || file.endsWith('.py')) {
+        content = content.replace(/\r\n/g, '\n');
+      }
+      // PowerShell은 UTF-8 BOM 필요 (한글 깨짐 방지)
+      if (file.endsWith('.ps1')) content = '\uFEFF' + content;
+      fs.writeFileSync(dest, content);
+    }
+  }
+
+  // base_rules.md → scripts/ 하위로 복사 (Figma/Notion 섹션 조건부 처리)
+  const baseRulesSrc = path.join(TEMPLATES_DIR, 'common', 'base_rules.md');
+  if (fs.existsSync(baseRulesSrc)) {
+    let baseRules = fs.readFileSync(baseRulesSrc, 'utf-8');
+
+    // Figma 섹션
+    if (figmaKey) {
+      let figmaSection = `## Figma\n\n- **프론트엔드 디자인**: Figma MCP 도구로 직접 조회 가능 (API Key: \`${figmaKey}\`)`;
+      if (figmaFileNames) {
+        figmaSection += `\n- **참고 파일**: ${figmaFileNames}`;
+      }
+      baseRules = baseRules.replace('{{FIGMA_SECTION}}', figmaSection);
+    } else {
+      baseRules = baseRules.replace('\n{{FIGMA_SECTION}}\n', '');
+    }
+
+    // Notion 섹션 (API 키는 .env에서 관리, CLAUDE.md에 노출하지 않음)
+    if (notionKey) {
+      let notionSection = `\n## Notion\n\n- **기획/문서**: Notion MCP 도구로 직접 조회 가능 (API Key는 .sleepcode/.env 참조)`;
+      if (notionPages) {
+        notionSection += `\n- **참고 페이지**: ${notionPages}`;
+      }
+      baseRules = baseRules.replace('{{NOTION_SECTION}}', notionSection);
+    } else {
+      baseRules = baseRules.replace('\n{{NOTION_SECTION}}\n', '');
+    }
+
+    fs.writeFileSync(path.join(scDir, 'scripts', 'base_rules.md'), baseRules);
+  }
+
+  // README.md → .sleepcode/ 루트에 복사
+  const readmeSrc = path.join(TEMPLATES_DIR, 'common', 'README.md');
+  if (fs.existsSync(readmeSrc)) {
+    fs.writeFileSync(path.join(scDir, 'README.md'), fs.readFileSync(readmeSrc, 'utf-8'));
+  }
+
+  // 실행 권한 (Unix만)
+  if (!IS_WIN) {
+    fs.chmodSync(path.join(scDir, 'scripts', 'ai_worker.sh'), 0o755);
+    fs.chmodSync(path.join(scDir, 'scripts', 'run_forever.sh'), 0o755);
+    fs.chmodSync(path.join(scDir, 'scripts', 'log_filter.py'), 0o755);
+    if (notionDbId) fs.chmodSync(path.join(scDir, 'scripts', 'notion_sync.py'), 0o755);
+  }
+
+  // docs/.gitkeep
+  writeFile(path.join(scDir, 'docs', '.gitkeep'), '');
+
+  // sources.json (참고자료 URL 관리)
+  const sourcesPath = path.join(scDir, 'sources.json');
+  if (!fs.existsSync(sourcesPath)) {
+    const sourcesData = { "$schema": "참고자료 URL 관리 파일 — generate 명령에서 자동으로 읽어 tasks.md 생성에 활용됩니다.", notion: [], figma: [], urls: [] };
+    if (notionPages) {
+      for (const page of notionPages.split(',').map(s => s.trim()).filter(Boolean)) {
+        sourcesData.notion.push({ url: '', label: page });
+      }
+    }
+    if (figmaFileNames) {
+      for (const file of figmaFileNames.split(',').map(s => s.trim()).filter(Boolean)) {
+        sourcesData.figma.push({ url: '', label: file });
+      }
+    }
+    writeFile(sourcesPath, JSON.stringify(sourcesData, null, 2) + '\n');
+  }
+
+  // tasks.md는 Notion에서 동적으로 생성됨 (로컬 기본 템플릿 폐기)
+
+  // rules.md
+  const rulesTemplate = path.join(TEMPLATES_DIR, 'rules', `${typeKey}.md`);
+  if (fs.existsSync(rulesTemplate)) {
+    let rules = fs.readFileSync(rulesTemplate, 'utf-8');
+    rules = rules.replace(/\{\{PROJECT_NAME\}\}/g, projectName);
+    rules = rules.replace(/\{\{ROLE\}\}/g, role);
+    rules = rules.replace(/\{\{BUILD_CMD\}\}/g, buildCmd);
+    rules = rules.replace(/\{\{TEST_CMD\}\}/g, testCmd);
+    rules = rules.replace(/\{\{LINT_CMD\}\}/g, lintCmd);
+    writeFile(path.join(scDir, 'rules.md'), rules);
+  }
+
+  // settings.local.json
+  const settingsTemplate = path.join(TEMPLATES_DIR, 'settings', `${typeKey}.json`);
+  if (fs.existsSync(settingsTemplate)) {
+    const content = fs.readFileSync(settingsTemplate, 'utf-8');
+    fs.writeFileSync(path.join(claudeDir, 'settings.local.json'), content);
+  }
+
+  // .sleepcode/.env (API 키 등 민감 정보)
+  const envLines = [];
+  if (figmaKey) envLines.push(`FIGMA_API_KEY=${figmaKey}`);
+  if (notionKey) envLines.push(`NOTION_API_KEY=${notionKey}`);
+  if (notionDbId) envLines.push(`NOTION_DB_ID=${notionDbId}`);
+  if (notionFilter) envLines.push(`NOTION_FILTER=${notionFilter}`);
+  if (provider) envLines.push(`SLEEPCODE_PROVIDER=${provider}`);
+  if (envLines.length > 0) {
+    writeFile(path.join(scDir, '.env'), envLines.join('\n') + '\n');
+  }
+
+  // .gitignore — .sleepcode/ 전체를 무시
+  const gitignorePath = path.join(targetDir, '.gitignore');
+  if (fs.existsSync(gitignorePath)) {
+    let gitignore = fs.readFileSync(gitignorePath, 'utf-8');
+    if (!gitignore.includes('.sleepcode/')) {
+      fs.appendFileSync(gitignorePath, '\n# sleepcode workspace\n.sleepcode/\n');
+    }
+  } else {
+    fs.writeFileSync(gitignorePath, '# sleepcode workspace\n.sleepcode/\n');
+  }
+
+  // CLAUDE.md 생성 (base_rules + rules → 프로젝트 루트 CLAUDE.md)
+  syncClaudeMd(targetDir);
+}
+
+function printResult(notionDbId) {
+  const workerScript = IS_WIN ? 'ai_worker.ps1' : 'ai_worker.sh';
+  const foreverScript = IS_WIN ? 'run_forever.ps1' : 'run_forever.sh';
+
+  console.log(`\n${C.bold}파일 생성 완료:${C.reset}\n`);
+  console.log(`  ${C.green}✓${C.reset} .sleepcode/rules.md          ${C.dim}← 수정하세요${C.reset}`);
+  console.log(`  ${C.green}✓${C.reset} .sleepcode/scripts/notion_sync.py`);
+  console.log(`  ${C.green}✓${C.reset} .sleepcode/sources.json      ${C.dim}← 참고자료 URL 추가${C.reset}`);
+  console.log(`  ${C.green}✓${C.reset} .sleepcode/docs/             ${C.dim}← 참고자료 파일 추가${C.reset}`);
+  console.log(`  ${C.green}✓${C.reset} .sleepcode/scripts/base_rules.md`);
+  console.log(`  ${C.green}✓${C.reset} .sleepcode/scripts/${workerScript}`);
+  console.log(`  ${C.green}✓${C.reset} .sleepcode/scripts/${foreverScript}`);
+  console.log(`  ${C.green}✓${C.reset} .sleepcode/scripts/log_filter.py`);
+  console.log(`  ${C.green}✓${C.reset} .sleepcode/README.md`);
+  console.log(`  ${C.green}✓${C.reset} .claude/settings.local.json`);
+  console.log(`  ${C.green}✓${C.reset} CLAUDE.md                    ${C.dim}← 프롬프트 캐싱 (자동 생성)${C.reset}`);
+
+  const taskStep = `${C.bold}3.${C.reset} Notion DB에 할 일을 작성해두세요 (실행 시 자동 동기화)`;
+
+  console.log(`
+${C.bold}${C.green}완료!${C.reset} 다음 단계:
+
+  ${C.bold}1.${C.reset} .sleepcode/rules.md 를 프로젝트에 맞게 수정
+  ${C.bold}2.${C.reset} 참고 자료 추가:
+     ${C.dim}• .sleepcode/sources.json 에 Notion/Figma URL 등록${C.reset}
+     ${C.dim}• .sleepcode/docs/ 에 기획서, 스크린샷 등 파일 추가${C.reset}
+     ${C.cyan}npx sleepcode sources${C.reset}         ${C.dim}# 참고자료 현황 확인${C.reset}
+  ${taskStep}
+  ${C.bold}4.${C.reset} 실행:
+     ${C.cyan}npx sleepcode run${C.reset}          ${C.dim}# 1회 실행${C.reset}
+     ${C.cyan}npx sleepcode run --loop${C.reset}   ${C.dim}# 무한 루프${C.reset}
+`);
+}
+
+module.exports = {
+  syncClaudeMd,
+  generateFiles,
+  printResult,
+};

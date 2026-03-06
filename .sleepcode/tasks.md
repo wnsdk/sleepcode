@@ -4,4 +4,4 @@
 
 ---
 
-- [x] package.json의 버전을 적절한 값으로 수정하고 npm publish까지 진행해줘. <!-- notion:31bad790-3b5d-80fd-988e-cd501c48546f -->
+- [x] index.js 파일이 지금 너무 긴데, 파일을 적절히 분리하고 리팩토링 하기 <!-- notion:31bad790-3b5d-80e4-9590-fb4a7636cb61 -->

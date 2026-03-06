@@ -192,29 +192,12 @@ const PROJECT_TYPES = {
   },
 };
 
-// ─── CLI 인자 파싱 ───
-function parseArgs() {
-  const args = process.argv.slice(2);
-  const parsed = {};
-  for (let i = 0; i < args.length; i++) {
-    if (args[i] === '--type' && args[i + 1]) parsed.type = args[++i];
-    else if (args[i] === '--name' && args[i + 1]) parsed.name = args[++i];
-    else if (args[i] === '--role' && args[i + 1]) parsed.role = args[++i];
-    else if (args[i] === '--figma-key' && args[i + 1]) parsed.figmaKey = args[++i];
-    else if (args[i] === '--figma-file' && args[i + 1]) parsed.figmaFileNames = args[++i];
-    else if (args[i] === '--notion-key' && args[i + 1]) parsed.notionKey = args[++i];
-    else if (args[i] === '--notion-page' && args[i + 1]) parsed.notionPages = args[++i];
-    else if (args[i] === '--notion-db' && args[i + 1]) parsed.notionDb = args[++i];
-    else if (args[i] === '--notion-parent' && args[i + 1]) parsed.notionParent = args[++i];
-    else if (args[i] === '--notion-db-name' && args[i + 1]) parsed.notionDbName = args[++i];
-    else if (args[i] === '--notion-filter' && args[i + 1]) parsed.notionFilter = args[++i];
-    else if (args[i] === '--interval' && args[i + 1]) parsed.interval = args[++i];
-    else if (args[i] === '--budget' && args[i + 1]) parsed.budget = args[++i];
-    else if (args[i] === '--threshold' && args[i + 1]) parsed.threshold = args[++i];
-    else if (args[i] === '--continue' || args[i] === '-c') parsed.continue = true;
-    else if (args[i] === '--force' || args[i] === '-f') parsed.force = true;
-    else if (args[i] === '--help' || args[i] === '-h') {
-      console.log(`
+// ─── 도움말 / 버전 ───
+function showHelp() {
+  const pkg = require(path.join(__dirname, '..', 'package.json'));
+  console.log(`
+${SLEEPCODE_BADGE}  v${pkg.version}
+
 사용법: sleepcode [옵션]
        sleepcode run [--loop] [--continue]
        sleepcode watch [--notion-db <id|url>] [--notion-key <key>]
@@ -226,6 +209,8 @@ function parseArgs() {
 옵션 없이 실행하면 인터랙티브 모드로 동작합니다.
 
 명령어:
+  help             도움말 보기
+  version          버전 정보 보기
   run              1회 실행 (대시보드 + 실시간 로그)
   run --continue   이전 세션 이어서 실행 (컨텍스트 유지)
   run --loop       무한 루프 실행 (run_forever 스크립트)
@@ -257,8 +242,43 @@ function parseArgs() {
   --threshold <pct>    사용량 임계값 (%, 기본 90)
   -c, --continue       이전 Claude 세션 이어서 실행 (토큰 절약)
   -f, --force          기존 .sleepcode/ 덮어쓰기
+  -v, --version        버전 정보
   -h, --help           도움말
 `);
+}
+
+function showVersion() {
+  const pkg = require(path.join(__dirname, '..', 'package.json'));
+  console.log(`sleepcode v${pkg.version}`);
+}
+
+// ─── CLI 인자 파싱 ───
+function parseArgs() {
+  const args = process.argv.slice(2);
+  const parsed = {};
+  for (let i = 0; i < args.length; i++) {
+    if (args[i] === '--type' && args[i + 1]) parsed.type = args[++i];
+    else if (args[i] === '--name' && args[i + 1]) parsed.name = args[++i];
+    else if (args[i] === '--role' && args[i + 1]) parsed.role = args[++i];
+    else if (args[i] === '--figma-key' && args[i + 1]) parsed.figmaKey = args[++i];
+    else if (args[i] === '--figma-file' && args[i + 1]) parsed.figmaFileNames = args[++i];
+    else if (args[i] === '--notion-key' && args[i + 1]) parsed.notionKey = args[++i];
+    else if (args[i] === '--notion-page' && args[i + 1]) parsed.notionPages = args[++i];
+    else if (args[i] === '--notion-db' && args[i + 1]) parsed.notionDb = args[++i];
+    else if (args[i] === '--notion-parent' && args[i + 1]) parsed.notionParent = args[++i];
+    else if (args[i] === '--notion-db-name' && args[i + 1]) parsed.notionDbName = args[++i];
+    else if (args[i] === '--notion-filter' && args[i + 1]) parsed.notionFilter = args[++i];
+    else if (args[i] === '--interval' && args[i + 1]) parsed.interval = args[++i];
+    else if (args[i] === '--budget' && args[i + 1]) parsed.budget = args[++i];
+    else if (args[i] === '--threshold' && args[i + 1]) parsed.threshold = args[++i];
+    else if (args[i] === '--continue' || args[i] === '-c') parsed.continue = true;
+    else if (args[i] === '--force' || args[i] === '-f') parsed.force = true;
+    else if (args[i] === '--help' || args[i] === '-h') {
+      showHelp();
+      process.exit(0);
+    }
+    else if (args[i] === '--version' || args[i] === '-v') {
+      showVersion();
       process.exit(0);
     }
   }
@@ -3021,6 +3041,14 @@ async function main() {
 
   // 서브커맨드 처리
   const firstArg = process.argv[2];
+  if (firstArg === 'help') {
+    showHelp();
+    return;
+  }
+  if (firstArg === 'version') {
+    showVersion();
+    return;
+  }
   if (firstArg === 'run') {
     const loop = process.argv.includes('--loop');
     const cont = process.argv.includes('--continue') || process.argv.includes('-c');

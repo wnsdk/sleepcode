@@ -96,6 +96,15 @@ const DIFFICULTY_MODELS = {
   5: 'claude-opus-4-6',             // 매우 어려운 작업 (대규모 리팩토링, 설계)
 };
 
+// 난이도별 Codex 모델 매핑
+const DIFFICULTY_MODELS_CODEX = {
+  1: 'o4-mini',   // 단순 작업 (오타 수정, 설정 변경 등)
+  2: 'o4-mini',   // 쉬운 작업 (간단한 버그 수정, 작은 기능 추가)
+  3: 'o3',        // 보통 작업 (기능 구현, 리팩토링)
+  4: 'o3',        // 어려운 작업 (복잡한 기능, 아키텍처 변경)
+  5: 'o3',        // 매우 어려운 작업 (대규모 리팩토링, 설계)
+};
+
 const DIFFICULTY_LABELS = {
   1: '★☆☆☆☆',
   2: '★★☆☆☆',
@@ -108,9 +117,12 @@ const DIFFICULTY_LABELS = {
  * 태스크 내용을 분석하여 난이도(1-5)를 판단한다.
  * @param {string} taskContent - 태스크 텍스트
  * @param {string} targetDir - 프로젝트 디렉토리
+ * @param {string} [provider] - 사용할 프로바이더 ('claude' | 'codex')
  * @returns {{ difficulty: number, model: string, label: string }}
  */
-function assessTaskDifficulty(taskContent, targetDir) {
+function assessTaskDifficulty(taskContent, targetDir, provider) {
+  const modelMap = provider === PROVIDERS.CODEX ? DIFFICULTY_MODELS_CODEX : DIFFICULTY_MODELS;
+
   const prompt = `You are a task difficulty assessor. Rate the following software development task on a scale of 1-5:
 
 1 = Trivial (typo fix, config change, simple text update)
@@ -140,14 +152,14 @@ Reply with ONLY a single number (1-5), nothing else.`;
     const difficulty = (num >= 1 && num <= 5) ? num : 3;
     return {
       difficulty,
-      model: DIFFICULTY_MODELS[difficulty],
+      model: modelMap[difficulty],
       label: DIFFICULTY_LABELS[difficulty],
     };
   } catch {
     // 평가 실패 시 기본값 (보통 난이도)
     return {
       difficulty: 3,
-      model: DIFFICULTY_MODELS[3],
+      model: modelMap[3],
       label: DIFFICULTY_LABELS[3],
     };
   }
@@ -158,6 +170,7 @@ function getProviderRunCommand(provider, continueMode, model) {
     const args = continueMode
       ? ['exec', 'resume', '--last', '--json', '--dangerously-bypass-approvals-and-sandbox', '-']
       : ['exec', '--json', '--dangerously-bypass-approvals-and-sandbox', '-'];
+    if (model) args.push('--model', model);
     return { command: 'codex', args };
   }
 
@@ -235,5 +248,6 @@ module.exports = {
   runPromptForTaskGeneration,
   assessTaskDifficulty,
   DIFFICULTY_MODELS,
+  DIFFICULTY_MODELS_CODEX,
   DIFFICULTY_LABELS,
 };

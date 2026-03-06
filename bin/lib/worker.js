@@ -167,10 +167,10 @@ function spawnWorker(ws, py, onDone, onUpdate, pushLog, cliProvider) {
     return;
   }
 
-  // 난이도 평가 (Claude provider일 때만)
-  if (ws.provider === PROVIDERS.CLAUDE && !ws.difficulty) {
+  // 난이도 평가 (모든 provider에 적용)
+  if (!ws.difficulty) {
     try {
-      const assessment = assessTaskDifficulty(prompt, ws.targetDir || wtDir);
+      const assessment = assessTaskDifficulty(prompt, ws.targetDir || wtDir, ws.provider);
       ws.difficulty = assessment.difficulty;
       ws.difficultyLabel = assessment.label;
       ws.model = assessment.model;
@@ -178,7 +178,7 @@ function spawnWorker(ws, py, onDone, onUpdate, pushLog, cliProvider) {
     } catch {
       ws.difficulty = 3;
       ws.difficultyLabel = '★★★☆☆';
-      ws.model = 'claude-sonnet-4-6';
+      ws.model = ws.provider === PROVIDERS.CODEX ? 'o3' : 'claude-sonnet-4-6';
     }
     onUpdate();
   }

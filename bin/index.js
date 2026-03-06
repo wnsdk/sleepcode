@@ -876,6 +876,51 @@ function progressBar(done, total, width) {
   return `${C.green}${'█'.repeat(filled)}${C.dim}${'░'.repeat(empty)}${C.reset}`;
 }
 
+/** ANSI 이스케이프 코드를 제거한 문자열 반환 */
+function stripAnsi(str) {
+  return str.replace(/\x1b\[[0-9;]*m/g, '');
+}
+
+/** 터미널에서의 실제 표시 너비 (CJK 문자 = 2칸, ANSI = 0칸) */
+function visualWidth(str) {
+  const plain = stripAnsi(str);
+  let w = 0;
+  for (const ch of plain) {
+    const cp = ch.codePointAt(0);
+    // CJK 범위 (Hangul, CJK Unified Ideographs, Fullwidth Forms 등)
+    if (
+      (cp >= 0x1100 && cp <= 0x115F) ||   // Hangul Jamo
+      (cp >= 0x2E80 && cp <= 0x303E) ||   // CJK Radicals / Symbols
+      (cp >= 0x3040 && cp <= 0x33BF) ||   // Hiragana, Katakana, CJK Compatibility
+      (cp >= 0x3400 && cp <= 0x4DBF) ||   // CJK Unified Extension A
+      (cp >= 0x4E00 && cp <= 0xA4CF) ||   // CJK Unified / Yi
+      (cp >= 0xAC00 && cp <= 0xD7AF) ||   // Hangul Syllables
+      (cp >= 0xF900 && cp <= 0xFAFF) ||   // CJK Compatibility Ideographs
+      (cp >= 0xFE30 && cp <= 0xFE6F) ||   // CJK Compatibility Forms
+      (cp >= 0xFF01 && cp <= 0xFF60) ||   // Fullwidth Forms
+      (cp >= 0xFFE0 && cp <= 0xFFE6) ||   // Fullwidth Signs
+      (cp >= 0x20000 && cp <= 0x2FA1F)    // CJK Unified Extension B-F
+    ) {
+      w += 2;
+    } else {
+      w += 1;
+    }
+  }
+  return w;
+}
+
+/** 시각적 너비 기준으로 오른쪽 패딩 */
+function padEndVisual(str, targetWidth) {
+  const vw = visualWidth(str);
+  const pad = Math.max(0, targetWidth - vw);
+  return str + ' '.repeat(pad);
+}
+
+/** 대시보드용 한 줄: │ content (패딩) │ */
+function boxLine(content, innerWidth) {
+  return `${C.bold}│${C.reset} ${padEndVisual(content, innerWidth)} ${C.bold}│${C.reset}`;
+}
+
 // ─── 설정/사용량 관리 ───
 function getMonday(date) {
   const d = new Date(date || Date.now());
@@ -1256,14 +1301,15 @@ function runParallelWorkers(targetDir, workerInfos) {
     }
 
     const lines = [];
+    const W = 50; // 박스 내부 너비
     const totalTasks = workerStates.reduce((s, w) => s + w.total, 0);
     const totalDone = workerStates.reduce((s, w) => s + w.done, 0);
     const activeCount = workerStates.filter(w => w.status === 'running').length;
     const totalCost = workerStates.reduce((s, w) => s + w.cost, 0);
 
-    lines.push(`${C.bold}┌─────────────────────────────────────────────────────┐${C.reset}`);
-    lines.push(`${C.bold}│${C.reset}  sleepcode parallel — ${activeCount}/${workerStates.length} workers active          ${C.bold}│${C.reset}`);
-    lines.push(`${C.bold}├─────────────────────────────────────────────────────┤${C.reset}`);
+    lines.push(`${C.bold}┌${'─'.repeat(W + 2)}┐${C.reset}`);
+    lines.push(boxLine(`sleepcode parallel  ${activeCount}/${workerStates.length} workers active`, W));
+    lines.push(`${C.bold}├${'─'.repeat(W + 2)}┤${C.reset}`);
 
     for (const ws of workerStates) {
       const bar = progressBar(ws.done, ws.total, 15);
@@ -1271,14 +1317,26 @@ function runParallelWorkers(targetDir, workerInfos) {
         : ws.status === 'done' ? `${C.green}✓${C.reset}`
         : ws.status === 'budget_stop' ? `${C.yellow}■${C.reset}`
         : `${C.red}✗${C.reset}`;
-      lines.push(`${C.bold}│${C.reset}  ${statusIcon} ${C.bold}${ws.name.padEnd(20)}${C.reset} ${bar} ${String(ws.done).padStart(2)}/${String(ws.total).padEnd(2)} ${C.bold}│${C.reset}`);
+      lines.push(boxLine(`${statusIcon} ${C.bold}${padEndVisual(ws.name, 18)}${C.reset} ${bar} ${String(ws.done).padStart(2)}/${String(ws.total).padEnd(2)}`, W));
       if (ws.currentTask && ws.status === 'running') {
-        const task = ws.currentTask.length > 45 ? ws.currentTask.slice(0, 42) + '...' : ws.currentTask;
-        lines.push(`${C.bold}│${C.reset}    ${C.dim}> ${task}${C.reset}${' '.repeat(Math.max(0, 47 - task.length))}${C.bold}│${C.reset}`);
+        const maxTaskW = W - 6; // "    > " + padding
+        let task = ws.currentTask;
+        if (visualWidth(task) > maxTaskW) {
+          let tw = 0;
+          let cut = 0;
+          for (const ch of task) {
+            const cw = visualWidth(ch);
+            if (tw + cw > maxTaskW - 3) break;
+            tw += cw;
+            cut += ch.length;
+          }
+          task = task.slice(0, cut) + '...';
+        }
+        lines.push(boxLine(`  ${C.dim}> ${task}${C.reset}`, W));
       }
     }
 
-    lines.push(`${C.bold}├─────────────────────────────────────────────────────┤${C.reset}`);
+    lines.push(`${C.bold}├${'─'.repeat(W + 2)}┤${C.reset}`);
     const costStr = `$${totalCost.toFixed(4)}`;
     const elapsed = Math.floor((Date.now() - startTime) / 1000);
     const elapsedStr = elapsed >= 3600
@@ -1286,16 +1344,16 @@ function runParallelWorkers(targetDir, workerInfos) {
       : elapsed >= 60
         ? `${Math.floor(elapsed / 60)}m ${elapsed % 60}s`
         : `${elapsed}s`;
-    lines.push(`${C.bold}│${C.reset}  비용: ${costStr}  |  경과: ${elapsedStr}  |  진행: ${totalDone}/${totalTasks}       ${C.bold}│${C.reset}`);
+    lines.push(boxLine(`비용: ${costStr}  |  경과: ${elapsedStr}  |  진행: ${totalDone}/${totalTasks}`, W));
     // 예산 정보
     const budgetInfo = isOverBudget(targetDir);
     if (budgetInfo) {
       const pct = Math.min(100, (budgetInfo.total / budgetInfo.budget * 100)).toFixed(0);
       const budgetBar = progressBar(Math.min(budgetInfo.total, budgetInfo.budget), budgetInfo.budget, 10);
-      const warn = budgetInfo.over ? `${C.red}한도 도달!${C.reset}` : '';
-      lines.push(`${C.bold}│${C.reset}  주간: $${budgetInfo.total.toFixed(2)}/$${budgetInfo.budget} (${pct}%) ${budgetBar} ${warn}       ${C.bold}│${C.reset}`);
+      const warn = budgetInfo.over ? ` ${C.red}한도 도달!${C.reset}` : '';
+      lines.push(boxLine(`주간: $${budgetInfo.total.toFixed(2)}/$${budgetInfo.budget} (${pct}%) ${budgetBar}${warn}`, W));
     }
-    lines.push(`${C.bold}└─────────────────────────────────────────────────────┘${C.reset}`);
+    lines.push(`${C.bold}└${'─'.repeat(W + 2)}┘${C.reset}`);
 
     // 실시간 로그 출력
     if (logBuffer.length > 0) {
@@ -1676,6 +1734,7 @@ function runSingleWithDashboard(targetDir) {
     }
 
     const lines = [];
+    const W = 50; // 박스 내부 너비
     const elapsed = Math.floor((Date.now() - startTime) / 1000);
     const elapsedStr = elapsed >= 3600
       ? `${Math.floor(elapsed / 3600)}h ${Math.floor((elapsed % 3600) / 60)}m`
@@ -1685,28 +1744,42 @@ function runSingleWithDashboard(targetDir) {
     const statusIcon = ws.status === 'running' ? `${C.cyan}⟳${C.reset}`
       : ws.status === 'done' ? `${C.green}✓${C.reset}`
       : `${C.red}✗${C.reset}`;
+    const statusText = ws.status === 'running' ? '실행 중' : ws.status === 'done' ? '완료' : '실패';
     const bar = progressBar(ws.done, ws.total, 20);
     const costStr = `$${ws.cost.toFixed(4)}`;
 
-    lines.push(`${C.bold}┌─────────────────────────────────────────────────────┐${C.reset}`);
-    lines.push(`${C.bold}│${C.reset}  sleepcode run — ${statusIcon} ${ws.status === 'running' ? '실행 중' : ws.status === 'done' ? '완료' : '실패'}                              ${C.bold}│${C.reset}`);
-    lines.push(`${C.bold}├─────────────────────────────────────────────────────┤${C.reset}`);
-    lines.push(`${C.bold}│${C.reset}  ${bar}  ${String(ws.done).padStart(2)}/${String(ws.total).padEnd(2)} tasks              ${C.bold}│${C.reset}`);
+    lines.push(`${C.bold}┌${'─'.repeat(W + 2)}┐${C.reset}`);
+    lines.push(boxLine(`sleepcode run  ${statusIcon} ${statusText}`, W));
+    lines.push(`${C.bold}├${'─'.repeat(W + 2)}┤${C.reset}`);
+    lines.push(boxLine(`${bar}  ${String(ws.done).padStart(2)}/${String(ws.total).padEnd(2)} tasks`, W));
     if (ws.currentTask && ws.status === 'running') {
-      const task = ws.currentTask.length > 45 ? ws.currentTask.slice(0, 42) + '...' : ws.currentTask;
-      lines.push(`${C.bold}│${C.reset}  ${C.dim}> ${task}${C.reset}${' '.repeat(Math.max(0, 47 - task.length))}${C.bold}│${C.reset}`);
+      const maxTaskW = W - 4; // "> " + padding
+      let task = ws.currentTask;
+      if (visualWidth(task) > maxTaskW) {
+        // CJK-aware 잘라내기
+        let tw = 0;
+        let cut = 0;
+        for (const ch of task) {
+          const cw = visualWidth(ch);
+          if (tw + cw > maxTaskW - 3) break;
+          tw += cw;
+          cut += ch.length;
+        }
+        task = task.slice(0, cut) + '...';
+      }
+      lines.push(boxLine(`${C.dim}> ${task}${C.reset}`, W));
     }
-    lines.push(`${C.bold}├─────────────────────────────────────────────────────┤${C.reset}`);
-    lines.push(`${C.bold}│${C.reset}  비용: ${costStr}  |  경과: ${elapsedStr}                        ${C.bold}│${C.reset}`);
+    lines.push(`${C.bold}├${'─'.repeat(W + 2)}┤${C.reset}`);
+    lines.push(boxLine(`비용: ${costStr}  |  경과: ${elapsedStr}`, W));
     // 예산 정보
     const budgetInfo = isOverBudget(targetDir);
     if (budgetInfo) {
       const pct = Math.min(100, (budgetInfo.total / budgetInfo.budget * 100)).toFixed(0);
       const budgetBar = progressBar(Math.min(budgetInfo.total, budgetInfo.budget), budgetInfo.budget, 10);
-      const warn = budgetInfo.over ? `${C.red}한도 도달!${C.reset}` : '';
-      lines.push(`${C.bold}│${C.reset}  주간: $${budgetInfo.total.toFixed(2)}/$${budgetInfo.budget} (${pct}%) ${budgetBar} ${warn}       ${C.bold}│${C.reset}`);
+      const warn = budgetInfo.over ? ` ${C.red}한도 도달!${C.reset}` : '';
+      lines.push(boxLine(`주간: $${budgetInfo.total.toFixed(2)}/$${budgetInfo.budget} (${pct}%) ${budgetBar}${warn}`, W));
     }
-    lines.push(`${C.bold}└─────────────────────────────────────────────────────┘${C.reset}`);
+    lines.push(`${C.bold}└${'─'.repeat(W + 2)}┘${C.reset}`);
 
     // 실시간 로그 출력
     if (logBuffer.length > 0) {

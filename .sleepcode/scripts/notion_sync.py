@@ -6,12 +6,19 @@ Usage:
   python3 .sleepcode/notion_sync.py push   # tasks.md → Notion
 """
 
+import io
 import json
 import os
 import re
 import sys
 import urllib.request
 import urllib.error
+
+# Windows cp949 인코딩 문제 방지: stdout/stderr를 UTF-8로 강제 설정
+if sys.stdout.encoding != "utf-8":
+    sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8", errors="replace")
+if sys.stderr.encoding != "utf-8":
+    sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding="utf-8", errors="replace")
 
 TASKS_FILE = ".sleepcode/tasks.md"
 STATE_FILE = ".sleepcode/.notion_state.json"
@@ -204,8 +211,8 @@ def poll(api_key, db_id, notion_filter=None):
     """Notion DB 폴링 — 태스크 목록 + 스키마 JSON 출력"""
     schema = get_watch_schema(api_key, db_id)
     if not schema or not schema["title_prop"]:
-        print(json.dumps({"error": "schema_failed"}))
-        return
+        print(json.dumps({"error": "schema_failed"}), file=sys.stderr)
+        return False
 
     query_body = {"sorts": [{"timestamp": "created_time", "direction": "ascending"}]}
     if notion_filter:
@@ -222,8 +229,8 @@ def poll(api_key, db_id, notion_filter=None):
             query_body["start_cursor"] = start_cursor
         resp = api_request("POST", f"/databases/{db_id}/query", api_key, query_body)
         if not resp:
-            print(json.dumps({"error": "query_failed"}))
-            return
+            print(json.dumps({"error": "query_failed"}), file=sys.stderr)
+            return False
         pages.extend(resp.get("results", []))
         has_more = resp.get("has_more", False)
         start_cursor = resp.get("next_cursor")
@@ -377,7 +384,7 @@ def pull(api_key, db_id, notion_filter=None, status_prop_name=None, status_type_
     title_prop, status_prop, status_type = get_db_schema(api_key, db_id)
     if not title_prop:
         print("[notion_sync] DB 스키마 조회 실패", file=sys.stderr)
-        return
+        return False
 
     # 스키마에서 감지 못하면 기본값
     if not status_prop:
@@ -400,7 +407,7 @@ def pull(api_key, db_id, notion_filter=None, status_prop_name=None, status_type_
         result = api_request("POST", f"/databases/{db_id}/query", api_key, query_body)
         if not result:
             print("[notion_sync] DB 쿼리 실패", file=sys.stderr)
-            return
+            return False
         pages.extend(result.get("results", []))
         has_more = result.get("has_more", False)
         start_cursor = result.get("next_cursor")
@@ -441,7 +448,7 @@ def push(api_key, db_id):
     title_prop, status_prop, status_type = get_db_schema(api_key, db_id)
     if not status_prop:
         print("[notion_sync] 완료 상태 프로퍼티를 찾지 못해 push를 건너뜁니다.", file=sys.stderr)
-        return
+        return False
 
     # 이전 상태 로드
     prev_state = {}
@@ -509,11 +516,17 @@ def main():
 
     cmd = sys.argv[1]
     if cmd == "pull":
-        pull(api_key, db_id, notion_filter)
+        result = pull(api_key, db_id, notion_filter)
+        if result is False:
+            sys.exit(1)
     elif cmd == "push":
-        push(api_key, db_id)
+        result = push(api_key, db_id)
+        if result is False:
+            sys.exit(1)
     elif cmd == "poll":
-        poll(api_key, db_id, notion_filter)
+        result = poll(api_key, db_id, notion_filter)
+        if result is False:
+            sys.exit(1)
     elif cmd == "update-page":
         if len(sys.argv) < 3:
             print("Usage: notion_sync.py update-page <page_id>", file=sys.stderr)

@@ -25,6 +25,12 @@ const SLEEPCODE_BADGE = `${C.magenta}▐${C.bgMagenta}${C.brightWhite}${C.bold} 
 const TEMPLATES_DIR = path.join(__dirname, '..', 'templates');
 const IS_WIN = process.platform === 'win32';
 
+// Windows에서 Python 서브프로세스 한글 깨짐 방지
+if (IS_WIN) {
+  process.env.PYTHONUTF8 = '1';
+  process.env.PYTHONIOENCODING = 'utf-8';
+}
+
 // ─── 사전 준비 체크 ───
 function checkCommand(cmd) {
   try {
@@ -389,9 +395,10 @@ function notionApiRequest(method, endpoint, apiKey, body) {
       },
     };
     const req = https.request(options, (res) => {
-      let body = '';
-      res.on('data', (chunk) => { body += chunk; });
+      const chunks = [];
+      res.on('data', (chunk) => { chunks.push(chunk); });
       res.on('end', () => {
+        const body = Buffer.concat(chunks).toString('utf-8');
         try {
           const json = JSON.parse(body);
           if (res.statusCode >= 400) {

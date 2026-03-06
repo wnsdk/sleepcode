@@ -6,7 +6,6 @@ Usage:
   python3 .sleepcode/notion_sync.py push   # tasks.md → Notion
 """
 
-import io
 import json
 import os
 import re
@@ -14,11 +13,14 @@ import sys
 import urllib.request
 import urllib.error
 
-# Windows cp949 인코딩 문제 방지: stdout/stderr를 UTF-8로 강제 설정
-if sys.stdout.encoding != "utf-8":
-    sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8", errors="replace")
-if sys.stderr.encoding != "utf-8":
-    sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding="utf-8", errors="replace")
+# Windows 한글 깨짐 방지: stdin/stdout/stderr를 UTF-8로 강제 설정
+if sys.platform == "win32":
+    if hasattr(sys.stdin, "reconfigure"):
+        sys.stdin.reconfigure(encoding="utf-8")
+    if hasattr(sys.stdout, "reconfigure"):
+        sys.stdout.reconfigure(encoding="utf-8")
+    if hasattr(sys.stderr, "reconfigure"):
+        sys.stderr.reconfigure(encoding="utf-8")
 
 TASKS_FILE = ".sleepcode/tasks.md"
 STATE_FILE = ".sleepcode/.notion_state.json"

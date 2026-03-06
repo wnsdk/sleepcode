@@ -13,6 +13,15 @@ import sys
 import urllib.request
 import urllib.error
 
+# Windows 한글 깨짐 방지: stdin/stdout을 UTF-8로 강제 설정
+if sys.platform == "win32":
+    if hasattr(sys.stdin, "reconfigure"):
+        sys.stdin.reconfigure(encoding="utf-8")
+    if hasattr(sys.stdout, "reconfigure"):
+        sys.stdout.reconfigure(encoding="utf-8")
+    if hasattr(sys.stderr, "reconfigure"):
+        sys.stderr.reconfigure(encoding="utf-8")
+
 TASKS_FILE = ".sleepcode/tasks.md"
 STATE_FILE = ".sleepcode/.notion_state.json"
 NOTION_API = "https://api.notion.com/v1"

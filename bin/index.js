@@ -707,27 +707,15 @@ function generateFiles(targetDir, { typeKey, projectName, role, buildCmd, testCm
     writeFile(path.join(scDir, '.env'), envLines.join('\n') + '\n');
   }
 
-  // .gitignore
+  // .gitignore — .sleepcode/ 전체를 무시
   const gitignorePath = path.join(targetDir, '.gitignore');
-  const gitignoreEntries = [
-    { marker: '.sleepcode/logs/', line: '\n# AI worker logs\n.sleepcode/logs/\n' },
-    { marker: '.sleepcode/.env', line: '\n# AI worker secrets (API keys)\n.sleepcode/.env\n' },
-    { marker: '.sleepcode/.notion_state.json', line: '\n# Notion sync state\n.sleepcode/.notion_state.json\n' },
-  ];
   if (fs.existsSync(gitignorePath)) {
     let gitignore = fs.readFileSync(gitignorePath, 'utf-8');
-    for (const entry of gitignoreEntries) {
-      if (!gitignore.includes(entry.marker)) {
-        fs.appendFileSync(gitignorePath, entry.line);
-        gitignore += entry.line;
-      }
+    if (!gitignore.includes('.sleepcode/')) {
+      fs.appendFileSync(gitignorePath, '\n# sleepcode workspace\n.sleepcode/\n');
     }
-    if (!gitignore.includes('.sleepcode/worktrees/')) {
-      fs.appendFileSync(gitignorePath, '.sleepcode/worktrees/\n');
-    }
-    if (!gitignore.includes('.sleepcode/usage.json')) {
-      fs.appendFileSync(gitignorePath, '.sleepcode/usage.json\n');
-    }
+  } else {
+    fs.writeFileSync(gitignorePath, '# sleepcode workspace\n.sleepcode/\n');
   }
 
   // CLAUDE.md 생성 (base_rules + rules → 프로젝트 루트 CLAUDE.md)

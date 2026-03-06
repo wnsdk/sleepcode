@@ -13,9 +13,11 @@
 
 - `.sleepcode/docs/` 디렉토리에 업로드된 파일 참고 (피그마 스크린샷, 기획서, 참고 이미지 등)
 
+{{FIGMA_SECTION}}
+
 ## Notion
 
-- **기획/문서**: Notion MCP 도구로 직접 조회 가능 (API Key는 환경변수 또는 MCP 설정에서 관리)
+- **기획/문서**: Notion MCP 도구로 직접 조회 가능 (API Key는 .sleepcode/.env 참조)
 
 ---
 

@@ -125,6 +125,165 @@ def extract_done(page, status_prop, status_type):
     return False
 
 
+# ─── Watch 모드: DB 스키마 확장 분석 ───
+
+
+def get_watch_schema(api_key, db_id):
+    """Watch 모드용 DB 스키마 — 제어판 컬럼 자동 감지"""
+    result = api_request("GET", f"/databases/{db_id}", api_key)
+    if not result:
+        return None
+    props = result.get("properties", {})
+    schema = {
+        "title_prop": None,
+        "status_prop": None,
+        "status_type": None,
+        "worker_prop": None,
+        "run_prop": None,
+        "priority_prop": None,
+        "log_prop": None,
+        "cost_prop": None,
+    }
+
+    for name, prop in props.items():
+        ptype = prop.get("type")
+        lname = name.lower().strip()
+        if ptype == "title":
+            schema["title_prop"] = name
+        elif ptype in ("status", "select") and lname in ("status", "상태") and not schema["status_prop"]:
+            schema["status_prop"] = name
+            schema["status_type"] = ptype
+        elif ptype == "select" and lname in ("worker", "워커"):
+            schema["worker_prop"] = name
+        elif ptype == "checkbox" and lname in ("run", "실행", "start", "시작"):
+            schema["run_prop"] = name
+        elif ptype == "number" and lname in ("priority", "우선순위"):
+            schema["priority_prop"] = name
+        elif ptype == "rich_text" and lname in ("log", "로그"):
+            schema["log_prop"] = name
+        elif ptype == "number" and lname in ("cost", "비용"):
+            schema["cost_prop"] = name
+
+    # Fallback: status 미감지 시 첫 번째 status/select 프로퍼티 사용
+    if not schema["status_prop"]:
+        for name, prop in props.items():
+            if prop.get("type") == "status":
+                schema["status_prop"] = name
+                schema["status_type"] = "status"
+                break
+        if not schema["status_prop"]:
+            for name, prop in props.items():
+                ptype = prop.get("type")
+                lname = name.lower().strip()
+                if ptype == "select" and lname not in ("worker", "워커"):
+                    schema["status_prop"] = name
+                    schema["status_type"] = "select"
+                    break
+
+    return schema
+
+
+def extract_status_value(page, prop_name, prop_type):
+    """Status/Select 프로퍼티 값 추출"""
+    if prop_type == "status":
+        s = page.get("properties", {}).get(prop_name, {}).get("status")
+        return s.get("name", "") if s else ""
+    elif prop_type == "select":
+        s = page.get("properties", {}).get(prop_name, {}).get("select")
+        return s.get("name", "") if s else ""
+    return ""
+
+
+# ─── POLL: Notion DB 폴링 (Watch 모드용) ───
+
+
+def poll(api_key, db_id, notion_filter=None):
+    """Notion DB 폴링 — 태스크 목록 + 스키마 JSON 출력"""
+    schema = get_watch_schema(api_key, db_id)
+    if not schema or not schema["title_prop"]:
+        print(json.dumps({"error": "schema_failed"}))
+        return
+
+    query_body = {"sorts": [{"timestamp": "created_time", "direction": "ascending"}]}
+    if notion_filter:
+        api_filter = parse_filter(notion_filter, schema["status_prop"], schema["status_type"])
+        if api_filter:
+            query_body["filter"] = api_filter
+
+    pages = []
+    has_more = True
+    start_cursor = None
+
+    while has_more:
+        if start_cursor:
+            query_body["start_cursor"] = start_cursor
+        resp = api_request("POST", f"/databases/{db_id}/query", api_key, query_body)
+        if not resp:
+            print(json.dumps({"error": "query_failed"}))
+            return
+        pages.extend(resp.get("results", []))
+        has_more = resp.get("has_more", False)
+        start_cursor = resp.get("next_cursor")
+
+    tasks = []
+    for page in pages:
+        page_id = page["id"]
+        title = extract_title(page, schema["title_prop"])
+        if not title:
+            continue
+        task = {"id": page_id, "title": title}
+
+        if schema["status_prop"]:
+            task["status"] = extract_status_value(
+                page, schema["status_prop"], schema["status_type"]
+            )
+        if schema["worker_prop"]:
+            w = page.get("properties", {}).get(schema["worker_prop"], {}).get("select")
+            task["worker"] = w.get("name", "") if w else ""
+        if schema["run_prop"]:
+            task["run"] = (
+                page.get("properties", {})
+                .get(schema["run_prop"], {})
+                .get("checkbox", False)
+            )
+        if schema["priority_prop"]:
+            task["priority"] = (
+                page.get("properties", {})
+                .get(schema["priority_prop"], {})
+                .get("number", 0)
+                or 0
+            )
+
+        tasks.append(task)
+
+    # Priority 내림차순 정렬
+    tasks.sort(key=lambda t: -(t.get("priority", 0) or 0))
+
+    print(json.dumps({"tasks": tasks, "schema": schema}, ensure_ascii=False))
+
+
+# ─── UPDATE-PAGE: 페이지 프로퍼티 업데이트 ───
+
+
+def update_page(api_key, page_id):
+    """페이지 프로퍼티 업데이트 — stdin에서 Notion API 프로퍼티 JSON 읽기"""
+    props_json = sys.stdin.read().strip()
+    if not props_json:
+        print(json.dumps({"ok": False, "error": "no input"}), file=sys.stderr)
+        return
+    try:
+        props = json.loads(props_json)
+    except json.JSONDecodeError as e:
+        print(json.dumps({"ok": False, "error": str(e)}), file=sys.stderr)
+        return
+
+    result = api_request("PATCH", f"/pages/{page_id}", api_key, {"properties": props})
+    if result:
+        print(json.dumps({"ok": True}))
+    else:
+        print(json.dumps({"ok": False, "error": "update failed"}))
+
+
 # ─── PULL: Notion → tasks.md ───
 
 
@@ -267,6 +426,13 @@ def main():
         pull(api_key, db_id, notion_filter)
     elif cmd == "push":
         push(api_key, db_id)
+    elif cmd == "poll":
+        poll(api_key, db_id, notion_filter)
+    elif cmd == "update-page":
+        if len(sys.argv) < 3:
+            print("Usage: notion_sync.py update-page <page_id>", file=sys.stderr)
+            sys.exit(1)
+        update_page(api_key, sys.argv[2])
     else:
         print(f"알 수 없는 명령: {cmd}", file=sys.stderr)
         sys.exit(1)

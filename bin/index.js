@@ -210,6 +210,7 @@ function parseArgs() {
       console.log(`
 사용법: sleepcode [옵션]
        sleepcode run [--loop] [--continue]
+       sleepcode watch [--notion-db <id|url>] [--notion-key <key>]
        sleepcode generate
        sleepcode sources
        sleepcode parallel [--setup|--clean|--merge|--status]
@@ -222,6 +223,7 @@ function parseArgs() {
   run --continue   이전 세션 이어서 실행 (컨텍스트 유지)
   run --loop       무한 루프 실행 (run_forever 스크립트)
   run --loop --continue  루프 실행 시 세션 연속 (2회차부터 --continue)
+  watch            Notion DB 감시 (제어판 모드, 자동 실행)
   generate         참고자료 기반으로 tasks.md 자동 생성
   sources          참고자료 URL 관리 (sources.json)
   parallel         @worker 섹션 기반 병렬 실행
@@ -2123,6 +2125,400 @@ function runSingleWithDashboard(targetDir, cont) {
   });
 }
 
+// ─── Watch 모드 (Notion 제어판) ───
+
+function cmdWatch() {
+  const targetDir = process.cwd();
+  const scDir = path.join(targetDir, '.sleepcode');
+
+  if (!fs.existsSync(scDir)) {
+    console.error(`${C.red}.sleepcode/ 폴더가 없습니다. 먼저 'npx sleepcode'로 초기화하세요.${C.reset}`);
+    process.exit(1);
+  }
+
+  // .env 로드
+  const envPath = path.join(scDir, '.env');
+  if (fs.existsSync(envPath)) {
+    const envContent = fs.readFileSync(envPath, 'utf-8');
+    for (const line of envContent.split('\n')) {
+      const trimmed = line.trim();
+      if (!trimmed || trimmed.startsWith('#')) continue;
+      const eqIdx = trimmed.indexOf('=');
+      if (eqIdx > 0) {
+        process.env[trimmed.slice(0, eqIdx)] = trimmed.slice(eqIdx + 1);
+      }
+    }
+  }
+
+  // CLI 인자로 Notion 설정 오버라이드
+  const cliArgs = parseArgs();
+  if (cliArgs.notionKey) process.env.NOTION_API_KEY = cliArgs.notionKey;
+  if (cliArgs.notionDb) process.env.NOTION_DB_ID = parseNotionDbId(cliArgs.notionDb);
+  if (cliArgs.notionFilter) process.env.NOTION_FILTER = cliArgs.notionFilter;
+
+  const apiKey = process.env.NOTION_API_KEY;
+  const dbId = process.env.NOTION_DB_ID;
+
+  if (!apiKey || !dbId) {
+    console.error(`${C.red}Notion API Key와 DB ID가 필요합니다.${C.reset}`);
+    console.log(`\n  ${C.cyan}npx sleepcode watch --notion-key <KEY> --notion-db <DB_ID>${C.reset}`);
+    console.log(`  ${C.dim}또는 .sleepcode/.env에 NOTION_API_KEY, NOTION_DB_ID를 설정하세요.${C.reset}`);
+    process.exit(1);
+  }
+
+  const py = detectPython();
+  if (!py) {
+    console.error(`${C.red}python3이 필요합니다.${C.reset}`);
+    process.exit(1);
+  }
+
+  // notion_sync.py 확인 (없으면 templates에서 복사)
+  const syncScript = path.join(scDir, 'scripts', 'notion_sync.py');
+  if (!fs.existsSync(syncScript)) {
+    const src = path.join(TEMPLATES_DIR, 'common', 'notion_sync.py');
+    if (fs.existsSync(src)) {
+      fs.mkdirSync(path.dirname(syncScript), { recursive: true });
+      fs.writeFileSync(syncScript, fs.readFileSync(src, 'utf-8').replace(/\r\n/g, '\n'));
+      if (!IS_WIN) fs.chmodSync(syncScript, 0o755);
+    } else {
+      console.error(`${C.red}notion_sync.py를 찾을 수 없습니다.${C.reset}`);
+      process.exit(1);
+    }
+  }
+
+  const pollIntervalSec = parseInt(cliArgs.interval || '30', 10);
+  const pollIntervalMs = pollIntervalSec * 1000;
+  const logDir = path.join(scDir, 'logs');
+  fs.mkdirSync(logDir, { recursive: true });
+
+  console.log(`
+${C.bold}${C.magenta}sleepcode watch${C.reset} — Notion 제어판 모드
+
+  ${C.dim}DB:${C.reset}     ${dbId.slice(0, 8)}...
+  ${C.dim}폴링:${C.reset}   ${pollIntervalSec}초 간격
+  ${C.dim}Ctrl+C${C.reset}  종료
+`);
+
+  let isExecuting = false;
+
+  // ─── Notion API 헬퍼 ───
+
+  function notionPoll() {
+    try {
+      const result = execSync(`${py.cmd} "${syncScript}" poll`, {
+        cwd: targetDir,
+        stdio: ['pipe', 'pipe', 'pipe'],
+        timeout: 30000,
+        env: process.env,
+      }).toString().trim();
+      return JSON.parse(result);
+    } catch {
+      return null;
+    }
+  }
+
+  function notionUpdatePage(pageId, props) {
+    try {
+      execSync(`${py.cmd} "${syncScript}" update-page "${pageId}"`, {
+        input: JSON.stringify(props),
+        cwd: targetDir,
+        stdio: ['pipe', 'pipe', 'pipe'],
+        timeout: 15000,
+        env: process.env,
+      });
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
+  function buildStatusProps(schema, statusValue) {
+    if (!schema.status_prop) return null;
+    if (schema.status_type === 'status') {
+      return { [schema.status_prop]: { status: { name: statusValue } } };
+    } else if (schema.status_type === 'select') {
+      return { [schema.status_prop]: { select: { name: statusValue } } };
+    }
+    return null;
+  }
+
+  // ─── 태스크 실행 ───
+
+  function executeNotionTasks(tasks, schema) {
+    isExecuting = true;
+    const now = new Date().toLocaleTimeString();
+    const timestamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
+
+    // 워커 그룹핑
+    const workerGroups = {};
+    for (const task of tasks) {
+      const rawWorker = (task.worker || '').trim();
+      const workerKey = rawWorker.replace(/^@worker\s*/i, '').trim() || 'main';
+      if (!workerGroups[workerKey]) workerGroups[workerKey] = [];
+      workerGroups[workerKey].push(task);
+    }
+
+    const workerNames = Object.keys(workerGroups);
+    const useParallel = workerNames.length > 1 ||
+      (workerNames.length === 1 && workerNames[0] !== 'main');
+
+    console.log(`${C.green}[${now}]${C.reset} ${C.bold}▶ ${tasks.length}개 태스크 실행 시작${C.reset}`);
+
+    // Notion 상태: In Progress + Run 해제
+    for (const task of tasks) {
+      const props = {};
+      const sp = buildStatusProps(schema, 'In Progress');
+      if (sp) Object.assign(props, sp);
+      if (schema.run_prop) props[schema.run_prop] = { checkbox: false };
+      if (Object.keys(props).length > 0) notionUpdatePage(task.id, props);
+    }
+
+    // tasks.md 생성
+    const tasksPath = path.join(scDir, 'tasks.md');
+
+    if (useParallel) {
+      console.log(`  ${C.cyan}병렬 모드${C.reset}: ${workerNames.join(', ')}`);
+      const lines = ['# 작업 목록\n'];
+      for (const [worker, wTasks] of Object.entries(workerGroups)) {
+        lines.push(`## @worker ${worker}`);
+        for (const t of wTasks) {
+          lines.push(`- [ ] ${t.title} <!-- notion:${t.id} -->`);
+        }
+        lines.push('');
+      }
+      fs.writeFileSync(tasksPath, lines.join('\n'));
+
+      syncClaudeMd(targetDir);
+      const workers = parseParallelTasks(tasksPath);
+      if (!workers || workers.length === 0) {
+        finishExecution(tasks, schema, []);
+        return;
+      }
+      const created = createWorktrees(targetDir, workers);
+      if (created.length === 0) {
+        finishExecution(tasks, schema, []);
+        return;
+      }
+
+      // 워커 상태 생성
+      const workerStates = created.map(w => ({
+        ...w,
+        targetDir,
+        status: 'running',
+        currentTask: '',
+        done: 0,
+        total: 0,
+        cost: 0,
+        _proc: null,
+        logFile: path.join(logDir, `watch_${w.name}_${timestamp}.log`),
+      }));
+
+      for (const ws of workerStates) {
+        const tp = path.join(ws.path, '.sleepcode', 'tasks.md');
+        if (fs.existsSync(tp)) {
+          const tc = countTasks(fs.readFileSync(tp, 'utf-8'));
+          ws.total = tc.total;
+          ws.done = tc.done;
+        }
+      }
+
+      let activeWorkers = workerStates.length;
+      function onWorkerDone() {
+        activeWorkers--;
+        if (activeWorkers === 0) {
+          finishExecution(tasks, schema, workerStates);
+        }
+      }
+
+      const watchPushLog = (name, msg) => {
+        const t = new Date().toLocaleTimeString();
+        console.log(`  ${C.dim}[${t}] [${name}]${C.reset} ${msg}`);
+      };
+
+      for (const ws of workerStates) {
+        spawnWorker(ws, py, onWorkerDone, () => {}, watchPushLog);
+      }
+    } else {
+      // 단일 모드
+      const allTasks = Object.values(workerGroups).flat();
+      console.log(`  ${C.cyan}단일 모드${C.reset}: ${allTasks.length}개 태스크`);
+      const lines = ['# 작업 목록\n', '아래 태스크를 순서대로 진행하세요.\n', '---\n'];
+      for (const t of allTasks) {
+        lines.push(`- [ ] ${t.title} <!-- notion:${t.id} -->`);
+      }
+      fs.writeFileSync(tasksPath, lines.join('\n') + '\n');
+
+      syncClaudeMd(targetDir);
+
+      const ws = {
+        name: 'main',
+        path: targetDir,
+        targetDir,
+        status: 'running',
+        currentTask: '',
+        done: 0,
+        total: 0,
+        cost: 0,
+        _proc: null,
+        logFile: path.join(logDir, `watch_main_${timestamp}.log`),
+      };
+
+      const tc = countTasks(fs.readFileSync(tasksPath, 'utf-8'));
+      ws.total = tc.total;
+      ws.done = tc.done;
+
+      const watchPushLog = (_name, msg) => {
+        const t = new Date().toLocaleTimeString();
+        console.log(`  ${C.dim}[${t}]${C.reset} ${msg}`);
+      };
+
+      spawnWorker(ws, py, () => {
+        finishExecution(tasks, schema, [ws]);
+      }, () => {}, watchPushLog);
+    }
+  }
+
+  function finishExecution(notionTasks, schema, workerStates) {
+    const now = new Date().toLocaleTimeString();
+    console.log(`\n${C.green}[${now}]${C.reset} ${C.bold}실행 완료 — Notion 업데이트${C.reset}`);
+
+    // tasks.md에서 완료 상태 확인 (notion page ID 매칭)
+    const taskCompletion = {};
+    const workerPaths = (workerStates && workerStates.length > 0)
+      ? workerStates.map(ws => ws.path)
+      : [targetDir];
+
+    for (const wsPath of workerPaths) {
+      const tp = path.join(wsPath, '.sleepcode', 'tasks.md');
+      if (!fs.existsSync(tp)) continue;
+      const content = fs.readFileSync(tp, 'utf-8');
+      const pattern = /^- \[([ x])\] .+<!-- notion:([a-f0-9-]+) -->/gm;
+      let match;
+      while ((match = pattern.exec(content)) !== null) {
+        taskCompletion[match[2]] = match[1] === 'x';
+      }
+    }
+
+    // 총 비용
+    const totalCost = (workerStates && workerStates.length > 0)
+      ? workerStates.reduce((s, ws) => s + (ws.cost || 0), 0)
+      : 0;
+
+    // Notion 업데이트
+    for (const task of notionTasks) {
+      const isDone = taskCompletion[task.id] || false;
+      const newStatus = isDone ? 'Done' : 'Failed';
+      const props = {};
+
+      const sp = buildStatusProps(schema, newStatus);
+      if (sp) Object.assign(props, sp);
+
+      if (schema.cost_prop && totalCost > 0) {
+        const perTaskCost = totalCost / notionTasks.length;
+        props[schema.cost_prop] = { number: Math.round(perTaskCost * 10000) / 10000 };
+      }
+
+      if (schema.log_prop) {
+        const logText = isDone
+          ? `완료 ($${(totalCost / notionTasks.length).toFixed(4)})`
+          : '실행 실패';
+        props[schema.log_prop] = {
+          rich_text: [{ text: { content: logText } }],
+        };
+      }
+
+      if (Object.keys(props).length > 0) {
+        notionUpdatePage(task.id, props);
+      }
+
+      const icon = isDone ? `${C.green}✓${C.reset}` : `${C.red}✗${C.reset}`;
+      console.log(`  ${icon} ${task.title} → ${newStatus}`);
+    }
+
+    // 비용 기록
+    if (totalCost > 0) {
+      recordCost(targetDir, totalCost, 'watch');
+    }
+
+    isExecuting = false;
+    console.log(`\n${C.dim}[${new Date().toLocaleTimeString()}] 폴링 재개...${C.reset}`);
+  }
+
+  // ─── 폴링 루프 ───
+
+  function doPoll() {
+    if (isExecuting) return;
+
+    // graceful_stop 체크
+    if (fs.existsSync(path.join(scDir, 'graceful_stop'))) {
+      console.log(`\n${C.yellow}graceful_stop 감지 — watch 종료${C.reset}`);
+      process.exit(0);
+    }
+
+    // 예산 체크
+    const budgetCheck = isOverBudget(targetDir);
+    if (budgetCheck && budgetCheck.over) {
+      const now = new Date().toLocaleTimeString();
+      console.log(`${C.dim}[${now}]${C.reset} ${C.yellow}주간 한도 도달 — 대기${C.reset}`);
+      return;
+    }
+
+    const now = new Date().toLocaleTimeString();
+    const data = notionPoll();
+
+    if (!data || data.error) {
+      console.log(`${C.dim}[${now}] 폴링 실패${C.reset}`);
+      return;
+    }
+
+    const schema = data.schema;
+
+    // 실행할 태스크 찾기
+    let tasksToRun = [];
+
+    // 1. Run 체크박스가 true인 태스크
+    if (schema.run_prop) {
+      tasksToRun = data.tasks.filter(t => {
+        if (!t.run) return false;
+        const status = (t.status || '').toLowerCase();
+        return !['in progress', 'done', 'failed', '완료', '실패', '진행 중'].includes(status);
+      });
+    }
+
+    // 2. Run 프로퍼티 없으면 Status == "Start" 또는 "시작"인 태스크
+    if (tasksToRun.length === 0 && !schema.run_prop) {
+      tasksToRun = data.tasks.filter(t => {
+        const status = (t.status || '').toLowerCase();
+        return status === 'start' || status === '시작';
+      });
+    }
+
+    if (tasksToRun.length > 0) {
+      executeNotionTasks(tasksToRun, schema);
+    } else {
+      const total = data.tasks.length;
+      const pending = data.tasks.filter(t => {
+        const s = (t.status || '').toLowerCase();
+        return ['to do', '할 일', '', 'not started'].includes(s);
+      }).length;
+      process.stdout.write(`\r${C.dim}[${now}] 대기 중 (전체: ${total}, 대기: ${pending})${C.reset}\x1b[K`);
+    }
+  }
+
+  // 초기 폴링
+  doPoll();
+
+  // 주기적 폴링
+  const pollTimer = setInterval(doPoll, pollIntervalMs);
+
+  // 종료 핸들러
+  process.on('SIGINT', () => {
+    clearInterval(pollTimer);
+    console.log(`\n${C.yellow}watch 종료${C.reset}`);
+    process.exit(0);
+  });
+}
+
 // ─── 태스크 자동 생성 ───
 function generateTasks() {
   const targetDir = process.cwd();
@@ -2296,6 +2692,10 @@ async function main() {
   }
   if (firstArg === 'usage') {
     showUsage();
+    return;
+  }
+  if (firstArg === 'watch') {
+    cmdWatch();
     return;
   }
 

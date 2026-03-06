@@ -38,6 +38,9 @@ function branchColor(name) {
   return color;
 }
 
+// sleepcode 버전
+const SLEEPCODE_VERSION = require('../../package.json').version;
+
 // sleepcode 뱃지 (pill 형태: 반블록 + 마젠타 배경 + 흰색 볼드)
 const SLEEPCODE_BADGE = `${C.magenta}▐${C.bgMagenta}${C.brightWhite}${C.bold} sleepcode ${C.reset}${C.magenta}▌${C.reset}`;
 
@@ -102,6 +105,7 @@ module.exports = {
   BRANCH_COLORS,
   branchColor,
   SLEEPCODE_BADGE,
+  SLEEPCODE_VERSION,
   notionLink,
   TEMPLATES_DIR,
   IS_WIN,

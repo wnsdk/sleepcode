@@ -348,18 +348,7 @@ async function createNotionDb(apiKey, parentPageId, dbTitle) {
     properties: {
       'Task': { title: {} },
       'Status': {
-        status: {
-          options: [
-            { name: 'Not started', color: 'default' },
-            { name: 'In progress', color: 'blue' },
-            { name: 'Done', color: 'green' },
-          ],
-          groups: [
-            { name: 'To-do', option_names: ['Not started'], color: 'default' },
-            { name: 'In progress', option_names: ['In progress'], color: 'blue' },
-            { name: 'Complete', option_names: ['Done'], color: 'green' },
-          ],
-        },
+        status: {},
       },
       'Run': { checkbox: {} },
       'Worker': { select: { options: [] } },

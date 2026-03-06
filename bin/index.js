@@ -2740,7 +2740,8 @@ function cmdWatch() {
       const totalDone = currentWorkerStates.reduce((s, w) => s + w.done, 0);
       const totalTasks = currentWorkerStates.reduce((s, w) => s + w.total, 0);
       const totalPct = totalTasks > 0 ? Math.round(totalDone / totalTasks * 100) : 0;
-      lines.push(boxLine(`비용: ${costStr}  ${C.dim}·${C.reset}  경과: ${elapsedStr}  ${C.dim}·${C.reset}  ${C.cyan}${totalPct}%${C.reset}`, W));
+      const remaining = lastPollTime ? Math.max(0, pollIntervalSec - Math.floor((Date.now() - lastPollTime) / 1000)) : pollIntervalSec;
+      lines.push(boxLine(`비용: ${costStr}  ${C.dim}·${C.reset}  경과: ${elapsedStr}  ${C.dim}·${C.reset}  ${C.cyan}${totalPct}%${C.reset}  ${C.dim}·${C.reset}  폴링: ${remaining}초`, W));
     } else {
       // Waiting mode
       lines.push(boxLine(`${SLEEPCODE_BADGE} watch  ${C.dim}◆${C.reset} 대기 중`, W));

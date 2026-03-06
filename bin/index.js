@@ -1307,25 +1307,44 @@ function runParallelWorkers(targetDir, workerInfos) {
     }
   }
 
-  // 실시간 로그 링 버퍼 (최근 N줄)
-  const MAX_LOG_LINES = 8;
+  // 로그 버퍼 (리사이즈 시 재렌더링용)
+  const MAX_LOG_BUFFER = 200;
   const logBuffer = [];
+  let altScreenActive = false;
+
+  function appendLogToScreen(line) {
+    if (!altScreenActive) return;
+    const rows = process.stdout.rows || 24;
+    const termCols = process.stdout.columns || 80;
+    if (visualWidth(line) > termCols - 4) {
+      const plain = stripAnsi(line);
+      let tw = 0, cut = 0;
+      for (const ch of plain) {
+        const cw = visualWidth(ch);
+        if (tw + cw > termCols - 7) break;
+        tw += cw;
+        cut++;
+      }
+      line = `${plain.slice(0, cut)}...\x1b[0m`;
+    }
+    process.stdout.write(`\x1b[${rows};1H`);
+    process.stdout.write(`\n  ${line}\x1b[K`);
+  }
+
   function pushLog(workerName, msg) {
     const tag = `${C.dim}[${workerName}]${C.reset}`;
-    logBuffer.push(`${tag} ${msg}`);
-    if (logBuffer.length > MAX_LOG_LINES) logBuffer.shift();
+    const fullMsg = `${tag} ${msg}`;
+    logBuffer.push(fullMsg);
+    if (logBuffer.length > MAX_LOG_BUFFER) logBuffer.shift();
+    appendLogToScreen(fullMsg);
   }
 
   // 대시보드 렌더링
-  let dashboardLines = 0;
   const startTime = Date.now();
   let renderPending = false;
 
   function renderDashboard() {
-    // 이전 출력 지우기
-    if (dashboardLines > 0) {
-      process.stdout.write(`\x1b[${dashboardLines}A\x1b[J`);
-    }
+    if (!altScreenActive) return;
 
     const lines = [];
     const W = 50; // 박스 내부 너비
@@ -1345,9 +1364,8 @@ function runParallelWorkers(targetDir, workerInfos) {
         : ws.status === 'budget_stop' ? `${C.yellow}■${C.reset}`
         : `${C.red}✗${C.reset}`;
       lines.push(boxLine(`${statusIcon} ${C.bold}${padEndVisual(ws.name, 18)}${C.reset} ${bar} ${String(ws.done).padStart(2)}/${String(ws.total).padEnd(2)}`, W));
-      // 현재 태스크 줄: 항상 표시 (없으면 빈 줄) → 라인 수 고정
       if (ws.currentTask && ws.status === 'running') {
-        const maxTaskW = W - 6; // "    > " + padding
+        const maxTaskW = W - 6;
         let task = ws.currentTask;
         if (visualWidth(task) > maxTaskW) {
           let tw = 0;
@@ -1375,7 +1393,6 @@ function runParallelWorkers(targetDir, workerInfos) {
         ? `${Math.floor(elapsed / 60)}m ${elapsed % 60}s`
         : `${elapsed}s`;
     lines.push(boxLine(`비용: ${costStr}  |  경과: ${elapsedStr}  |  진행: ${totalDone}/${totalTasks}`, W));
-    // 예산 정보 줄: 항상 표시 → 라인 수 고정
     const budgetInfo = isOverBudget(targetDir);
     if (budgetInfo) {
       const pct = Math.min(100, (budgetInfo.total / budgetInfo.budget * 100)).toFixed(0);
@@ -1386,37 +1403,12 @@ function runParallelWorkers(targetDir, workerInfos) {
       lines.push(boxLine('', W));
     }
     lines.push(`${C.bold}└${'─'.repeat(W + 2)}┘${C.reset}`);
+    lines.push(`${C.dim} ─── logs ${'─'.repeat(W - 7)}${C.reset}`);
 
-    // 실시간 로그 출력 (항상 MAX_LOG_LINES 줄 확보하여 라인 수 고정)
-    lines.push('');
-    for (let i = 0; i < MAX_LOG_LINES; i++) {
-      if (i < logBuffer.length) {
-        // 로그 줄이 터미널 폭을 넘지 않도록 truncate
-        const raw = logBuffer[i];
-        const maxLogW = W + 2; // 박스 폭에 맞춤
-        if (visualWidth(raw) > maxLogW) {
-          let tw = 0;
-          let cut = 0;
-          for (const ch of stripAnsi(raw)) {
-            const cw = visualWidth(ch);
-            if (tw + cw > maxLogW - 3) break;
-            tw += cw;
-            cut++;
-          }
-          // ANSI 코드를 포함하므로 plain text 기준으로 잘라내기
-          const plain = stripAnsi(raw);
-          lines.push(`  ${plain.slice(0, cut)}...`);
-        } else {
-          lines.push(`  ${raw}`);
-        }
-      } else {
-        lines.push('');
-      }
+    // Alternate Screen: 절대 좌표로 대시보드 렌더링
+    for (let i = 0; i < lines.length; i++) {
+      process.stdout.write(`\x1b[${i + 1};1H${lines[i]}\x1b[K`);
     }
-
-    const output = lines.join('\n');
-    process.stdout.write(output + '\n');
-    dashboardLines = lines.length;
   }
 
   /** 이벤트 기반 렌더 요청을 200ms 디바운스로 처리 (깜빡임 방지) */
@@ -1428,6 +1420,52 @@ function runParallelWorkers(targetDir, workerInfos) {
       renderDashboard();
     }, 200);
   }
+
+  // Alternate Screen 초기화
+  const dashboardHeight = 9 + workerStates.length * 2;
+  if (process.stdout.isTTY) {
+    process.stdout.write('\x1b[?1049h');
+    process.stdout.write('\x1b[H');
+    process.stdout.write('\x1b[2J');
+    const rows = process.stdout.rows || 24;
+    if (rows > dashboardHeight) {
+      process.stdout.write(`\x1b[${dashboardHeight + 1};${rows}r`);
+    }
+    altScreenActive = true;
+  }
+
+  function cleanupAltScreen() {
+    if (!altScreenActive) return;
+    altScreenActive = false;
+    process.stdout.write('\x1b[r');
+    process.stdout.write('\x1b[?1049l');
+  }
+
+  process.stdout.on('resize', () => {
+    if (!altScreenActive) return;
+    const rows = process.stdout.rows || 24;
+    if (rows > dashboardHeight) {
+      process.stdout.write(`\x1b[${dashboardHeight + 1};${rows}r`);
+    }
+    process.stdout.write('\x1b[2J');
+    renderDashboard();
+    const logRows = rows - dashboardHeight;
+    const recentLogs = logBuffer.slice(-Math.max(0, logRows));
+    for (const line of recentLogs) {
+      appendLogToScreen(line);
+    }
+  });
+
+  const sigintHandler = () => {
+    for (const ws of workerStates) {
+      if (ws._proc) try { ws._proc.kill(); } catch {}
+    }
+    cleanupAltScreen();
+    console.log(`\n${C.yellow}중단됨${C.reset}`);
+    process.exit(1);
+  };
+  process.on('SIGINT', sigintHandler);
+  process.on('exit', cleanupAltScreen);
 
   renderDashboard();
 
@@ -1463,6 +1501,8 @@ function runParallelWorkers(targetDir, workerInfos) {
       clearInterval(dashboardInterval);
       clearInterval(budgetCheckInterval);
       renderDashboard();
+      process.removeListener('SIGINT', sigintHandler);
+      cleanupAltScreen();
       onAllDone();
     }
   }
@@ -1812,26 +1852,45 @@ function runSingleWithDashboard(targetDir, cont) {
     ws.done = tc.done;
   }
 
-  // 로그 버퍼
-  const MAX_LOG_LINES = 12;
+  // 로그 버퍼 (리사이즈 시 재렌더링용)
+  const MAX_LOG_BUFFER = 200;
   const logBuffer = [];
+  let altScreenActive = false;
+
+  function appendLogToScreen(line) {
+    if (!altScreenActive) return;
+    const rows = process.stdout.rows || 24;
+    const termCols = process.stdout.columns || 80;
+    if (visualWidth(line) > termCols - 4) {
+      const plain = stripAnsi(line);
+      let tw = 0, cut = 0;
+      for (const ch of plain) {
+        const cw = visualWidth(ch);
+        if (tw + cw > termCols - 7) break;
+        tw += cw;
+        cut++;
+      }
+      line = `${plain.slice(0, cut)}...\x1b[0m`;
+    }
+    process.stdout.write(`\x1b[${rows};1H`);
+    process.stdout.write(`\n  ${line}\x1b[K`);
+  }
+
   function pushLog(workerName, msg) {
     logBuffer.push(msg);
-    if (logBuffer.length > MAX_LOG_LINES) logBuffer.shift();
+    if (logBuffer.length > MAX_LOG_BUFFER) logBuffer.shift();
+    appendLogToScreen(msg);
   }
 
   // 대시보드 렌더링
-  let dashboardLines = 0;
   const startTime = Date.now();
   let renderPending = false;
 
   function renderDashboard() {
-    if (dashboardLines > 0) {
-      process.stdout.write(`\x1b[${dashboardLines}A\x1b[J`);
-    }
+    if (!altScreenActive) return;
 
     const lines = [];
-    const W = 50; // 박스 내부 너비
+    const W = 50;
     const elapsed = Math.floor((Date.now() - startTime) / 1000);
     const elapsedStr = elapsed >= 3600
       ? `${Math.floor(elapsed / 3600)}h ${Math.floor((elapsed % 3600) / 60)}m`
@@ -1849,12 +1908,10 @@ function runSingleWithDashboard(targetDir, cont) {
     lines.push(boxLine(`sleepcode run  ${statusIcon} ${statusText}`, W));
     lines.push(`${C.bold}├${'─'.repeat(W + 2)}┤${C.reset}`);
     lines.push(boxLine(`${bar}  ${String(ws.done).padStart(2)}/${String(ws.total).padEnd(2)} tasks`, W));
-    // currentTask 줄: 항상 표시 (없으면 빈 줄)
     if (ws.currentTask && ws.status === 'running') {
-      const maxTaskW = W - 4; // "> " + padding
+      const maxTaskW = W - 4;
       let task = ws.currentTask;
       if (visualWidth(task) > maxTaskW) {
-        // CJK-aware 잘라내기
         let tw = 0;
         let cut = 0;
         for (const ch of task) {
@@ -1871,25 +1928,22 @@ function runSingleWithDashboard(targetDir, cont) {
     }
     lines.push(`${C.bold}├${'─'.repeat(W + 2)}┤${C.reset}`);
     lines.push(boxLine(`비용: ${costStr}  |  경과: ${elapsedStr}`, W));
-    // 예산 정보
     const budgetInfo = isOverBudget(targetDir);
     if (budgetInfo) {
       const pct = Math.min(100, (budgetInfo.total / budgetInfo.budget * 100)).toFixed(0);
       const budgetBar = progressBar(Math.min(budgetInfo.total, budgetInfo.budget), budgetInfo.budget, 10);
       const warn = budgetInfo.over ? ` ${C.red}한도 도달!${C.reset}` : '';
       lines.push(boxLine(`주간: $${budgetInfo.total.toFixed(2)}/$${budgetInfo.budget} (${pct}%) ${budgetBar}${warn}`, W));
+    } else {
+      lines.push(boxLine('', W));
     }
     lines.push(`${C.bold}└${'─'.repeat(W + 2)}┘${C.reset}`);
+    lines.push(`${C.dim} ─── logs ${'─'.repeat(W - 7)}${C.reset}`);
 
-    // 실시간 로그 출력 (항상 MAX_LOG_LINES 줄 확보하여 라인 수 고정)
-    lines.push('');
-    for (let i = 0; i < MAX_LOG_LINES; i++) {
-      lines.push(i < logBuffer.length ? `  ${logBuffer[i]}` : '');
+    // Alternate Screen: 절대 좌표로 대시보드 렌더링
+    for (let i = 0; i < lines.length; i++) {
+      process.stdout.write(`\x1b[${i + 1};1H${lines[i]}\x1b[K`);
     }
-
-    const output = lines.join('\n');
-    process.stdout.write(output + '\n');
-    dashboardLines = lines.length;
   }
 
   /** 이벤트 기반 렌더 요청을 200ms 디바운스로 처리 (깜빡임 방지) */
@@ -1904,6 +1958,51 @@ function runSingleWithDashboard(targetDir, cont) {
 
   const modeLabel = cont ? '1회 실행 (세션 연속 모드)' : '1회 실행 (대시보드 모드)';
   console.log(`${C.cyan}${modeLabel}${C.reset}`);
+
+  // Alternate Screen 초기화
+  const dashboardHeight = 10;
+  if (process.stdout.isTTY) {
+    process.stdout.write('\x1b[?1049h');
+    process.stdout.write('\x1b[H');
+    process.stdout.write('\x1b[2J');
+    const rows = process.stdout.rows || 24;
+    if (rows > dashboardHeight) {
+      process.stdout.write(`\x1b[${dashboardHeight + 1};${rows}r`);
+    }
+    altScreenActive = true;
+  }
+
+  function cleanupAltScreen() {
+    if (!altScreenActive) return;
+    altScreenActive = false;
+    process.stdout.write('\x1b[r');
+    process.stdout.write('\x1b[?1049l');
+  }
+
+  process.stdout.on('resize', () => {
+    if (!altScreenActive) return;
+    const rows = process.stdout.rows || 24;
+    if (rows > dashboardHeight) {
+      process.stdout.write(`\x1b[${dashboardHeight + 1};${rows}r`);
+    }
+    process.stdout.write('\x1b[2J');
+    renderDashboard();
+    const logRows = rows - dashboardHeight;
+    const recentLogs = logBuffer.slice(-Math.max(0, logRows));
+    for (const line of recentLogs) {
+      appendLogToScreen(line);
+    }
+  });
+
+  const sigintHandler = () => {
+    if (ws._proc) try { ws._proc.kill(); } catch {}
+    cleanupAltScreen();
+    console.log(`\n${C.yellow}중단됨${C.reset}`);
+    process.exit(1);
+  };
+  process.on('SIGINT', sigintHandler);
+  process.on('exit', cleanupAltScreen);
+
   renderDashboard();
 
   const dashboardInterval = setInterval(renderDashboard, 3000);
@@ -1924,6 +2023,8 @@ function runSingleWithDashboard(targetDir, cont) {
     clearInterval(dashboardInterval);
     clearInterval(budgetCheckInterval);
     renderDashboard();
+    process.removeListener('SIGINT', sigintHandler);
+    cleanupAltScreen();
 
     // Notion 동기화: push
     if (process.env.NOTION_API_KEY && process.env.NOTION_DB_ID) {

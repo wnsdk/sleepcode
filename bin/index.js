@@ -2234,15 +2234,228 @@ function cmdWatch() {
   const logDir = path.join(scDir, 'logs');
   fs.mkdirSync(logDir, { recursive: true });
 
-  console.log(`
-${C.bold}${C.magenta}sleepcode watch${C.reset} — Notion 제어판 모드
-
-  ${C.dim}DB:${C.reset}     ${dbId.slice(0, 8)}...
-  ${C.dim}폴링:${C.reset}   ${pollIntervalSec}초 간격
-  ${C.dim}Ctrl+C${C.reset}  종료
-`);
-
   let isExecuting = false;
+
+  // ─── 대시보드 상태 ───
+  let watchPhase = 'waiting'; // 'waiting' | 'executing'
+  let pollInfo = { total: 0, pending: 0 };
+  let currentWorkerStates = [];
+  let execStartTime = null;
+  let currentDashboardHeight = 9;
+
+  // 로그 버퍼 (리사이즈 시 재렌더링용)
+  const MAX_LOG_BUFFER = 200;
+  const logBuffer = [];
+  let altScreenActive = false;
+
+  function getDashboardHeight() {
+    if (watchPhase !== 'executing' || currentWorkerStates.length === 0) return 9;
+    if (currentWorkerStates.length === 1) return 10;
+    return 7 + currentWorkerStates.length * 2;
+  }
+
+  function appendLogToScreen(line) {
+    if (!altScreenActive) return;
+    const rows = process.stdout.rows || 24;
+    const termCols = process.stdout.columns || 80;
+    if (visualWidth(line) > termCols - 4) {
+      const plain = stripAnsi(line);
+      let tw = 0, cut = 0;
+      for (const ch of plain) {
+        const cw = visualWidth(ch);
+        if (tw + cw > termCols - 7) break;
+        tw += cw;
+        cut++;
+      }
+      line = `${plain.slice(0, cut)}...\x1b[0m`;
+    }
+    process.stdout.write(`\x1b[${rows};1H`);
+    process.stdout.write(`\n  ${line}\x1b[K`);
+  }
+
+  function watchPushLog(name, msg) {
+    const t = new Date().toLocaleTimeString();
+    const formatted = name && name !== 'SYSTEM'
+      ? `${C.dim}[${t}] [${name}]${C.reset} ${msg}`
+      : `${C.dim}[${t}]${C.reset} ${msg}`;
+    logBuffer.push(formatted);
+    if (logBuffer.length > MAX_LOG_BUFFER) logBuffer.shift();
+    appendLogToScreen(formatted);
+  }
+
+  let renderPending = false;
+  function scheduleRender() {
+    if (renderPending) return;
+    renderPending = true;
+    setTimeout(() => {
+      renderPending = false;
+      renderDashboard();
+    }, 200);
+  }
+
+  function renderDashboard() {
+    if (!altScreenActive) return;
+
+    const lines = [];
+    const W = 50;
+
+    lines.push(`${C.dim}╭${'─'.repeat(W + 2)}╮${C.reset}`);
+
+    if (watchPhase === 'executing' && currentWorkerStates.length > 0) {
+      const useParallel = currentWorkerStates.length > 1;
+
+      if (useParallel) {
+        const activeCount = currentWorkerStates.filter(w => w.status === 'running').length;
+        lines.push(boxLine(`${SLEEPCODE_BADGE} watch  ${C.cyan}⟳${C.reset} ${activeCount}/${currentWorkerStates.length} workers`, W));
+        lines.push(`${C.dim}├${'─'.repeat(W + 2)}┤${C.reset}`);
+
+        for (const ws of currentWorkerStates) {
+          const bar = progressBar(ws.done, ws.total, 15);
+          const statusIcon = ws.status === 'running' ? `${C.cyan}⟳${C.reset}`
+            : ws.status === 'done' ? `${C.green}✓${C.reset}`
+            : ws.status === 'budget_stop' ? `${C.yellow}■${C.reset}`
+            : `${C.red}✗${C.reset}`;
+          lines.push(boxLine(`${statusIcon} ${C.bold}${padEndVisual(ws.name, 18)}${C.reset} ${bar} ${String(ws.done).padStart(2)}/${String(ws.total).padEnd(2)}`, W));
+          if (ws.currentTask && ws.status === 'running') {
+            const maxTaskW = W - 6;
+            let task = ws.currentTask;
+            if (visualWidth(task) > maxTaskW) {
+              let tw = 0, cut = 0;
+              for (const ch of task) {
+                const cw = visualWidth(ch);
+                if (tw + cw > maxTaskW - 3) break;
+                tw += cw;
+                cut += ch.length;
+              }
+              task = task.slice(0, cut) + '...';
+            }
+            lines.push(boxLine(`  ${C.dim}> ${task}${C.reset}`, W));
+          } else {
+            lines.push(boxLine('', W));
+          }
+        }
+      } else {
+        const ws = currentWorkerStates[0];
+        const statusIcon = ws.status === 'running' ? `${C.cyan}⟳${C.reset}`
+          : ws.status === 'done' ? `${C.green}✓${C.reset}`
+          : `${C.red}✗${C.reset}`;
+        const statusText = ws.status === 'running' ? '실행 중' : ws.status === 'done' ? '완료' : '실패';
+        lines.push(boxLine(`${SLEEPCODE_BADGE} watch  ${statusIcon} ${statusText}`, W));
+        lines.push(`${C.dim}├${'─'.repeat(W + 2)}┤${C.reset}`);
+
+        const bar = progressBar(ws.done, ws.total, 20);
+        lines.push(boxLine(`${bar}  ${String(ws.done).padStart(2)}/${String(ws.total).padEnd(2)} tasks`, W));
+        if (ws.currentTask && ws.status === 'running') {
+          const maxTaskW = W - 4;
+          let task = ws.currentTask;
+          if (visualWidth(task) > maxTaskW) {
+            let tw = 0, cut = 0;
+            for (const ch of task) {
+              const cw = visualWidth(ch);
+              if (tw + cw > maxTaskW - 3) break;
+              tw += cw;
+              cut += ch.length;
+            }
+            task = task.slice(0, cut) + '...';
+          }
+          lines.push(boxLine(`${C.dim}> ${task}${C.reset}`, W));
+        } else {
+          lines.push(boxLine('', W));
+        }
+      }
+
+      lines.push(`${C.dim}├${'─'.repeat(W + 2)}┤${C.reset}`);
+
+      const totalCost = currentWorkerStates.reduce((s, w) => s + (w.cost || 0), 0);
+      const costStr = `$${totalCost.toFixed(4)}`;
+      const elapsed = execStartTime ? Math.floor((Date.now() - execStartTime) / 1000) : 0;
+      const elapsedStr = elapsed >= 3600
+        ? `${Math.floor(elapsed / 3600)}h ${Math.floor((elapsed % 3600) / 60)}m`
+        : elapsed >= 60
+          ? `${Math.floor(elapsed / 60)}m ${elapsed % 60}s`
+          : `${elapsed}s`;
+      lines.push(boxLine(`비용: ${costStr}  ${C.dim}·${C.reset}  경과: ${elapsedStr}`, W));
+    } else {
+      // Waiting mode
+      lines.push(boxLine(`${SLEEPCODE_BADGE} watch  ${C.dim}◆${C.reset} 대기 중`, W));
+      lines.push(`${C.dim}├${'─'.repeat(W + 2)}┤${C.reset}`);
+      lines.push(boxLine(`DB: ${dbId.slice(0, 8)}...  ${C.dim}·${C.reset}  폴링: ${pollIntervalSec}초`, W));
+      lines.push(boxLine(`전체: ${pollInfo.total}  ${C.dim}·${C.reset}  대기: ${pollInfo.pending}`, W));
+      lines.push(`${C.dim}├${'─'.repeat(W + 2)}┤${C.reset}`);
+    }
+
+    const budgetInfo = isOverBudget(targetDir);
+    if (budgetInfo) {
+      const pct = Math.min(100, (budgetInfo.total / budgetInfo.budget * 100)).toFixed(0);
+      const budgetBar = progressBar(Math.min(budgetInfo.total, budgetInfo.budget), budgetInfo.budget, 10);
+      const warn = budgetInfo.over ? ` ${C.red}한도 도달!${C.reset}` : '';
+      lines.push(boxLine(`주간: $${budgetInfo.total.toFixed(2)}/$${budgetInfo.budget} (${pct}%) ${budgetBar}${warn}`, W));
+    } else {
+      lines.push(boxLine('', W));
+    }
+    lines.push(`${C.dim}╰${'─'.repeat(W + 2)}╯${C.reset}`);
+    lines.push(`${C.dim} ─── logs ${'─'.repeat(W - 7)}${C.reset}`);
+
+    // Alternate Screen: 절대 좌표로 대시보드 렌더링
+    for (let i = 0; i < lines.length; i++) {
+      process.stdout.write(`\x1b[${i + 1};1H${lines[i]}\x1b[K`);
+    }
+  }
+
+  function setWatchPhase(newPhase) {
+    watchPhase = newPhase;
+    if (!altScreenActive) return;
+    currentDashboardHeight = getDashboardHeight();
+    const rows = process.stdout.rows || 24;
+    if (rows > currentDashboardHeight) {
+      process.stdout.write(`\x1b[${currentDashboardHeight + 1};${rows}r`);
+    }
+    process.stdout.write('\x1b[2J');
+    renderDashboard();
+    const logRows = rows - currentDashboardHeight;
+    const recentLogs = logBuffer.slice(-Math.max(0, logRows));
+    for (const line of recentLogs) {
+      appendLogToScreen(line);
+    }
+  }
+
+  // Alternate Screen 초기화
+  if (process.stdout.isTTY) {
+    process.stdout.write('\x1b[?1049h');
+    process.stdout.write('\x1b[H');
+    process.stdout.write('\x1b[2J');
+    currentDashboardHeight = getDashboardHeight();
+    const rows = process.stdout.rows || 24;
+    if (rows > currentDashboardHeight) {
+      process.stdout.write(`\x1b[${currentDashboardHeight + 1};${rows}r`);
+    }
+    altScreenActive = true;
+  }
+
+  function cleanupAltScreen() {
+    if (!altScreenActive) return;
+    altScreenActive = false;
+    process.stdout.write('\x1b[r');
+    process.stdout.write('\x1b[?1049l');
+  }
+
+  process.stdout.on('resize', () => {
+    if (!altScreenActive) return;
+    currentDashboardHeight = getDashboardHeight();
+    const rows = process.stdout.rows || 24;
+    if (rows > currentDashboardHeight) {
+      process.stdout.write(`\x1b[${currentDashboardHeight + 1};${rows}r`);
+    }
+    process.stdout.write('\x1b[2J');
+    renderDashboard();
+    const logRows = rows - currentDashboardHeight;
+    const recentLogs = logBuffer.slice(-Math.max(0, logRows));
+    for (const line of recentLogs) {
+      appendLogToScreen(line);
+    }
+  });
+
+  renderDashboard();
 
   // ─── Notion API 헬퍼 ───
 
@@ -2289,7 +2502,7 @@ ${C.bold}${C.magenta}sleepcode watch${C.reset} — Notion 제어판 모드
 
   function executeNotionTasks(tasks, schema) {
     isExecuting = true;
-    const now = new Date().toLocaleTimeString();
+    execStartTime = Date.now();
     const timestamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
 
     // 워커 그룹핑
@@ -2305,7 +2518,7 @@ ${C.bold}${C.magenta}sleepcode watch${C.reset} — Notion 제어판 모드
     const useParallel = workerNames.length > 1 ||
       (workerNames.length === 1 && workerNames[0] !== 'main');
 
-    console.log(`${C.green}[${now}]${C.reset} ${C.bold}▶ ${tasks.length}개 태스크 실행 시작${C.reset}`);
+    watchPushLog('SYSTEM', `${C.bold}▶ ${tasks.length}개 태스크 실행 시작${C.reset}`);
 
     // Notion 상태: In Progress + Run 해제
     for (const task of tasks) {
@@ -2320,7 +2533,7 @@ ${C.bold}${C.magenta}sleepcode watch${C.reset} — Notion 제어판 모드
     const tasksPath = path.join(scDir, 'tasks.md');
 
     if (useParallel) {
-      console.log(`  ${C.cyan}병렬 모드${C.reset}: ${workerNames.join(', ')}`);
+      watchPushLog('SYSTEM', `${C.cyan}병렬 모드${C.reset}: ${workerNames.join(', ')}`);
       const lines = ['# 작업 목록\n'];
       for (const [worker, wTasks] of Object.entries(workerGroups)) {
         lines.push(`## @worker ${worker}`);
@@ -2366,26 +2579,26 @@ ${C.bold}${C.magenta}sleepcode watch${C.reset} — Notion 제어판 모드
         }
       }
 
+      // 대시보드를 실행 모드로 전환
+      currentWorkerStates = workerStates;
+      setWatchPhase('executing');
+
       let activeWorkers = workerStates.length;
       function onWorkerDone() {
         activeWorkers--;
+        scheduleRender();
         if (activeWorkers === 0) {
           finishExecution(tasks, schema, workerStates);
         }
       }
 
-      const watchPushLog = (name, msg) => {
-        const t = new Date().toLocaleTimeString();
-        console.log(`  ${C.dim}[${t}] [${name}]${C.reset} ${msg}`);
-      };
-
       for (const ws of workerStates) {
-        spawnWorker(ws, py, onWorkerDone, () => {}, watchPushLog);
+        spawnWorker(ws, py, onWorkerDone, scheduleRender, watchPushLog);
       }
     } else {
       // 단일 모드
       const allTasks = Object.values(workerGroups).flat();
-      console.log(`  ${C.cyan}단일 모드${C.reset}: ${allTasks.length}개 태스크`);
+      watchPushLog('SYSTEM', `${C.cyan}단일 모드${C.reset}: ${allTasks.length}개 태스크`);
       const lines = ['# 작업 목록\n', '아래 태스크를 순서대로 진행하세요.\n', '---\n'];
       for (const t of allTasks) {
         lines.push(`- [ ] ${t.title} <!-- notion:${t.id} -->`);
@@ -2412,20 +2625,18 @@ ${C.bold}${C.magenta}sleepcode watch${C.reset} — Notion 제어판 모드
       ws.total = tc.total;
       ws.done = tc.done;
 
-      const watchPushLog = (_name, msg) => {
-        const t = new Date().toLocaleTimeString();
-        console.log(`  ${C.dim}[${t}]${C.reset} ${msg}`);
-      };
+      // 대시보드를 실행 모드로 전환
+      currentWorkerStates = [ws];
+      setWatchPhase('executing');
 
       spawnWorker(ws, py, () => {
         finishExecution(tasks, schema, [ws]);
-      }, () => {}, watchPushLog);
+      }, scheduleRender, watchPushLog);
     }
   }
 
   function finishExecution(notionTasks, schema, workerStates) {
-    const now = new Date().toLocaleTimeString();
-    console.log(`\n${C.green}[${now}]${C.reset} ${C.bold}실행 완료 — Notion 업데이트${C.reset}`);
+    watchPushLog('SYSTEM', `${C.bold}실행 완료 — Notion 업데이트${C.reset}`);
 
     // tasks.md에서 완료 상태 확인 (notion page ID 매칭)
     const taskCompletion = {};
@@ -2477,7 +2688,7 @@ ${C.bold}${C.magenta}sleepcode watch${C.reset} — Notion 제어판 모드
       }
 
       const icon = isDone ? `${C.green}✓${C.reset}` : `${C.red}✗${C.reset}`;
-      console.log(`  ${icon} ${task.title} → ${newStatus}`);
+      watchPushLog('SYSTEM', `${icon} ${task.title} → ${newStatus}`);
     }
 
     // AI 보고 내용을 Notion 페이지 본문에 기록
@@ -2497,7 +2708,7 @@ ${C.bold}${C.magenta}sleepcode watch${C.reset} — Notion 제어판 모드
           });
         } catch {}
       }
-      console.log(`  ${C.dim}Notion 페이지에 보고 기록 완료${C.reset}`);
+      watchPushLog('SYSTEM', `${C.dim}Notion 페이지에 보고 기록 완료${C.reset}`);
     }
 
     // 비용 기록
@@ -2506,7 +2717,10 @@ ${C.bold}${C.magenta}sleepcode watch${C.reset} — Notion 제어판 모드
     }
 
     isExecuting = false;
-    console.log(`\n${C.dim}[${new Date().toLocaleTimeString()}] 폴링 재개...${C.reset}`);
+    currentWorkerStates = [];
+    execStartTime = null;
+    setWatchPhase('waiting');
+    watchPushLog('SYSTEM', `${C.dim}폴링 재개...${C.reset}`);
   }
 
   // ─── 폴링 루프 ───
@@ -2516,6 +2730,7 @@ ${C.bold}${C.magenta}sleepcode watch${C.reset} — Notion 제어판 모드
 
     // graceful_stop 체크
     if (fs.existsSync(path.join(scDir, 'graceful_stop'))) {
+      cleanupAltScreen();
       console.log(`\n${C.yellow}graceful_stop 감지 — watch 종료${C.reset}`);
       process.exit(0);
     }
@@ -2523,20 +2738,27 @@ ${C.bold}${C.magenta}sleepcode watch${C.reset} — Notion 제어판 모드
     // 예산 체크
     const budgetCheck = isOverBudget(targetDir);
     if (budgetCheck && budgetCheck.over) {
-      const now = new Date().toLocaleTimeString();
-      console.log(`${C.dim}[${now}]${C.reset} ${C.yellow}주간 한도 도달 — 대기${C.reset}`);
+      watchPushLog('SYSTEM', `${C.yellow}주간 한도 도달 — 대기${C.reset}`);
+      renderDashboard();
       return;
     }
 
-    const now = new Date().toLocaleTimeString();
     const data = notionPoll();
 
     if (!data || data.error) {
-      console.log(`${C.dim}[${now}] 폴링 실패${C.reset}`);
+      watchPushLog('SYSTEM', `${C.dim}폴링 실패${C.reset}`);
       return;
     }
 
     const schema = data.schema;
+
+    // 폴링 정보 업데이트
+    const total = data.tasks.length;
+    const pending = data.tasks.filter(t => {
+      const s = (t.status || '').toLowerCase();
+      return ['to do', '할 일', '', 'not started'].includes(s);
+    }).length;
+    pollInfo = { total, pending };
 
     // 실행할 태스크 찾기
     let tasksToRun = [];
@@ -2561,14 +2783,12 @@ ${C.bold}${C.magenta}sleepcode watch${C.reset} — Notion 제어판 모드
     if (tasksToRun.length > 0) {
       executeNotionTasks(tasksToRun, schema);
     } else {
-      const total = data.tasks.length;
-      const pending = data.tasks.filter(t => {
-        const s = (t.status || '').toLowerCase();
-        return ['to do', '할 일', '', 'not started'].includes(s);
-      }).length;
-      process.stdout.write(`\r${C.dim}[${now}] 대기 중 (전체: ${total}, 대기: ${pending})${C.reset}\x1b[K`);
+      renderDashboard();
     }
   }
+
+  // 대시보드 갱신 타이머
+  const dashboardInterval = setInterval(renderDashboard, 3000);
 
   // 초기 폴링
   doPoll();
@@ -2577,11 +2797,19 @@ ${C.bold}${C.magenta}sleepcode watch${C.reset} — Notion 제어판 모드
   const pollTimer = setInterval(doPoll, pollIntervalMs);
 
   // 종료 핸들러
-  process.on('SIGINT', () => {
+  const sigintHandler = () => {
     clearInterval(pollTimer);
+    clearInterval(dashboardInterval);
+    // 실행 중인 워커 프로세스 종료
+    for (const ws of currentWorkerStates) {
+      if (ws._proc) try { ws._proc.kill(); } catch {}
+    }
+    cleanupAltScreen();
     console.log(`\n${C.yellow}watch 종료${C.reset}`);
     process.exit(0);
-  });
+  };
+  process.on('SIGINT', sigintHandler);
+  process.on('exit', cleanupAltScreen);
 }
 
 // ─── 태스크 자동 생성 ───

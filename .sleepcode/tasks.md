@@ -4,4 +4,4 @@
 
 ---
 
-- [x] npm publish 하기 전, 버전 수정해줘 <!-- notion:31bad790-3b5d-80fe-953d-cf200054a8ed -->
+- [x] sleepcode watch 일 때도 sleepcode run 일때처럼 터미널이 대시보드랑 로그 등으로 그렇게 구성되게 해줘 <!-- notion:31bad790-3b5d-8078-8d92-e72cca8a9b16 -->

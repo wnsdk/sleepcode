@@ -1653,11 +1653,11 @@ function processStreamEvent(ws, obj, onUpdate, pushLog) {
         const text = (c.text || '').trim();
         if (text) {
           let short = text;
-          if (visualWidth(text) > 45) {
+          if (visualWidth(text) > 135) {
             let tw = 0, cut = 0;
             for (const ch of text) {
               const cw = visualWidth(ch);
-              if (tw + cw > 42) break;
+              if (tw + cw > 132) break;
               tw += cw;
               cut += ch.length;
             }
@@ -1686,11 +1686,11 @@ function processStreamEvent(ws, obj, onUpdate, pushLog) {
           detail = fp.split(/[/\\]/).pop() || fp;
         } else if (name === 'Bash') {
           const cmd = inp.command || '';
-          if (visualWidth(cmd) > 40) {
+          if (visualWidth(cmd) > 120) {
             let tw = 0, cut = 0;
             for (const ch of cmd) {
               const cw = visualWidth(ch);
-              if (tw + cw > 37) break;
+              if (tw + cw > 117) break;
               tw += cw;
               cut += ch.length;
             }
@@ -1730,11 +1730,11 @@ function processStreamEvent(ws, obj, onUpdate, pushLog) {
     const msg = typeof obj.message === 'string' ? obj.message : '';
     if (msg) {
       let short = msg;
-      if (visualWidth(msg) > 40) {
+      if (visualWidth(msg) > 120) {
         let tw = 0, cut = 0;
         for (const ch of msg) {
           const cw = visualWidth(ch);
-          if (tw + cw > 37) break;
+          if (tw + cw > 117) break;
           tw += cw;
           cut += ch.length;
         }

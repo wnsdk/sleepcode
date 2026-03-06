@@ -684,6 +684,57 @@ async function createNotionDb(apiKey, parentPageId, dbTitle) {
   return result.id.replace(/-/g, '');
 }
 
+// sleepcode가 기대하는 Notion DB 프로퍼티 정의
+const EXPECTED_DB_PROPERTIES = {
+  'Status': {
+    select: {
+      options: [
+        { name: 'Idle', color: 'default' },
+        { name: 'Pending', color: 'purple' },
+        { name: 'Running', color: 'blue' },
+        { name: 'Success', color: 'green' },
+        { name: 'Failed', color: 'red' },
+      ],
+    },
+  },
+  'Run': { checkbox: {} },
+  'Worker': { select: { options: [] } },
+  'Priority': { number: { format: 'number' } },
+  'Log': { rich_text: {} },
+  'Cost': { number: { format: 'number' } },
+  'Completed At': { date: {} },
+};
+
+async function syncNotionDbSchema(apiKey, dbId) {
+  // DB 스키마 조회
+  let formattedId = dbId;
+  if (/^[a-f0-9]{32}$/.test(dbId)) {
+    formattedId = `${dbId.slice(0,8)}-${dbId.slice(8,12)}-${dbId.slice(12,16)}-${dbId.slice(16,20)}-${dbId.slice(20)}`;
+  }
+  const db = await notionApiRequest('GET', `/databases/${formattedId}`, apiKey);
+  const existingProps = db.properties || {};
+  const existingNames = new Set(Object.keys(existingProps).map(n => n.toLowerCase().trim()));
+
+  // 누락된 프로퍼티 찾기
+  const missingProps = {};
+  for (const [name, config] of Object.entries(EXPECTED_DB_PROPERTIES)) {
+    if (!existingNames.has(name.toLowerCase().trim())) {
+      missingProps[name] = config;
+    }
+  }
+
+  if (Object.keys(missingProps).length === 0) {
+    return [];
+  }
+
+  // 누락된 프로퍼티 추가
+  await notionApiRequest('PATCH', `/databases/${formattedId}`, apiKey, {
+    properties: missingProps,
+  });
+
+  return Object.keys(missingProps);
+}
+
 async function searchNotionPages(apiKey, query) {
   const body = {
     query: query || '',
@@ -4064,6 +4115,10 @@ async function main() {
       console.log(`${C.dim}Notion DB 확인 중...${C.reset}`);
       try {
         notionDbId = await validateNotionDbId(notionKey, rawId);
+        const addedCols = await syncNotionDbSchema(notionKey, notionDbId);
+        if (addedCols.length > 0) {
+          console.log(`${C.green}✓${C.reset} 누락된 컬럼 자동 추가: ${addedCols.join(', ')}`);
+        }
       } catch (e) {
         console.error(`${C.red}${e.message}${C.reset}`);
         process.exit(1);
@@ -4190,6 +4245,10 @@ async function main() {
           console.log(`${C.green}✓${C.reset} 페이지 내 DB를 자동 감지했습니다.`);
         } else {
           console.log(`${C.green}✓${C.reset} Notion DB 확인 완료`);
+        }
+        const addedCols = await syncNotionDbSchema(notionKey, notionDbId);
+        if (addedCols.length > 0) {
+          console.log(`${C.green}✓${C.reset} 누락된 컬럼 자동 추가: ${addedCols.join(', ')}`);
         }
       } catch (e) {
         console.error(`${C.red}${e.message}${C.reset}`);

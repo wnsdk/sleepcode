@@ -191,6 +191,7 @@ npx sleepcode usage
 | `spring-boot` | Spring Boot (Kotlin/Java) — Gradle 빌드/테스트 |
 | `react-native` | React Native (TypeScript) — tsc 타입체크 |
 | `nextjs` | Next.js (TypeScript) — npm build/test/lint |
+| `godot` | Godot 4 (GDScript) — 게임 개발 |
 | `custom` | 직접 설정 — 빌드/테스트/린트 명령어 수동 입력 |
 
 ---
@@ -220,7 +221,7 @@ npx sleepcode --type react-native --name my-app --role "쇼핑몰 앱 개발"
 
 | 옵션 | 설명 |
 |------|------|
-| `--type <type>` | 프로젝트 타입 (`spring-boot`, `react-native`, `nextjs`, `custom`) |
+| `--type <type>` | 프로젝트 타입 (`spring-boot`, `react-native`, `nextjs`, `godot`, `custom`) |
 | `--name <name>` | 프로젝트 이름 |
 | `--role <desc>` | AI 역할 설명 |
 | `--figma-key <key>` | Figma API Key (선택) |

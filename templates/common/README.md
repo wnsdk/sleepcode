@@ -52,7 +52,66 @@ npx sleepcode run --loop
 
 OS에 맞는 스크립트를 자동으로 선택합니다.
 
-### 3. tmux 분리 (백그라운드 전환, macOS/Linux)
+### 3. 병렬 실행 (여러 기능 동시 개발)
+
+`tasks.md`에 `@worker`로 워커별 태스크를 나누면 여러 기능을 동시에 개발할 수 있습니다.
+각 워커가 독립된 git worktree에서 작업하므로 충돌 없이 동시에 진행됩니다.
+
+**tasks.md 작성:**
+
+```markdown
+## @worker feature-auth
+- [ ] 로그인 화면 구현
+- [ ] JWT 토큰 관리
+
+## @worker feature-home
+- [ ] 홈 화면 레이아웃
+- [ ] 상품 목록 API 연동
+
+## @worker bugfix
+- [ ] 장바구니 수량 버그 수정
+```
+
+**실행:**
+
+```bash
+# 병렬 실행 (실시간 대시보드 표시)
+npx sleepcode parallel
+
+# worktree만 먼저 생성 (실행 전 확인용)
+npx sleepcode parallel --setup
+
+# 워커 상태 확인
+npx sleepcode parallel --status
+
+# 완료된 브랜치 자동 머지
+npx sleepcode parallel --merge
+
+# worktree 정리
+npx sleepcode parallel --clean
+```
+
+**실시간 대시보드:**
+
+병렬 실행 중 터미널에 각 워커의 진행률, 비용, 경과 시간이 표시됩니다:
+
+```
+┌─ sleepcode parallel — 3/3 workers active ──────────────────┐
+│  ⟳ feature-auth       ████████░░░░░░░░ 2/4  JWT 토큰 관리 │
+│  ⟳ feature-home       ██████░░░░░░░░░░ 1/3  상품 목록 API  │
+│  ✓ bugfix             ████████████████ 1/1  완료           │
+│──────────────────────────────────────────────────────────── │
+│  💰 $0.45   ⏱ 12m 34s   📋 4/8 done                       │
+└────────────────────────────────────────────────────────────┘
+```
+
+**작업 흐름:**
+
+```
+tasks.md (@worker별 분리) → git worktree 생성 → 동시 실행 → --merge로 통합
+```
+
+### 4. tmux 분리 (백그라운드 전환, macOS/Linux)
 
 ```
 Ctrl + B → D

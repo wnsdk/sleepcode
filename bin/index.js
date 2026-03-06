@@ -696,7 +696,7 @@ function parseParallelTasks(tasksPath) {
   return workers.map(w => ({
     name: w.name,
     tasks: `# 작업 목록\n\n${w.lines.join('\n')}`,
-    remaining: w.lines.filter(l => l.match(/- \[ \]/)).length,
+    remaining: countTasks(w.lines.join('\n')).total - countTasks(w.lines.join('\n')).done,
   }));
 }
 
@@ -856,8 +856,9 @@ function showParallelStatus(targetDir) {
       const wtTasksPath = path.join(wtPath, '.sleepcode', 'tasks.md');
       if (fs.existsSync(wtTasksPath)) {
         const wtContent = fs.readFileSync(wtTasksPath, 'utf-8');
-        done = (wtContent.match(/- \[x\]/gi) || []).length;
-        total = done + (wtContent.match(/- \[ \]/g) || []).length;
+        const tc = countTasks(wtContent);
+        done = tc.done;
+        total = tc.total;
       }
     } else {
       total = worker.remaining;
@@ -871,6 +872,24 @@ function showParallelStatus(targetDir) {
     console.log(`  ${C.bold}${worker.name}${C.reset}  ${bar}  ${done}/${total}  ${status}`);
   }
   console.log('');
+}
+
+/** tasks.md에서 코드 블록 내부를 제외한 실제 태스크만 카운트 */
+function countTasks(content) {
+  const lines = content.split('\n');
+  let inCodeBlock = false;
+  let done = 0;
+  let pending = 0;
+  for (const line of lines) {
+    if (line.trimStart().startsWith('```')) {
+      inCodeBlock = !inCodeBlock;
+      continue;
+    }
+    if (inCodeBlock) continue;
+    if (/^- \[x\]/i.test(line.trimStart())) done++;
+    else if (/^- \[ \]/.test(line.trimStart())) pending++;
+  }
+  return { done, total: done + pending };
 }
 
 function progressBar(done, total, width) {
@@ -1282,8 +1301,9 @@ function runParallelWorkers(targetDir, workerInfos) {
     const tasksPath = path.join(ws.path, '.sleepcode', 'tasks.md');
     if (fs.existsSync(tasksPath)) {
       const content = fs.readFileSync(tasksPath, 'utf-8');
-      ws.total = (content.match(/- \[ \]/g) || []).length + (content.match(/- \[x\]/gi) || []).length;
-      ws.done = (content.match(/- \[x\]/gi) || []).length;
+      const tc = countTasks(content);
+      ws.total = tc.total;
+      ws.done = tc.done;
     }
   }
 
@@ -1521,8 +1541,9 @@ function spawnWorker(ws, py, onDone, onUpdate, pushLog) {
     const finalTasksPath = path.join(wtDir, '.sleepcode', 'tasks.md');
     if (fs.existsSync(finalTasksPath)) {
       const content = fs.readFileSync(finalTasksPath, 'utf-8');
-      ws.done = (content.match(/- \[x\]/gi) || []).length;
-      ws.total = ws.done + (content.match(/- \[ \]/g) || []).length;
+      const tc = countTasks(content);
+      ws.done = tc.done;
+      ws.total = tc.total;
     }
 
     ws.status = (code === 0) ? 'done' : 'failed';
@@ -1594,11 +1615,12 @@ function processStreamEvent(ws, obj, onUpdate, pushLog) {
     }
 
     // 최종 태스크 상태 갱신
-    const tasksPath = path.join(ws.path, '.sleepcode', 'tasks.md');
-    if (fs.existsSync(tasksPath)) {
-      const content = fs.readFileSync(tasksPath, 'utf-8');
-      ws.done = (content.match(/- \[x\]/gi) || []).length;
-      ws.total = ws.done + (content.match(/- \[ \]/g) || []).length;
+    const tasksPath2 = path.join(ws.path, '.sleepcode', 'tasks.md');
+    if (fs.existsSync(tasksPath2)) {
+      const content = fs.readFileSync(tasksPath2, 'utf-8');
+      const tc = countTasks(content);
+      ws.done = tc.done;
+      ws.total = tc.total;
     }
 
     const msg = typeof obj.message === 'string' ? obj.message : '';
@@ -1718,8 +1740,9 @@ function runSingleWithDashboard(targetDir, cont) {
   // 초기 태스크 수 계산
   if (fs.existsSync(tasksPath)) {
     const content = fs.readFileSync(tasksPath, 'utf-8');
-    ws.total = (content.match(/- \[ \]/g) || []).length + (content.match(/- \[x\]/gi) || []).length;
-    ws.done = (content.match(/- \[x\]/gi) || []).length;
+    const tc = countTasks(content);
+    ws.total = tc.total;
+    ws.done = tc.done;
   }
 
   // 로그 버퍼
@@ -1733,6 +1756,7 @@ function runSingleWithDashboard(targetDir, cont) {
   // 대시보드 렌더링
   let dashboardLines = 0;
   const startTime = Date.now();
+  let renderPending = false;
 
   function renderDashboard() {
     if (dashboardLines > 0) {
@@ -1758,6 +1782,7 @@ function runSingleWithDashboard(targetDir, cont) {
     lines.push(boxLine(`sleepcode run  ${statusIcon} ${statusText}`, W));
     lines.push(`${C.bold}├${'─'.repeat(W + 2)}┤${C.reset}`);
     lines.push(boxLine(`${bar}  ${String(ws.done).padStart(2)}/${String(ws.total).padEnd(2)} tasks`, W));
+    // currentTask 줄: 항상 표시 (없으면 빈 줄)
     if (ws.currentTask && ws.status === 'running') {
       const maxTaskW = W - 4; // "> " + padding
       let task = ws.currentTask;
@@ -1774,6 +1799,8 @@ function runSingleWithDashboard(targetDir, cont) {
         task = task.slice(0, cut) + '...';
       }
       lines.push(boxLine(`${C.dim}> ${task}${C.reset}`, W));
+    } else {
+      lines.push(boxLine('', W));
     }
     lines.push(`${C.bold}├${'─'.repeat(W + 2)}┤${C.reset}`);
     lines.push(boxLine(`비용: ${costStr}  |  경과: ${elapsedStr}`, W));
@@ -1787,12 +1814,10 @@ function runSingleWithDashboard(targetDir, cont) {
     }
     lines.push(`${C.bold}└${'─'.repeat(W + 2)}┘${C.reset}`);
 
-    // 실시간 로그 출력
-    if (logBuffer.length > 0) {
-      lines.push('');
-      for (const log of logBuffer) {
-        lines.push(`  ${log}`);
-      }
+    // 실시간 로그 출력 (항상 MAX_LOG_LINES 줄 확보하여 라인 수 고정)
+    lines.push('');
+    for (let i = 0; i < MAX_LOG_LINES; i++) {
+      lines.push(i < logBuffer.length ? `  ${logBuffer[i]}` : '');
     }
 
     const output = lines.join('\n');
@@ -1800,8 +1825,18 @@ function runSingleWithDashboard(targetDir, cont) {
     dashboardLines = lines.length;
   }
 
+  /** 이벤트 기반 렌더 요청을 200ms 디바운스로 처리 (깜빡임 방지) */
+  function scheduleRender() {
+    if (renderPending) return;
+    renderPending = true;
+    setTimeout(() => {
+      renderPending = false;
+      renderDashboard();
+    }, 200);
+  }
+
   const modeLabel = cont ? '1회 실행 (세션 연속 모드)' : '1회 실행 (대시보드 모드)';
-  console.log(`${C.cyan}${modeLabel}${C.reset}\n`);
+  console.log(`${C.cyan}${modeLabel}${C.reset}`);
   renderDashboard();
 
   const dashboardInterval = setInterval(renderDashboard, 3000);
@@ -1885,7 +1920,7 @@ function runSingleWithDashboard(targetDir, cont) {
 
       try {
         const obj = JSON.parse(line);
-        processStreamEvent(ws, obj, renderDashboard, pushLog);
+        processStreamEvent(ws, obj, scheduleRender, pushLog);
       } catch {}
     }
   });
@@ -1901,8 +1936,9 @@ function runSingleWithDashboard(targetDir, cont) {
     // 최종 태스크 상태 갱신
     if (fs.existsSync(tasksPath)) {
       const content = fs.readFileSync(tasksPath, 'utf-8');
-      ws.done = (content.match(/- \[x\]/gi) || []).length;
-      ws.total = ws.done + (content.match(/- \[ \]/g) || []).length;
+      const tc = countTasks(content);
+      ws.done = tc.done;
+      ws.total = tc.total;
     }
 
     ws.status = (code === 0) ? 'done' : 'failed';

@@ -874,9 +874,30 @@ function runParallelWorkers(targetDir, workerInfos, cliProvider) {
   // 각 워커 프로세스 생성
   let activeWorkers = workerStates.length;
 
-  function onWorkerDone() {
+  function onWorkerDone(completedWs) {
     activeWorkers--;
     renderDashboard();
+
+    // 워커가 모든 태스크를 완료했으면 즉시 main 브랜치에 병합
+    if (completedWs && completedWs.status === 'done') {
+      pushLog('SYSTEM', `${C.green}${completedWs.name} 완료 — main 브랜치에 즉시 병합 중...${C.reset}`);
+      try {
+        const mergeResults = autoMergeWorktrees(targetDir, [completedWs]);
+        if (mergeResults.merged.length > 0) {
+          pushLog('SYSTEM', `${C.green}✓ ${completedWs.name} — main 브랜치 병합 완료${C.reset}`);
+          completedWs.merged = true;
+        } else if (mergeResults.skipped.length > 0) {
+          pushLog('SYSTEM', `${C.dim}${completedWs.name} — 병합 스킵 (변경 없음)${C.reset}`);
+          completedWs.merged = true;
+        } else if (mergeResults.conflicted.length > 0) {
+          pushLog('SYSTEM', `${C.red}✗ ${completedWs.name} — 병합 충돌 (수동 처리 필요)${C.reset}`);
+        }
+      } catch (e) {
+        pushLog('SYSTEM', `${C.red}✗ ${completedWs.name} — 병합 오류: ${e.message}${C.reset}`);
+      }
+      scheduleRender();
+    }
+
     if (activeWorkers === 0) {
       clearInterval(dashboardInterval);
       clearInterval(budgetCheckInterval);
@@ -893,6 +914,8 @@ function runParallelWorkers(targetDir, workerInfos, cliProvider) {
     const failed = workerStates.filter(w => w.status === 'failed');
     const done = workerStates.filter(w => w.status === 'done');
     const stopped = workerStates.filter(w => w.status === 'budget_stop');
+    const alreadyMerged = workerStates.filter(w => w.merged);
+    const needsMerge = done.filter(w => !w.merged);
 
     console.log(`\n${C.bold}병렬 실행 완료${C.reset}`);
     const parts = [`${C.green}성공: ${done.length}${C.reset}`];
@@ -903,22 +926,34 @@ function runParallelWorkers(targetDir, workerInfos, cliProvider) {
     // 브랜치 목록 출력
     console.log(`\n${C.bold}생성된 브랜치:${C.reset}`);
     for (const ws of workerStates) {
+      const mergedTag = ws.merged ? ` ${C.dim}(병합됨)${C.reset}` : '';
       const icon = ws.status === 'done' ? `${C.green}✓${C.reset}`
         : ws.status === 'budget_stop' ? `${C.yellow}■${C.reset}`
         : `${C.red}✗${C.reset}`;
-      console.log(`  ${icon} ${ws.branch}`);
+      console.log(`  ${icon} ${ws.branch}${mergedTag}`);
     }
 
-    console.log(`
-${C.bold}다음 단계:${C.reset}
+    if (alreadyMerged.length > 0) {
+      console.log(`\n${C.green}✓ 자동 병합 완료: ${alreadyMerged.map(w => w.name).join(', ')}${C.reset}`);
+    }
 
-  ${C.cyan}npx sleepcode parallel --merge${C.reset}   ${C.dim}# 브랜치 자동 머지${C.reset}
-  ${C.cyan}npx sleepcode parallel --clean${C.reset}   ${C.dim}# worktree 정리${C.reset}
-`);
+    if (needsMerge.length > 0) {
+      console.log(`\n${C.bold}다음 단계:${C.reset}\n`);
+      console.log(`  ${C.cyan}npx sleepcode parallel --merge${C.reset}   ${C.dim}# 남은 브랜치 병합${C.reset}`);
+      console.log(`  ${C.cyan}npx sleepcode parallel --clean${C.reset}   ${C.dim}# worktree 정리${C.reset}`);
+    } else if (done.length > 0) {
+      console.log(`\n${C.bold}다음 단계:${C.reset}\n`);
+      console.log(`  ${C.cyan}npx sleepcode parallel --clean${C.reset}   ${C.dim}# worktree 정리${C.reset}`);
+    } else {
+      console.log(`\n${C.bold}다음 단계:${C.reset}\n`);
+      console.log(`  ${C.cyan}npx sleepcode parallel --merge${C.reset}   ${C.dim}# 브랜치 자동 머지${C.reset}`);
+      console.log(`  ${C.cyan}npx sleepcode parallel --clean${C.reset}   ${C.dim}# worktree 정리${C.reset}`);
+    }
+    console.log('');
   }
 
   for (const ws of workerStates) {
-    spawnWorker(ws, py, onWorkerDone, scheduleRender, pushLog, cliProvider);
+    spawnWorker(ws, py, () => onWorkerDone(ws), scheduleRender, pushLog, cliProvider);
   }
 }
 

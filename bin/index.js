@@ -1624,7 +1624,7 @@ function runParallelWorkers(targetDir, workerInfos) {
     if (!altScreenActive) return;
 
     const lines = [];
-    const W = 50; // 박스 내부 너비
+    const W = 62; // 박스 내부 너비
     const totalTasks = workerStates.reduce((s, w) => s + w.total, 0);
     const totalDone = workerStates.reduce((s, w) => s + w.done, 0);
     const activeCount = workerStates.filter(w => w.status === 'running').length;
@@ -2233,7 +2233,7 @@ function runSingleWithDashboard(targetDir, cont) {
     if (!altScreenActive) return;
 
     const lines = [];
-    const W = 50;
+    const W = 62;
     const elapsed = Math.floor((Date.now() - startTime) / 1000);
     const elapsedStr = elapsed >= 3600
       ? `${Math.floor(elapsed / 3600)}h ${Math.floor((elapsed % 3600) / 60)}m`
@@ -2659,7 +2659,7 @@ function cmdWatch() {
     if (!altScreenActive) return;
 
     const lines = [];
-    const W = 50;
+    const W = 62;
 
     lines.push(`${C.dim}╭${'─'.repeat(W + 2)}╮${C.reset}`);
 

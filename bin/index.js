@@ -1541,34 +1541,280 @@ function runWorker(loop) {
     process.exit(0);
   }
 
-  const scDir = path.join(targetDir, '.sleepcode', 'scripts');
+  const scDir = path.join(targetDir, '.sleepcode');
+  const scriptsDir = path.join(scDir, 'scripts');
 
-  if (!fs.existsSync(scDir)) {
+  if (!fs.existsSync(scriptsDir)) {
     console.error(`${C.red}.sleepcode/scripts/ 폴더가 없습니다. 먼저 'npx sleepcode'로 초기화하세요.${C.reset}`);
     process.exit(1);
   }
 
-  const scriptName = loop
-    ? (IS_WIN ? 'run_forever.ps1' : 'run_forever.sh')
-    : (IS_WIN ? 'ai_worker.ps1' : 'ai_worker.sh');
-  const scriptPath = path.join(scDir, scriptName);
+  // --loop 모드는 기존 셸 스크립트 방식 유지
+  if (loop) {
+    const scriptName = IS_WIN ? 'run_forever.ps1' : 'run_forever.sh';
+    const scriptPath = path.join(scriptsDir, scriptName);
 
-  if (!fs.existsSync(scriptPath)) {
-    console.error(`${C.red}스크립트를 찾을 수 없습니다: ${scriptPath}${C.reset}`);
+    if (!fs.existsSync(scriptPath)) {
+      console.error(`${C.red}스크립트를 찾을 수 없습니다: ${scriptPath}${C.reset}`);
+      process.exit(1);
+    }
+
+    const cmd = IS_WIN ? `powershell -File "${scriptPath}"` : `"${scriptPath}"`;
+    console.log(`${C.cyan}무한 루프 실행: ${scriptName}${C.reset}\n`);
+
+    try {
+      execSync(cmd, { stdio: 'inherit', cwd: targetDir });
+    } catch (e) {
+      process.exit(e.status || 1);
+    }
+    return;
+  }
+
+  // 1회 실행: 대시보드 모드
+  runSingleWithDashboard(targetDir);
+}
+
+function runSingleWithDashboard(targetDir) {
+  const scDir = path.join(targetDir, '.sleepcode');
+  const logDir = path.join(scDir, 'logs');
+  fs.mkdirSync(logDir, { recursive: true });
+  const timestamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
+
+  // .env 로드
+  const envPath = path.join(scDir, '.env');
+  if (fs.existsSync(envPath)) {
+    const envContent = fs.readFileSync(envPath, 'utf-8');
+    for (const line of envContent.split('\n')) {
+      const trimmed = line.trim();
+      if (!trimmed || trimmed.startsWith('#')) continue;
+      const eqIdx = trimmed.indexOf('=');
+      if (eqIdx > 0) {
+        process.env[trimmed.slice(0, eqIdx)] = trimmed.slice(eqIdx + 1);
+      }
+    }
+  }
+
+  // Notion 동기화: pull
+  if (process.env.NOTION_API_KEY && process.env.NOTION_DB_ID) {
+    const py = detectPython();
+    const syncScript = path.join(scDir, 'scripts', 'notion_sync.py');
+    if (py && fs.existsSync(syncScript)) {
+      try {
+        execSync(`${py.cmd} "${syncScript}" pull`, { cwd: targetDir, stdio: 'pipe', timeout: 30000 });
+      } catch {}
+    }
+  }
+
+  // 프롬프트 구성
+  const baseRulesPath = path.join(scDir, 'scripts', 'base_rules.md');
+  const rulesPath = path.join(scDir, 'rules.md');
+  const tasksPath = path.join(scDir, 'tasks.md');
+
+  const parts = [];
+  if (fs.existsSync(baseRulesPath)) parts.push(fs.readFileSync(baseRulesPath, 'utf-8'));
+  if (fs.existsSync(rulesPath)) parts.push(fs.readFileSync(rulesPath, 'utf-8'));
+  if (fs.existsSync(tasksPath)) parts.push(fs.readFileSync(tasksPath, 'utf-8'));
+  const prompt = parts.join('\n\n---\n\n');
+
+  if (!prompt.trim()) {
+    console.error(`${C.red}프롬프트가 비어있습니다. .sleepcode/ 디렉토리를 확인하세요.${C.reset}`);
     process.exit(1);
   }
 
-  const cmd = IS_WIN
-    ? `powershell -File "${scriptPath}"`
-    : `"${scriptPath}"`;
+  // 워커 상태
+  const ws = {
+    name: 'main',
+    path: targetDir,
+    targetDir,
+    status: 'running',
+    currentTask: '',
+    done: 0,
+    total: 0,
+    cost: 0,
+    _proc: null,
+    logFile: path.join(logDir, `run_${timestamp}.log`),
+  };
 
-  console.log(`${C.cyan}${loop ? '무한 루프' : '1회'} 실행: ${scriptName}${C.reset}\n`);
-
-  try {
-    execSync(cmd, { stdio: 'inherit', cwd: targetDir });
-  } catch (e) {
-    process.exit(e.status || 1);
+  // 초기 태스크 수 계산
+  if (fs.existsSync(tasksPath)) {
+    const content = fs.readFileSync(tasksPath, 'utf-8');
+    ws.total = (content.match(/- \[ \]/g) || []).length + (content.match(/- \[x\]/gi) || []).length;
+    ws.done = (content.match(/- \[x\]/gi) || []).length;
   }
+
+  // 로그 버퍼
+  const MAX_LOG_LINES = 12;
+  const logBuffer = [];
+  function pushLog(workerName, msg) {
+    logBuffer.push(msg);
+    if (logBuffer.length > MAX_LOG_LINES) logBuffer.shift();
+  }
+
+  // 대시보드 렌더링
+  let dashboardLines = 0;
+  const startTime = Date.now();
+
+  function renderDashboard() {
+    if (dashboardLines > 0) {
+      process.stdout.write(`\x1b[${dashboardLines}A\x1b[J`);
+    }
+
+    const lines = [];
+    const elapsed = Math.floor((Date.now() - startTime) / 1000);
+    const elapsedStr = elapsed >= 3600
+      ? `${Math.floor(elapsed / 3600)}h ${Math.floor((elapsed % 3600) / 60)}m`
+      : elapsed >= 60
+        ? `${Math.floor(elapsed / 60)}m ${elapsed % 60}s`
+        : `${elapsed}s`;
+    const statusIcon = ws.status === 'running' ? `${C.cyan}⟳${C.reset}`
+      : ws.status === 'done' ? `${C.green}✓${C.reset}`
+      : `${C.red}✗${C.reset}`;
+    const bar = progressBar(ws.done, ws.total, 20);
+    const costStr = `$${ws.cost.toFixed(4)}`;
+
+    lines.push(`${C.bold}┌─────────────────────────────────────────────────────┐${C.reset}`);
+    lines.push(`${C.bold}│${C.reset}  sleepcode run — ${statusIcon} ${ws.status === 'running' ? '실행 중' : ws.status === 'done' ? '완료' : '실패'}                              ${C.bold}│${C.reset}`);
+    lines.push(`${C.bold}├─────────────────────────────────────────────────────┤${C.reset}`);
+    lines.push(`${C.bold}│${C.reset}  ${bar}  ${String(ws.done).padStart(2)}/${String(ws.total).padEnd(2)} tasks              ${C.bold}│${C.reset}`);
+    if (ws.currentTask && ws.status === 'running') {
+      const task = ws.currentTask.length > 45 ? ws.currentTask.slice(0, 42) + '...' : ws.currentTask;
+      lines.push(`${C.bold}│${C.reset}  ${C.dim}> ${task}${C.reset}${' '.repeat(Math.max(0, 47 - task.length))}${C.bold}│${C.reset}`);
+    }
+    lines.push(`${C.bold}├─────────────────────────────────────────────────────┤${C.reset}`);
+    lines.push(`${C.bold}│${C.reset}  비용: ${costStr}  |  경과: ${elapsedStr}                        ${C.bold}│${C.reset}`);
+    // 예산 정보
+    const budgetInfo = isOverBudget(targetDir);
+    if (budgetInfo) {
+      const pct = Math.min(100, (budgetInfo.total / budgetInfo.budget * 100)).toFixed(0);
+      const budgetBar = progressBar(Math.min(budgetInfo.total, budgetInfo.budget), budgetInfo.budget, 10);
+      const warn = budgetInfo.over ? `${C.red}한도 도달!${C.reset}` : '';
+      lines.push(`${C.bold}│${C.reset}  주간: $${budgetInfo.total.toFixed(2)}/$${budgetInfo.budget} (${pct}%) ${budgetBar} ${warn}       ${C.bold}│${C.reset}`);
+    }
+    lines.push(`${C.bold}└─────────────────────────────────────────────────────┘${C.reset}`);
+
+    // 실시간 로그 출력
+    if (logBuffer.length > 0) {
+      lines.push('');
+      for (const log of logBuffer) {
+        lines.push(`  ${log}`);
+      }
+    }
+
+    const output = lines.join('\n');
+    process.stdout.write(output + '\n');
+    dashboardLines = lines.length;
+  }
+
+  console.log(`${C.cyan}1회 실행 (대시보드 모드)${C.reset}\n`);
+  renderDashboard();
+
+  const dashboardInterval = setInterval(renderDashboard, 3000);
+
+  // 예산 체크 타이머
+  const budgetCheckInterval = setInterval(() => {
+    const result = isOverBudget(targetDir);
+    if (result && result.over) {
+      pushLog(ws.name, `${C.yellow}주간 한도 도달 — 중지${C.reset}`);
+      ws.status = 'budget_stop';
+      ws.currentTask = '한도 도달 — 중지됨';
+      if (ws._proc) try { ws._proc.kill(); } catch {}
+      renderDashboard();
+    }
+  }, 30000);
+
+  function onDone() {
+    clearInterval(dashboardInterval);
+    clearInterval(budgetCheckInterval);
+    renderDashboard();
+
+    // Notion 동기화: push
+    if (process.env.NOTION_API_KEY && process.env.NOTION_DB_ID) {
+      const py = detectPython();
+      const syncScript = path.join(scDir, 'scripts', 'notion_sync.py');
+      if (py && fs.existsSync(syncScript)) {
+        try {
+          execSync(`${py.cmd} "${syncScript}" push`, { cwd: targetDir, stdio: 'pipe', timeout: 30000 });
+        } catch {}
+      }
+    }
+
+    if (ws.status === 'done') {
+      console.log(`\n${C.green}실행 완료${C.reset} — 비용: $${ws.cost.toFixed(4)}`);
+    } else {
+      console.log(`\n${C.red}실행 실패${C.reset}`);
+      process.exit(1);
+    }
+  }
+
+  // claude 프로세스 실행
+  const env = { ...process.env };
+  delete env.CLAUDECODE;
+
+  const claudeProc = spawn('claude', [
+    '-p', '--dangerously-skip-permissions',
+    '--output-format', 'stream-json',
+    '--verbose',
+  ], {
+    cwd: targetDir,
+    env,
+    stdio: ['pipe', 'pipe', 'pipe'],
+    shell: true,
+  });
+
+  ws._proc = claudeProc;
+
+  claudeProc.stdin.write(prompt);
+  claudeProc.stdin.end();
+
+  // 로그 파일
+  const logStream = fs.createWriteStream(ws.logFile, { flags: 'a' });
+  logStream.write(`[${new Date().toISOString()}] === Run 시작 ===\n`);
+
+  // stdout 파싱
+  let buffer = '';
+  claudeProc.stdout.on('data', (data) => {
+    buffer += data.toString();
+    const lines = buffer.split('\n');
+    buffer = lines.pop();
+
+    for (const line of lines) {
+      if (!line.trim()) continue;
+      logStream.write(line + '\n');
+
+      try {
+        const obj = JSON.parse(line);
+        processStreamEvent(ws, obj, renderDashboard, pushLog);
+      } catch {}
+    }
+  });
+
+  claudeProc.stderr.on('data', (data) => {
+    logStream.write(`[STDERR] ${data.toString()}`);
+  });
+
+  claudeProc.on('close', (code) => {
+    logStream.write(`[${new Date().toISOString()}] === Run 종료 (code: ${code}) ===\n`);
+    logStream.end();
+
+    // 최종 태스크 상태 갱신
+    if (fs.existsSync(tasksPath)) {
+      const content = fs.readFileSync(tasksPath, 'utf-8');
+      ws.done = (content.match(/- \[x\]/gi) || []).length;
+      ws.total = ws.done + (content.match(/- \[ \]/g) || []).length;
+    }
+
+    ws.status = (code === 0) ? 'done' : 'failed';
+    ws.currentTask = '';
+    onDone();
+  });
+
+  claudeProc.on('error', (err) => {
+    logStream.write(`ERROR: ${err.message}\n`);
+    logStream.end();
+    ws.status = 'failed';
+    ws.currentTask = err.message;
+    onDone();
+  });
 }
 
 // ─── 태스크 자동 생성 ───

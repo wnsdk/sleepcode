@@ -4,4 +4,4 @@
 
 ---
 
-- [x] index.js 파일이 지금 너무 긴데, 파일을 적절히 분리하고 리팩토링 하기 <!-- notion:31bad790-3b5d-80e4-9590-fb4a7636cb61 -->
+- [x] task 한 개 끝날때마다, 다음 task로 넘어가기 전에 commit하고 노션 db 수정하기 (status랑 completed at) <!-- notion:31bad790-3b5d-80c1-8f50-e9282df0ca0b -->

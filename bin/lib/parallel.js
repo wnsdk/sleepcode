@@ -7,32 +7,14 @@ const {
   progressBar,
   visualWidth,
   padEndVisual,
-  readTaskDoneSet,
-  readCurrentRunTaskDoneSet,
 } = require('./utils');
 const { detectPython } = require('./prerequisites');
 const { resolveProviderPlan, providerLabel, buildExecutionPrompt, getProviderRunCommand } = require('./provider');
 const { isOverBudget, recordCost } = require('./config');
 const { boxLine, renderMenuLineWithLayout, setupMenuInput } = require('./dashboard');
 const { spawnWorker } = require('./worker');
+const { getWorkerTaskProgress, syncWorkerTaskProgress } = require('./taskState');
 const MAIN_WORKER_NAME = 'main';
-
-function ensureWorkerDoneTracking(ws) {
-  const initialState = readTaskDoneSet(ws.path, ws.doneFilePath);
-  ws.doneFilePath = initialState.doneFilePath;
-  if (!ws.initialDoneKeys) ws.initialDoneKeys = new Set(initialState.doneSet);
-  if (!ws.completedTaskKeys) ws.completedTaskKeys = new Set();
-}
-
-function getWorkerDoneState(ws) {
-  ensureWorkerDoneTracking(ws);
-  return readCurrentRunTaskDoneSet(
-    ws.path,
-    ws.doneFilePath,
-    ws.initialDoneKeys,
-    ws.completedTaskKeys
-  );
-}
 
 function normalizeStatusPathPart(value) {
   return String(value || '').trim().replace(/^"|"$/g, '').replace(/\\/g, '/');
@@ -297,11 +279,12 @@ function showParallelStatus(targetDir) {
     let done = 0;
     let total = 0;
     if (fs.existsSync(sourcePath)) {
-      const wtContent = fs.readFileSync(sourcePath, 'utf-8');
-      const doneState = readTaskDoneSet(isMainWorker ? targetDir : wtPath);
-      const tc = countTasks(wtContent, doneState.doneSet);
-        done = tc.done;
-        total = tc.total;
+      const progress = getWorkerTaskProgress({
+        path: isMainWorker ? targetDir : wtPath,
+        tasksPath: sourcePath,
+      });
+      done = progress.counts.done;
+      total = progress.counts.total;
     } else {
       total = worker.remaining;
     }
@@ -850,10 +833,7 @@ function runParallelWorkers(targetDir, workerInfos, cliProvider) {
     const tasksPath = ws.tasksPath || path.join(ws.path, '.sleepcode', 'task_queue.md');
     if (fs.existsSync(tasksPath)) {
       const content = fs.readFileSync(tasksPath, 'utf-8');
-      const doneState = getWorkerDoneState(ws);
-      const tc = countTasks(content, doneState.doneSet);
-      ws.total = tc.total;
-      ws.done = tc.done;
+      syncWorkerTaskProgress(ws, null, content);
     }
   }
 
@@ -1163,10 +1143,7 @@ function runParallelWorkers(targetDir, workerInfos, cliProvider) {
       try {
         if (fs.existsSync(tp)) {
           const content = fs.readFileSync(tp, 'utf-8');
-          const doneState = getWorkerDoneState(ws);
-          const tc = countTasks(content, doneState.doneSet);
-          ws.done = tc.done;
-          ws.total = tc.total;
+          syncWorkerTaskProgress(ws, null, content);
         }
       } catch {}
     }

@@ -3,12 +3,9 @@ const path = require('path');
 const { spawn, execFileSync } = require('child_process');
 const { C, PROVIDERS } = require('./constants');
 const {
-  countTasks,
   getNextPendingTask,
   getNextPendingTaskEntry,
   getTaskDoneFilePath,
-  readTaskDoneSet,
-  readCurrentRunTaskDoneSet,
   appendTaskDone,
   visualWidth,
 } = require('./utils');
@@ -22,6 +19,11 @@ const {
 } = require('./provider');
 const { recordCost } = require('./config');
 const { buildClaudeMdContent, syncClaudeMd } = require('./files');
+const {
+  ensureWorkerDoneTracking,
+  getWorkerDoneState,
+  syncWorkerTaskProgress,
+} = require('./taskState');
 
 function processStreamEvent(ws, obj, onUpdate, pushLog) {
   const msgType = obj.type;
@@ -95,10 +97,7 @@ function processStreamEvent(ws, obj, onUpdate, pushLog) {
   const tasksPath2 = ws.tasksPath || path.join(ws.path, '.sleepcode', 'task_queue.md');
   if (fs.existsSync(tasksPath2)) {
     const content = fs.readFileSync(tasksPath2, 'utf-8');
-    const doneState = getWorkerDoneState(ws);
-    const tc = countTasks(content, doneState.doneSet);
-    ws.done = tc.done;
-    ws.total = tc.total;
+    syncWorkerTaskProgress(ws, null, content);
     }
 
     const msg = typeof obj.message === 'string' ? obj.message : '';
@@ -161,25 +160,6 @@ function gitOutput(targetDir, args) {
 
 function getHeadCommit(targetDir) {
   return gitOutput(targetDir, ['rev-parse', 'HEAD']);
-}
-
-function ensureWorkerDoneTracking(ws, targetDir = null) {
-  const resolvedTargetDir = targetDir || ws.path;
-  const initialState = readTaskDoneSet(resolvedTargetDir, ws.doneFilePath);
-  ws.doneFilePath = initialState.doneFilePath;
-  if (!ws.initialDoneKeys) ws.initialDoneKeys = new Set(initialState.doneSet);
-  if (!ws.completedTaskKeys) ws.completedTaskKeys = new Set();
-}
-
-function getWorkerDoneState(ws, targetDir = null) {
-  const resolvedTargetDir = targetDir || ws.path;
-  ensureWorkerDoneTracking(ws, resolvedTargetDir);
-  return readCurrentRunTaskDoneSet(
-    resolvedTargetDir,
-    ws.doneFilePath,
-    ws.initialDoneKeys,
-    ws.completedTaskKeys
-  );
 }
 
 function detectForbiddenGitWriteCommand(obj) {
@@ -541,10 +521,7 @@ function spawnWorker(ws, py, onDone, onUpdate, pushLog, cliProvider, onTaskCompl
 
     if (fs.existsSync(tasksPath)) {
       const content = fs.readFileSync(tasksPath, 'utf-8');
-      const doneState = getWorkerDoneState(ws, wtDir);
-      const tc = countTasks(content, doneState.doneSet);
-      ws.done = tc.done;
-      ws.total = tc.total;
+      syncWorkerTaskProgress(ws, wtDir, content);
     }
 
     ws.status = (code === 0) ? 'done' : 'failed';
@@ -803,9 +780,7 @@ function spawnWorker(ws, py, onDone, onUpdate, pushLog, cliProvider, onTaskCompl
 
           }
 
-          const tc = countTasks(updatedContent, updatedDoneState.doneSet);
-          ws.done = tc.done;
-          ws.total = tc.total;
+          syncWorkerTaskProgress(ws, wtDir, updatedContent);
           if (typeof onTaskCompleted === 'function') {
             try {
               await Promise.resolve(onTaskCompleted({

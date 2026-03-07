@@ -3,13 +3,10 @@ const path = require('path');
 const { execSync } = require('child_process');
 const { C, SLEEPCODE_BADGE_WITH_VERSION, IS_WIN, TEMPLATES_DIR, branchColor, notionLink } = require('./constants');
 const {
-  countTasks,
   extractTaskItems,
   progressBar,
   visualWidth,
   padEndVisual,
-  readTaskDoneSet,
-  readCurrentRunTaskDoneSet,
   loadEnvFileToProcessEnv,
   parseNotionDbId,
 } = require('./utils');
@@ -20,6 +17,7 @@ const { syncClaudeMd } = require('./files');
 const { boxLine, renderMenuLineWithLayout, setupMenuInput } = require('./dashboard');
 const { spawnWorker } = require('./worker');
 const { parseParallelTasks, createWorktrees, cleanupWorktrees, autoMergeWorktrees } = require('./parallel');
+const { getWorkerDoneState, syncWorkerTaskProgress } = require('./taskState');
 
 function cmdWatch(cliProvider) {
   const targetDir = process.cwd();
@@ -461,23 +459,6 @@ function cmdWatch(cliProvider) {
     flushRender();
   }
 
-  function ensureWorkerDoneTracking(ws) {
-    const initialState = readTaskDoneSet(ws.path, ws.doneFilePath);
-    ws.doneFilePath = initialState.doneFilePath;
-    if (!ws.initialDoneKeys) ws.initialDoneKeys = new Set(initialState.doneSet);
-    if (!ws.completedTaskKeys) ws.completedTaskKeys = new Set();
-  }
-
-  function getWorkerDoneState(ws) {
-    ensureWorkerDoneTracking(ws);
-    return readCurrentRunTaskDoneSet(
-      ws.path,
-      ws.doneFilePath,
-      ws.initialDoneKeys,
-      ws.completedTaskKeys
-    );
-  }
-
   function handleTaskStarted(payload) {
     const taskEntry = payload && payload.taskEntry ? payload.taskEntry : null;
     if (!taskEntry || !taskEntry.notionId || !currentSchema) return;
@@ -637,14 +618,7 @@ function cmdWatch(cliProvider) {
       }));
 
       for (const ws of workerStates) {
-        const tp = ws.tasksPath || path.join(ws.path, '.sleepcode', 'task_queue.md');
-        if (fs.existsSync(tp)) {
-          const content = fs.readFileSync(tp, 'utf-8');
-          const doneState = getWorkerDoneState(ws);
-          const tc = countTasks(content, doneState.doneSet);
-          ws.total = tc.total;
-          ws.done = tc.done;
-        }
+        syncWorkerTaskProgress(ws);
       }
 
       // 대시보드를 실행 모드로 전환
@@ -683,10 +657,7 @@ function cmdWatch(cliProvider) {
       };
 
       const singleContent = fs.readFileSync(tasksPath, 'utf-8');
-      const singleDoneState = getWorkerDoneState(ws);
-      const tc = countTasks(singleContent, singleDoneState.doneSet);
-      ws.total = tc.total;
-      ws.done = tc.done;
+      syncWorkerTaskProgress(ws, null, singleContent);
 
       // 대시보드를 실행 모드로 전환
       currentWorkerStates = [ws];
@@ -874,10 +845,7 @@ function cmdWatch(cliProvider) {
         fs.writeFileSync(tp, content);
 
         // 워커 total 갱신
-        const doneState = getWorkerDoneState(ws);
-        const tc = countTasks(content, doneState.doneSet);
-        ws.total = tc.total;
-        ws.done = tc.done;
+        syncWorkerTaskProgress(ws, null, content);
       } catch (e) {
         watchPushLog('SYSTEM', `${C.red}태스크 추가 실패 (${workerName}): ${e.message}${C.reset}`);
       }
@@ -948,10 +916,7 @@ function cmdWatch(cliProvider) {
               if (Object.keys(props).length > 0) notionUpdatePage(task.id, props);
             }
             fs.writeFileSync(tp, content);
-            const doneState = getWorkerDoneState(ws);
-            const tc = countTasks(content, doneState.doneSet);
-            ws.total = tc.total;
-            ws.done = tc.done;
+            syncWorkerTaskProgress(ws, null, content);
             watchPushLog('SYSTEM', `${C.yellow}↷${C.reset} worktree 생성 실패 → main에 ${tasks.length}개 태스크 추가`);
           } catch {}
         }
@@ -1093,10 +1058,7 @@ function cmdWatch(cliProvider) {
       try {
         if (fs.existsSync(tp)) {
           const content = fs.readFileSync(tp, 'utf-8');
-          const doneState = getWorkerDoneState(ws);
-          const tc = countTasks(content, doneState.doneSet);
-          ws.done = tc.done;
-          ws.total = tc.total;
+          syncWorkerTaskProgress(ws, null, content);
         }
       } catch {}
     }

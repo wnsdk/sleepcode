@@ -1,0 +1,2 @@
+- [x] templates > rules 에 FastAPI 추가해줘 <!-- notion:31cad790-3b5d-804b-a61e-e7e2f5e013bb -->
+- [x] templates > rules 에 Flutter 추가해줘 <!-- notion:31cad790-3b5d-804e-90bd-cc8eefa2e9f0 -->

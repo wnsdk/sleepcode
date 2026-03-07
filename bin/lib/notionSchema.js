@@ -1,3 +1,161 @@
+/**
+ * Notion DB 스키마 정의, 동기화, 변경 요약.
+ * EXPECTED_DB_PROPERTIES 기준으로 기존 DB 프로퍼티를 비교·보정한다.
+ */
+
+const { notionApiRequest, formatNotionId } = require('./notionApi');
+const { NOTION_MODEL_OPTIONS } = require('./provider');
+
+function buildModelSelectProperty() {
+  return {
+    select: {
+      options: NOTION_MODEL_OPTIONS.map((option) => ({ ...option })),
+    },
+  };
+}
+
+// sleepcode가 기대하는 Notion DB 프로퍼티 정의
+const EXPECTED_DB_PROPERTIES = {
+  'Status': {
+    select: {
+      options: [
+        { name: 'Idle', color: 'default' },
+        { name: 'Pending', color: 'purple' },
+        { name: 'Running', color: 'blue' },
+        { name: 'Success', color: 'green' },
+        { name: 'Failed', color: 'red' },
+      ],
+    },
+  },
+  'Run': { checkbox: {} },
+  'Worker': { select: { options: [] } },
+  'Priority': { number: { format: 'number' } },
+  'Log': { rich_text: {} },
+  'Model': buildModelSelectProperty(),
+  'Cost': { number: { format: 'number' } },
+  'Completed At': { date: {} },
+};
+
+function normalizePropName(name) {
+  return String(name || '').toLowerCase().trim();
+}
+
+function getExpectedType(config) {
+  return Object.keys(config || {})[0] || '';
+}
+
+function optionKey(option) {
+  return normalizePropName(option?.name || '');
+}
+
+function mergeSelectOptions(existingOptions, expectedOptions) {
+  const merged = [];
+  const seen = new Set();
+
+  for (const opt of expectedOptions || []) {
+    const key = optionKey(opt);
+    if (!key || seen.has(key)) continue;
+    seen.add(key);
+    merged.push({ name: opt.name, color: opt.color || 'default' });
+  }
+
+  for (const opt of existingOptions || []) {
+    const key = optionKey(opt);
+    if (!key || seen.has(key)) continue;
+    seen.add(key);
+    merged.push({ name: opt.name, color: opt.color || 'default' });
+  }
+
+  return merged;
+}
+
+function optionsSignature(options) {
+  return (options || [])
+    .map((opt) => `${normalizePropName(opt?.name)}|${opt?.color || ''}`)
+    .join('|');
+}
+
+function findExistingProperty(existingProps, name) {
+  const target = normalizePropName(name);
+  for (const propName of Object.keys(existingProps || {})) {
+    if (normalizePropName(propName) === target) {
+      return { name: propName, prop: existingProps[propName] };
+    }
+  }
+  return null;
+}
+
+async function syncNotionDbSchema(apiKey, dbId) {
+  const formattedId = formatNotionId(dbId);
+  const db = await notionApiRequest('GET', `/databases/${formattedId}`, apiKey);
+  const existingProps = db.properties || {};
+
+  const missingProps = {};
+  const updateProps = {};
+  const updated = [];
+  const skipped = [];
+
+  for (const [name, config] of Object.entries(EXPECTED_DB_PROPERTIES)) {
+    const existingEntry = findExistingProperty(existingProps, name);
+    if (!existingEntry) {
+      missingProps[name] = config;
+      continue;
+    }
+
+    const existingProp = existingEntry.prop || {};
+    const existingType = existingProp.type || '';
+    const expectedType = getExpectedType(config);
+
+    if (name === 'Status') {
+      if (existingType === 'select') {
+        const currentOptions = existingProp.select?.options || [];
+        const nextOptions = mergeSelectOptions(currentOptions, config.select?.options || []);
+        if (optionsSignature(currentOptions) !== optionsSignature(nextOptions)) {
+          updateProps[existingEntry.name] = { select: { options: nextOptions } };
+          updated.push(name);
+        }
+      } else if (existingType === 'status') {
+        skipped.push(`${name}(status)`);
+      } else {
+        skipped.push(`${name}(${existingType || 'unknown'})`);
+      }
+      continue;
+    }
+
+    if (expectedType === existingType) {
+      if (expectedType === 'select') {
+        const expectedOptions = config.select?.options || [];
+        if (expectedOptions.length > 0) {
+          const currentOptions = existingProp.select?.options || [];
+          const nextOptions = mergeSelectOptions(currentOptions, expectedOptions);
+          if (optionsSignature(currentOptions) !== optionsSignature(nextOptions)) {
+            updateProps[existingEntry.name] = { select: { options: nextOptions } };
+            updated.push(name);
+          }
+        }
+      }
+      continue;
+    }
+
+    skipped.push(`${name}(${existingType || 'unknown'})`);
+  }
+
+  if (Object.keys(missingProps).length > 0 || Object.keys(updateProps).length > 0) {
+    await notionApiRequest('PATCH', `/databases/${formattedId}`, apiKey, {
+      properties: {
+        ...missingProps,
+        ...updateProps,
+      },
+    });
+  }
+
+  return {
+    added: Object.keys(missingProps),
+    updated,
+    skipped,
+  };
+}
+
 function summarizeSchemaChanges(schemaResult = {}) {
   const added = Array.isArray(schemaResult.added) ? schemaResult.added : [];
   const updated = Array.isArray(schemaResult.updated) ? schemaResult.updated : [];
@@ -17,5 +175,8 @@ function summarizeSchemaChanges(schemaResult = {}) {
 }
 
 module.exports = {
+  buildModelSelectProperty,
+  EXPECTED_DB_PROPERTIES,
+  syncNotionDbSchema,
   summarizeSchemaChanges,
 };

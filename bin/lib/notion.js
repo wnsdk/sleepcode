@@ -1,50 +1,11 @@
+/**
+ * Notion DB 생성 및 검증.
+ * HTTP 트랜스포트는 notionApi.js, 스키마 동기화는 notionSchema.js에 위임.
+ */
+
 const { C } = require('./constants');
-const { NOTION_MODEL_OPTIONS } = require('./provider');
-
-function buildModelSelectProperty() {
-  return {
-    select: {
-      options: NOTION_MODEL_OPTIONS.map((option) => ({ ...option })),
-    },
-  };
-}
-
-function notionApiRequest(method, endpoint, apiKey, body) {
-  const https = require('https');
-  return new Promise((resolve, reject) => {
-    const data = body ? JSON.stringify(body) : null;
-    const options = {
-      hostname: 'api.notion.com',
-      path: `/v1${endpoint}`,
-      method,
-      headers: {
-        'Authorization': `Bearer ${apiKey}`,
-        'Notion-Version': '2022-06-28',
-        'Content-Type': 'application/json',
-      },
-    };
-    const req = https.request(options, (res) => {
-      const chunks = [];
-      res.on('data', (chunk) => { chunks.push(chunk); });
-      res.on('end', () => {
-        const body = Buffer.concat(chunks).toString('utf-8');
-        try {
-          const json = JSON.parse(body);
-          if (res.statusCode >= 400) {
-            reject(new Error(`Notion API 오류 (${res.statusCode}): ${json.message || body}`));
-          } else {
-            resolve(json);
-          }
-        } catch {
-          reject(new Error(`Notion API 응답 파싱 오류: ${body}`));
-        }
-      });
-    });
-    req.on('error', (e) => reject(new Error(`네트워크 오류: ${e.message}`)));
-    if (data) req.write(data);
-    req.end();
-  });
-}
+const { notionApiRequest, formatNotionId } = require('./notionApi');
+const { buildModelSelectProperty, EXPECTED_DB_PROPERTIES, syncNotionDbSchema } = require('./notionSchema');
 
 /**
  * 입력된 Notion ID가 실제 DB인지 검증.
@@ -54,12 +15,7 @@ function notionApiRequest(method, endpoint, apiKey, body) {
 async function validateNotionDbId(apiKey, rawId) {
   if (!rawId) return '';
 
-  // 32자리 hex → 대시 포함 UUID 형식으로 변환 (Notion API 호환성)
-  let formattedId = rawId;
-  if (/^[a-f0-9]{32}$/.test(rawId)) {
-    formattedId = `${rawId.slice(0,8)}-${rawId.slice(8,12)}-${rawId.slice(12,16)}-${rawId.slice(16,20)}-${rawId.slice(20)}`;
-  }
-
+  const formattedId = formatNotionId(rawId);
   let dbError = null;
 
   // 1. DB로 직접 조회 시도
@@ -122,190 +78,12 @@ async function createNotionDb(apiKey, parentPageId, dbTitle) {
     title: [{ type: 'text', text: { content: dbTitle } }],
     properties: {
       'Task': { title: {} },
-      'Status': {
-        select: {
-          options: [
-            { name: 'Idle', color: 'default' },
-            { name: 'Pending', color: 'purple' },
-            { name: 'Running', color: 'blue' },
-            { name: 'Success', color: 'green' },
-            { name: 'Failed', color: 'red' },
-          ],
-        },
-      },
-      'Run': { checkbox: {} },
-      'Worker': { select: { options: [] } },
-      'Priority': { number: { format: 'number' } },
-      'Log': { rich_text: {} },
-      'Model': buildModelSelectProperty(),
-      'Cost': { number: { format: 'number' } },
-      'Completed At': { date: {} },
+      ...EXPECTED_DB_PROPERTIES,
     },
   };
 
   const result = await notionApiRequest('POST', '/databases', apiKey, body);
   return result.id.replace(/-/g, '');
-}
-
-// sleepcode가 기대하는 Notion DB 프로퍼티 정의
-const EXPECTED_DB_PROPERTIES = {
-  'Status': {
-    select: {
-      options: [
-        { name: 'Idle', color: 'default' },
-        { name: 'Pending', color: 'purple' },
-        { name: 'Running', color: 'blue' },
-        { name: 'Success', color: 'green' },
-        { name: 'Failed', color: 'red' },
-      ],
-    },
-  },
-  'Run': { checkbox: {} },
-  'Worker': { select: { options: [] } },
-  'Priority': { number: { format: 'number' } },
-  'Log': { rich_text: {} },
-  'Model': buildModelSelectProperty(),
-  'Cost': { number: { format: 'number' } },
-  'Completed At': { date: {} },
-};
-
-function normalizePropName(name) {
-  return String(name || '').toLowerCase().trim();
-}
-
-function getExpectedType(config) {
-  return Object.keys(config || {})[0] || '';
-}
-
-function optionKey(option) {
-  return normalizePropName(option?.name || '');
-}
-
-function mergeSelectOptions(existingOptions, expectedOptions) {
-  const merged = [];
-  const seen = new Set();
-
-  for (const opt of expectedOptions || []) {
-    const key = optionKey(opt);
-    if (!key || seen.has(key)) continue;
-    seen.add(key);
-    merged.push({ name: opt.name, color: opt.color || 'default' });
-  }
-
-  for (const opt of existingOptions || []) {
-    const key = optionKey(opt);
-    if (!key || seen.has(key)) continue;
-    seen.add(key);
-    merged.push({ name: opt.name, color: opt.color || 'default' });
-  }
-
-  return merged;
-}
-
-function optionsSignature(options) {
-  return (options || [])
-    .map((opt) => `${normalizePropName(opt?.name)}|${opt?.color || ''}`)
-    .join('|');
-}
-
-function findExistingProperty(existingProps, name) {
-  const target = normalizePropName(name);
-  for (const propName of Object.keys(existingProps || {})) {
-    if (normalizePropName(propName) === target) {
-      return { name: propName, prop: existingProps[propName] };
-    }
-  }
-  return null;
-}
-
-async function syncNotionDbSchema(apiKey, dbId) {
-  // DB 스키마 조회
-  let formattedId = dbId;
-  if (/^[a-f0-9]{32}$/.test(dbId)) {
-    formattedId = `${dbId.slice(0,8)}-${dbId.slice(8,12)}-${dbId.slice(12,16)}-${dbId.slice(16,20)}-${dbId.slice(20)}`;
-  }
-  const db = await notionApiRequest('GET', `/databases/${formattedId}`, apiKey);
-  const existingProps = db.properties || {};
-
-  // 누락된 프로퍼티 및 업데이트 대상 찾기
-  const missingProps = {};
-  const updateProps = {};
-  const updated = [];
-  const skipped = [];
-
-  for (const [name, config] of Object.entries(EXPECTED_DB_PROPERTIES)) {
-    const existingEntry = findExistingProperty(existingProps, name);
-    if (!existingEntry) {
-      missingProps[name] = config;
-      continue;
-    }
-
-    const existingProp = existingEntry.prop || {};
-    const existingType = existingProp.type || '';
-    const expectedType = getExpectedType(config);
-
-    if (name === 'Status') {
-      if (existingType === 'select') {
-        const currentOptions = existingProp.select?.options || [];
-        const nextOptions = mergeSelectOptions(currentOptions, config.select?.options || []);
-        if (optionsSignature(currentOptions) !== optionsSignature(nextOptions)) {
-          updateProps[existingEntry.name] = { select: { options: nextOptions } };
-          updated.push(name);
-        }
-      } else if (existingType === 'status') {
-        skipped.push(`${name}(status)`);
-      } else {
-        skipped.push(`${name}(${existingType || 'unknown'})`);
-      }
-      continue;
-    }
-
-    if (expectedType === existingType) {
-      if (expectedType === 'select') {
-        const expectedOptions = config.select?.options || [];
-        if (expectedOptions.length > 0) {
-          const currentOptions = existingProp.select?.options || [];
-          const nextOptions = mergeSelectOptions(currentOptions, expectedOptions);
-          if (optionsSignature(currentOptions) !== optionsSignature(nextOptions)) {
-            updateProps[existingEntry.name] = { select: { options: nextOptions } };
-            updated.push(name);
-          }
-        }
-      }
-      continue;
-    }
-
-    skipped.push(`${name}(${existingType || 'unknown'})`);
-  }
-
-  if (Object.keys(missingProps).length > 0 || Object.keys(updateProps).length > 0) {
-    await notionApiRequest('PATCH', `/databases/${formattedId}`, apiKey, {
-      properties: {
-        ...missingProps,
-        ...updateProps,
-      },
-    });
-  }
-
-  return {
-    added: Object.keys(missingProps),
-    updated,
-    skipped,
-  };
-}
-
-async function searchNotionPages(apiKey, query) {
-  const body = {
-    query: query || '',
-    filter: { value: 'page', property: 'object' },
-    page_size: 10,
-  };
-  const result = await notionApiRequest('POST', '/search', apiKey, body);
-  return (result.results || []).map((p) => ({
-    id: p.id,
-    title: (p.properties?.title?.title || p.properties?.Name?.title || [])
-      .map((t) => t.plain_text).join('') || '(제목 없음)',
-  }));
 }
 
 module.exports = {
@@ -314,5 +92,4 @@ module.exports = {
   createNotionDb,
   EXPECTED_DB_PROPERTIES,
   syncNotionDbSchema,
-  searchNotionPages,
 };

@@ -75,6 +75,37 @@ function Log($msg) {
     Add-Content -Path $logFile -Value $line -Encoding UTF8
 }
 
+$notionPollInterval = if ($env:SLEEPCODE_NOTION_POLL_SEC) { [int]$env:SLEEPCODE_NOTION_POLL_SEC } else { 5 }
+$notionPollJob = $null
+
+function Start-NotionPoller() {
+    if (-not $env:NOTION_API_KEY -or -not $env:NOTION_DB_ID) { return }
+    if (-not (Test-Path .sleepcode/scripts/notion_sync.py)) { return }
+    if ($notionPollJob) { return }
+    $notionPollJob = Start-Job -ScriptBlock {
+        param($pollInterval, $scriptPath, $logFile)
+        while ($true) {
+            try {
+                $out = & python $scriptPath enqueue 2>$null
+                if ($out) {
+                    $line = "[$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')] $out"
+                    Add-Content -Path $logFile -Value $line -Encoding UTF8
+                }
+            } catch {
+            }
+            Start-Sleep -Seconds $pollInterval
+        }
+    } -ArgumentList $notionPollInterval, '.sleepcode/scripts/notion_sync.py', $logFile
+}
+
+function Stop-NotionPoller() {
+    if ($notionPollJob) {
+        Stop-Job -Job $notionPollJob -Force | Out-Null
+        Remove-Job -Job $notionPollJob -Force | Out-Null
+        $notionPollJob = $null
+    }
+}
+
 Log "=== AI Night Worker start ==="
 if ($useContinue) {
     Log "continue mode enabled (--continue)"
@@ -111,6 +142,7 @@ while ($true) {
     $tempFile = [System.IO.Path]::GetTempFileName()
 
     if ($providerName -eq 'codex') {
+        Start-NotionPoller
         if ($useContinue -and $iteration -gt 1) {
             $stdinPrompt = 'Continue with the next tasks.'
             Log 'codex running... (resume)'
@@ -128,7 +160,9 @@ while ($true) {
               python -u .sleepcode/scripts/log_filter.py 2>&1 |
               Tee-Object -Append $logFile
         }
+        Stop-NotionPoller
     } else {
+        Start-NotionPoller
         if ($useContinue -and $iteration -gt 1) {
             $stdinPrompt = 'Continue with the next tasks.'
             Log 'claude running... (continue)'
@@ -146,6 +180,7 @@ while ($true) {
               python -u .sleepcode/scripts/log_filter.py 2>&1 |
               Tee-Object -Append $logFile
         }
+        Stop-NotionPoller
     }
 
     $exitCode = $LASTEXITCODE

@@ -43,6 +43,36 @@ log() {
   echo "[$(date '+%Y-%m-%d %H:%M:%S')] $1" | tee -a "$LOG_FILE"
 }
 
+NOTION_POLL_INTERVAL="${SLEEPCODE_NOTION_POLL_SEC:-5}"
+NOTION_POLL_PID=""
+
+start_notion_poller() {
+  if [ -z "$NOTION_API_KEY" ] || [ -z "$NOTION_DB_ID" ]; then
+    return
+  fi
+  if [ ! -f .sleepcode/scripts/notion_sync.py ]; then
+    return
+  fi
+  (
+    while true; do
+      OUT=$(python3 .sleepcode/scripts/notion_sync.py enqueue 2>/dev/null || true)
+      if [ -n "$OUT" ]; then
+        log "$OUT"
+      fi
+      sleep "$NOTION_POLL_INTERVAL"
+    done
+  ) &
+  NOTION_POLL_PID=$!
+}
+
+stop_notion_poller() {
+  if [ -n "$NOTION_POLL_PID" ]; then
+    kill "$NOTION_POLL_PID" >/dev/null 2>&1 || true
+    wait "$NOTION_POLL_PID" >/dev/null 2>&1 || true
+    NOTION_POLL_PID=""
+  fi
+}
+
 build_codex_prompt_file() {
   local tasks_file="$1"
   local out_file="$2"
@@ -115,6 +145,7 @@ while true; do
   }
 
   if [ "$PROVIDER" = "codex" ]; then
+    start_notion_poller
     if [ "$USE_CONTINUE" = true ] && [ "$ITERATION" -gt 1 ]; then
       TMP_PROMPT="$(mktemp)"
       printf '%s' 'Continue with the next tasks.' > "$TMP_PROMPT"
@@ -134,7 +165,9 @@ while true; do
       EXIT_CODE=${PIPESTATUS[0]}
       rm -f "$TMP_PROMPT"
     fi
+    stop_notion_poller
   else
+    start_notion_poller
     if [ "$USE_CONTINUE" = true ] && [ "$ITERATION" -gt 1 ]; then
       PROMPT='Continue with the next tasks.'
       log "claude running... (continue)"
@@ -150,6 +183,7 @@ while true; do
         | tee -a "$LOG_FILE"
       EXIT_CODE=${PIPESTATUS[0]}
     fi
+    stop_notion_poller
   fi
 
   log "$PROVIDER exit code: $EXIT_CODE"

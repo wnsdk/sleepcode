@@ -210,12 +210,19 @@ def extract_status_value(page, prop_name, prop_type):
 # ─── POLL: Notion DB 폴링 (Watch 모드용) ───
 
 
-def poll(api_key, db_id, notion_filter=None):
-    """Notion DB 폴링 — 태스크 목록 + 스키마 JSON 출력"""
+def is_done_status(value):
+    if not value:
+        return False
+    name = str(value).strip().lower()
+    return name in ("done", "완료", "complete", "completed", "success")
+
+
+def poll_tasks(api_key, db_id, notion_filter=None):
+    """Notion DB 폴링 — 태스크 목록 + 스키마 반환"""
     schema = get_watch_schema(api_key, db_id)
     if not schema or not schema["title_prop"]:
         print(json.dumps({"error": "schema_failed"}), file=sys.stderr)
-        return False
+        return None
 
     query_body = {"sorts": [{"timestamp": "created_time", "direction": "ascending"}]}
     if notion_filter:
@@ -233,7 +240,7 @@ def poll(api_key, db_id, notion_filter=None):
         resp = api_request("POST", f"/databases/{db_id}/query", api_key, query_body)
         if not resp:
             print(json.dumps({"error": "query_failed"}), file=sys.stderr)
-            return False
+            return None
         pages.extend(resp.get("results", []))
         has_more = resp.get("has_more", False)
         start_cursor = resp.get("next_cursor")
@@ -272,7 +279,86 @@ def poll(api_key, db_id, notion_filter=None):
     # Priority 내림차순 정렬
     tasks.sort(key=lambda t: -(t.get("priority", 0) or 0))
 
-    print(json.dumps({"tasks": tasks, "schema": schema}, ensure_ascii=False))
+    return {"tasks": tasks, "schema": schema}
+
+
+def poll(api_key, db_id, notion_filter=None):
+    """Notion DB 폴링 — 태스크 목록 + 스키마 JSON 출력"""
+    result = poll_tasks(api_key, db_id, notion_filter)
+    if not result:
+        return False
+    print(json.dumps(result, ensure_ascii=False))
+
+
+def enqueue(api_key, db_id, notion_filter=None):
+    """Run 체크된 신규 태스크를 tasks.md 실행 대기열에 추가"""
+    result = poll_tasks(api_key, db_id, notion_filter)
+    if not result:
+        return False
+
+    schema = result.get("schema") or {}
+    if not schema.get("run_prop"):
+        return True
+
+    tasks = result.get("tasks") or []
+
+    existing_ids = set()
+    lines = []
+    if os.path.exists(TASKS_FILE):
+        with open(TASKS_FILE, "r", encoding="utf-8") as f:
+            lines = f.read().splitlines()
+        for line in lines:
+            m = re.search(r"<!--\s*notion:([a-f0-9-]+)\s*-->", line)
+            if m:
+                existing_ids.add(m.group(1).lower())
+    else:
+        lines = [
+            "# 작업 목록",
+            "",
+            "아래 태스크를 순서대로 진행하세요. 완료한 항목은 `[x]`로 체크하세요.",
+            "",
+            "---",
+            "",
+        ]
+
+    added = 0
+    for task in tasks:
+        if not task.get("run"):
+            continue
+        task_id = (task.get("id") or "").lower()
+        if not task_id or task_id in existing_ids:
+            continue
+        title = (task.get("title") or "").strip()
+        if not title:
+            continue
+        done = is_done_status(task.get("status"))
+        check = "[x]" if done else "[ ]"
+        lines.append(f"- {check} {title} <!-- notion:{task_id} -->")
+        existing_ids.add(task_id)
+        added += 1
+
+    if added <= 0:
+        return True
+
+    with open(TASKS_FILE, "w", encoding="utf-8") as f:
+        f.write("\n".join(lines) + "\n")
+
+    state = {}
+    if os.path.exists(STATE_FILE):
+        try:
+            with open(STATE_FILE, "r", encoding="utf-8") as f:
+                state = json.load(f)
+        except Exception:
+            state = {}
+    for task in tasks:
+        task_id = (task.get("id") or "").lower()
+        if task_id and task_id in existing_ids and task_id not in state:
+            state[task_id] = is_done_status(task.get("status"))
+
+    with open(STATE_FILE, "w", encoding="utf-8") as f:
+        json.dump(state, f, indent=2)
+
+    print(f"[notion_sync] enqueue: +{added} tasks")
 
 
 # ─── UPDATE-PAGE: 페이지 프로퍼티 업데이트 ───
@@ -574,6 +660,10 @@ def main():
             sys.exit(1)
     elif cmd == "poll":
         result = poll(api_key, db_id, notion_filter)
+        if result is False:
+            sys.exit(1)
+    elif cmd == "enqueue":
+        result = enqueue(api_key, db_id, notion_filter)
         if result is False:
             sys.exit(1)
     elif cmd == "update-page":

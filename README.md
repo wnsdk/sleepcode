@@ -65,7 +65,7 @@ npx sleepcode run      # 실행
 - [ ] 장바구니 수량 버그 수정
 ```
 
-`@worker main`은 별도 `sleepcode/main` 브랜치를 만들지 않고 현재 체크아웃된 브랜치(보통 `main`)에서 실행됩니다.
+`@worker main`은 별도 `sleepcode/main` 브랜치를 만들지 않고 현재 체크아웃된 브랜치(보통 `main`)에서 실행됩니다. 각 워커는 자신의 태스크를 모두 끝내는 즉시 `main` 브랜치로 병합을 시도합니다.
 
 ```bash
 npx sleepcode parallel              # 병렬 실행
@@ -243,7 +243,7 @@ rules.md + task_queue.md(+ task_done/*.md) → 프롬프트 조합 → claude/co
 ### 병렬 모드
 
 ```
-task_queue.md → @worker별 분리 → git worktree 생성 → 동시 실행 → 완료 후 머지
+task_queue.md → @worker별 분리 → git worktree 생성 → 동시 실행 → 워커 완료 즉시 머지
 ```
 
 ### Notion 동기화

@@ -92,6 +92,45 @@ function cmdWatch(cliProvider) {
   const menuState = { menuIndex: 0 };
   let gracefulShutdown = false;
 
+  function tryMergeCompletedWorker(completedWs) {
+    if (!completedWs || completedWs.status !== 'done' || completedWs.merged) return;
+
+    if (completedWs.usesMainBranch || completedWs.name === 'main') {
+      completedWs.merged = true;
+      return;
+    }
+
+    watchPushLog('SYSTEM', `${C.green}${completedWs.name} 완료 — main 브랜치에 즉시 병합 중...${C.reset}`);
+    try {
+      const mergeResults = autoMergeWorktrees(targetDir, [completedWs], cliProvider);
+      if (mergeResults.merged.includes(completedWs.name)) {
+        completedWs.merged = true;
+        watchPushLog('SYSTEM', `${C.green}✓ ${completedWs.name} — main 브랜치 병합 완료${C.reset}`);
+        return;
+      }
+      if (mergeResults.skipped.includes(completedWs.name)) {
+        completedWs.merged = true;
+        watchPushLog('SYSTEM', `${C.dim}${completedWs.name} — 병합 스킵 (변경 없음)${C.reset}`);
+        return;
+      }
+      if (mergeResults.conflicted.includes(completedWs.name)) {
+        watchPushLog('SYSTEM', `${C.red}✗ ${completedWs.name} — 병합 충돌 (수동 처리 필요)${C.reset}`);
+      }
+    } catch (e) {
+      watchPushLog('SYSTEM', `${C.red}✗ ${completedWs.name} — 즉시 병합 실패: ${e.message}${C.reset}`);
+    }
+  }
+
+  function handleWorkerDone(completedWs) {
+    scheduleRender();
+    tryMergeCompletedWorker(completedWs);
+
+    const allDone = currentWorkerStates.every(s => s.status !== 'running');
+    if (allDone) {
+      finishExecution(currentNotionTasks, currentSchema, currentWorkerStates);
+    }
+  }
+
   // 로그 버퍼 (리사이즈 시 재렌더링용)
   const MAX_LOG_BUFFER = 200;
   const logBuffer = [];
@@ -591,6 +630,7 @@ function cmdWatch(cliProvider) {
         done: 0,
         total: 0,
         cost: 0,
+        merged: false,
         reportLines: [],
         _proc: null,
         logFile: path.join(logDir, `run_${w.name}_${timestamp}.log`),
@@ -611,16 +651,8 @@ function cmdWatch(cliProvider) {
       currentWorkerStates = workerStates;
       setWatchPhase('executing');
 
-      function onWorkerDone() {
-        scheduleRender();
-        const allDone = currentWorkerStates.every(s => s.status !== 'running');
-        if (allDone) {
-          finishExecution(currentNotionTasks, currentSchema, currentWorkerStates);
-        }
-      }
-
       for (const ws of workerStates) {
-        spawnWorker(ws, py, onWorkerDone, scheduleRender, watchPushLog, cliProvider, handleTaskCompleted, handleTaskStarted, handleTaskUiUpdated);
+        spawnWorker(ws, py, () => handleWorkerDone(ws), scheduleRender, watchPushLog, cliProvider, handleTaskCompleted, handleTaskStarted, handleTaskUiUpdated);
       }
     } else {
       // 단일 모드
@@ -644,6 +676,7 @@ function cmdWatch(cliProvider) {
         done: 0,
         total: 0,
         cost: 0,
+        merged: true,
         reportLines: [],
         _proc: null,
         logFile: path.join(logDir, `run_main_${timestamp}.log`),
@@ -659,12 +692,7 @@ function cmdWatch(cliProvider) {
       currentWorkerStates = [ws];
       setWatchPhase('executing');
 
-      spawnWorker(ws, py, () => {
-        const allDone = currentWorkerStates.every(s => s.status !== 'running');
-        if (allDone) {
-          finishExecution(currentNotionTasks, currentSchema, currentWorkerStates);
-        }
-      }, scheduleRender, watchPushLog, cliProvider, handleTaskCompleted, handleTaskStarted, handleTaskUiUpdated);
+      spawnWorker(ws, py, () => handleWorkerDone(ws), scheduleRender, watchPushLog, cliProvider, handleTaskCompleted, handleTaskStarted, handleTaskUiUpdated);
     }
   }
 
@@ -744,25 +772,28 @@ function cmdWatch(cliProvider) {
       recordCost(targetDir, totalCost, 'run');
     }
 
-    // 병렬 실행 후 자동 머지 및 워크트리 정리
+    // 병렬 실행 후 남은 브랜치 자동 머지 및 워크트리 정리
     if (workerStates && workerStates.length > 1) {
-      watchPushLog('SYSTEM', `${C.bold}자동 머지 시작${C.reset}`);
+      const pendingMergeWorkers = workerStates.filter(ws => !ws.merged);
       let hasConflicts = false;
-      try {
-        const mergeResults = autoMergeWorktrees(targetDir, workerStates);
-        if (mergeResults.merged.length > 0) {
-          watchPushLog('SYSTEM', `${C.green}머지 성공: ${mergeResults.merged.join(', ')}${C.reset}`);
-        }
-        if (mergeResults.conflicted.length > 0) {
+      if (pendingMergeWorkers.length > 0) {
+        watchPushLog('SYSTEM', `${C.bold}남은 브랜치 자동 머지 시작${C.reset}`);
+        try {
+          const mergeResults = autoMergeWorktrees(targetDir, pendingMergeWorkers, cliProvider);
+          if (mergeResults.merged.length > 0) {
+            watchPushLog('SYSTEM', `${C.green}머지 성공: ${mergeResults.merged.join(', ')}${C.reset}`);
+          }
+          if (mergeResults.conflicted.length > 0) {
+            hasConflicts = true;
+            watchPushLog('SYSTEM', `${C.red}머지 충돌: ${mergeResults.conflicted.join(', ')} (수동 머지 필요)${C.reset}`);
+          }
+          if (mergeResults.skipped.length > 0) {
+            watchPushLog('SYSTEM', `${C.dim}머지 스킵: ${mergeResults.skipped.join(', ')}${C.reset}`);
+          }
+        } catch (e) {
           hasConflicts = true;
-          watchPushLog('SYSTEM', `${C.red}머지 충돌: ${mergeResults.conflicted.join(', ')} (수동 머지 필요)${C.reset}`);
+          watchPushLog('SYSTEM', `${C.red}자동 머지 실패: ${e.message}${C.reset}`);
         }
-        if (mergeResults.skipped.length > 0) {
-          watchPushLog('SYSTEM', `${C.dim}머지 스킵: ${mergeResults.skipped.join(', ')}${C.reset}`);
-        }
-      } catch (e) {
-        hasConflicts = true;
-        watchPushLog('SYSTEM', `${C.red}자동 머지 실패: ${e.message}${C.reset}`);
       }
 
       if (hasConflicts) {
@@ -875,6 +906,7 @@ function cmdWatch(cliProvider) {
             done: 0,
             total: tasks.length,
             cost: 0,
+            merged: false,
             reportLines: [],
             _proc: null,
             logFile: path.join(logDir, `run_${workerName}_${timestamp}.log`),
@@ -899,13 +931,7 @@ function cmdWatch(cliProvider) {
           watchPushLog('SYSTEM', `${C.green}▶${C.reset} 새 워커 ${C.cyan}${workerName}${C.reset} 시작 (${tasks.length}개 태스크)`);
 
           // 워커 스폰
-          spawnWorker(newWs, py, () => {
-            scheduleRender();
-            const allDone = currentWorkerStates.every(s => s.status !== 'running');
-            if (allDone) {
-              finishExecution(currentNotionTasks, currentSchema, currentWorkerStates);
-            }
-          }, scheduleRender, watchPushLog, cliProvider, handleTaskCompleted, handleTaskStarted, handleTaskUiUpdated);
+          spawnWorker(newWs, py, () => handleWorkerDone(newWs), scheduleRender, watchPushLog, cliProvider, handleTaskCompleted, handleTaskStarted, handleTaskUiUpdated);
         } else {
           // worktree 생성 실패 시 main에 태스크 추가
           const ws = currentWorkerStates[0];
@@ -948,6 +974,7 @@ function cmdWatch(cliProvider) {
             done: 0,
             total: tasks.length,
             cost: 0,
+            merged: false,
             reportLines: [],
             _proc: null,
             logFile: path.join(logDir, `run_${workerName}_${timestamp}.log`),
@@ -969,13 +996,7 @@ function cmdWatch(cliProvider) {
 
           watchPushLog('SYSTEM', `${C.green}▶${C.reset} 새 워커 ${C.cyan}${workerName}${C.reset} 시작 (${tasks.length}개 태스크)`);
 
-          spawnWorker(newWs, py, () => {
-            scheduleRender();
-            const allDone = currentWorkerStates.every(s => s.status !== 'running');
-            if (allDone) {
-              finishExecution(currentNotionTasks, currentSchema, currentWorkerStates);
-            }
-          }, scheduleRender, watchPushLog, cliProvider, handleTaskCompleted, handleTaskStarted, handleTaskUiUpdated);
+          spawnWorker(newWs, py, () => handleWorkerDone(newWs), scheduleRender, watchPushLog, cliProvider, handleTaskCompleted, handleTaskStarted, handleTaskUiUpdated);
         } else {
           watchPushLog('SYSTEM', `${C.red}워커 ${workerName} worktree 생성 실패${C.reset}`);
         }

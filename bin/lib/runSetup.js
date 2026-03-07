@@ -23,6 +23,31 @@ function createRunSetupError(outputLines, exitCode = 1) {
   return error;
 }
 
+function printRunSetupError(error, log = console.log) {
+  const outputLines = Array.isArray(error.outputLines)
+    ? error.outputLines
+    : [`${C.red}${error.message}${C.reset}`];
+
+  for (const line of outputLines) {
+    if (!line) continue;
+    log(line);
+  }
+}
+
+function resolveRunSetupOrExit({
+  createRunSetupFn = createRunSetup,
+  exit = process.exit,
+  log = console.log,
+} = {}) {
+  try {
+    return createRunSetupFn();
+  } catch (error) {
+    printRunSetupError(error, log);
+    exit(error.exitCode || 1);
+    return null;
+  }
+}
+
 function createRunSetup({
   targetDir = process.cwd(),
   env = process.env,
@@ -96,4 +121,6 @@ function createRunSetup({
 module.exports = {
   createRunSetup,
   createRunSetupError,
+  printRunSetupError,
+  resolveRunSetupOrExit,
 };

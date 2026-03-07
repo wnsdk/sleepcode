@@ -1,4 +1,3 @@
-const { C } = require('./constants');
 const { isOverBudget, recordCost } = require('./config');
 const { syncClaudeMd } = require('./files');
 const { parseParallelTasks, createWorktrees, cleanupWorktrees, autoMergeWorktrees } = require('./parallel');
@@ -34,29 +33,18 @@ const {
 } = require('./runWorkers');
 const { addTasksDuringExecution: expandRunTasksDuringExecution } = require('./runTaskExpansion');
 const { createRunNotionBindings } = require('./runNotionBindings');
-const { createRunSetup } = require('./runSetup');
+const { resolveRunSetupOrExit } = require('./runSetup');
 const { createRunStateStore } = require('./runStateStore');
 const { createRunWatchRuntime } = require('./runWatchRuntime');
+const { createRunWorkerSpawner } = require('./runWorkerSpawner');
 const {
   handleGracefulStopDetected,
-  handleWorkerDone: handleRunWorkerDone,
-  spawnRunWorker: spawnManagedRunWorker,
   stopWatchTimers,
   stopWorkerProcesses,
 } = require('./runWatchControl');
 
 function cmdWatch(cliProvider) {
-  let setup;
-  try {
-    setup = createRunSetup();
-  } catch (error) {
-    const outputLines = Array.isArray(error.outputLines) ? error.outputLines : [`${C.red}${error.message}${C.reset}`];
-    for (const line of outputLines) {
-      if (!line) continue;
-      console.log(line);
-    }
-    process.exit(error.exitCode || 1);
-  }
+  const setup = resolveRunSetupOrExit();
 
   const {
     dbId,
@@ -117,30 +105,21 @@ function cmdWatch(cliProvider) {
     updatePage: notionUpdatePage,
   } = notionBindings;
 
-  function spawnRunWorker(ws) {
-    spawnManagedRunWorker({
-      workerState: ws,
-      py,
-      onDone: () => handleRunWorkerDone({
-        completedWorker: ws,
-        currentWorkerStates: runState.getCurrentWorkerStates(),
-        targetDir,
-        cliProvider,
-        autoMergeWorktrees,
-        pushLog: (message) => watchPushLog('SYSTEM', message),
-        scheduleRender,
-        finishExecution,
-        currentNotionTasks: runState.getCurrentNotionTasks(),
-        currentSchema: runState.getCurrentSchema(),
-      }),
-      scheduleRender,
-      pushLog: watchPushLog,
-      cliProvider,
-      handleTaskCompleted,
-      handleTaskStarted,
-      handleTaskUiUpdated
-    });
-  }
+  const spawnRunWorker = createRunWorkerSpawner({
+    py,
+    targetDir,
+    cliProvider,
+    autoMergeWorktrees,
+    scheduleRender,
+    pushLog: watchPushLog,
+    handleTaskCompleted,
+    handleTaskStarted,
+    handleTaskUiUpdated,
+    finishExecution,
+    getCurrentWorkerStates: () => runState.getCurrentWorkerStates(),
+    getCurrentNotionTasks: () => runState.getCurrentNotionTasks(),
+    getCurrentSchema: () => runState.getCurrentSchema(),
+  });
 
   // ─── 태스크 실행 ───
 

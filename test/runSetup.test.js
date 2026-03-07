@@ -4,7 +4,11 @@ const fs = require('fs');
 const os = require('os');
 const path = require('path');
 
-const { createRunSetup } = require('../bin/lib/runSetup');
+const {
+  createRunSetup,
+  printRunSetupError,
+  resolveRunSetupOrExit,
+} = require('../bin/lib/runSetup');
 
 function withTempDir(prefix, fn) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), prefix));
@@ -132,4 +136,55 @@ test('createRunSetup throws a structured error when python is unavailable', () =
       }
     );
   });
+});
+
+test('printRunSetupError writes every configured output line', () => {
+  const logs = [];
+
+  printRunSetupError({
+    outputLines: ['첫 번째', '', '두 번째'],
+    message: 'ignored',
+  }, (line) => {
+    logs.push(line);
+  });
+
+  assert.deepEqual(logs, ['첫 번째', '두 번째']);
+});
+
+test('resolveRunSetupOrExit returns setup when creation succeeds', () => {
+  const setup = { dbId: 'db-1' };
+
+  const result = resolveRunSetupOrExit({
+    createRunSetupFn: () => setup,
+    exit: () => {
+      throw new Error('should not exit');
+    },
+    log: () => {},
+  });
+
+  assert.equal(result, setup);
+});
+
+test('resolveRunSetupOrExit prints the setup error and exits with the configured code', () => {
+  const logs = [];
+  const exits = [];
+
+  const result = resolveRunSetupOrExit({
+    createRunSetupFn: () => {
+      const error = new Error('failed');
+      error.outputLines = ['실패 메시지'];
+      error.exitCode = 7;
+      throw error;
+    },
+    exit: (code) => {
+      exits.push(code);
+    },
+    log: (line) => {
+      logs.push(line);
+    },
+  });
+
+  assert.equal(result, null);
+  assert.deepEqual(logs, ['실패 메시지']);
+  assert.deepEqual(exits, [7]);
 });

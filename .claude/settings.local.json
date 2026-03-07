@@ -13,8 +13,7 @@
       "Bash(find:*)",
       "Bash(grep:*)",
       "Bash(cat:*)",
-      "Bash(chmod:*)",
-      "Bash(git add CLAUDE.md)"
+      "Bash(chmod:*)"
     ]
   }
 }

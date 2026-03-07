@@ -27,6 +27,11 @@ const {
   updateTaskModel,
 } = require('./notionRun');
 const {
+  buildPollInfo,
+  filterNewTasks,
+  selectTasksToRun,
+} = require('./runPoll');
+const {
   ensureRuntimeDirs,
   getRuntimeGracefulStopPath,
   getRuntimeTaskQueuePath,
@@ -682,38 +687,12 @@ function cmdWatch(cliProvider) {
     }
 
     const schema = data.schema;
-
-    // 폴링 정보 업데이트
-    const total = data.tasks.length;
-    const pending = data.tasks.filter(t => {
-      const s = (t.status || '').toLowerCase();
-      return ['to do', '할 일', '', 'not started'].includes(s);
-    }).length;
-    pollInfo = { total, pending };
-
-    // 실행할 태스크 찾기
-    let tasksToRun = [];
-
-    // 1. Run 체크박스가 true인 태스크
-    if (schema.run_prop) {
-      tasksToRun = data.tasks.filter(t => {
-        if (!t.run) return false;
-        const status = (t.status || '').toLowerCase();
-        return !['in progress', '진행 중', 'running', 'pending'].includes(status);
-      });
-    }
-
-    // 2. Run 프로퍼티 없으면 Status == "Start" 또는 "시작"인 태스크
-    if (tasksToRun.length === 0 && !schema.run_prop) {
-      tasksToRun = data.tasks.filter(t => {
-        const status = (t.status || '').toLowerCase();
-        return status === 'start' || status === '시작';
-      });
-    }
+    pollInfo = buildPollInfo(data.tasks);
+    const tasksToRun = selectTasksToRun(data.tasks, schema);
 
     // 실행 중일 때: 새로 추가된 태스크만 필터링하여 대기열에 추가
     if (isExecuting) {
-      const newTasks = tasksToRun.filter(t => !executingTaskIds.has(t.id));
+      const newTasks = filterNewTasks(tasksToRun, executingTaskIds);
       if (newTasks.length > 0) {
         addTasksDuringExecution(newTasks, schema);
       }

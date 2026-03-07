@@ -77,7 +77,7 @@ function cmdWatch(cliProvider) {
   let lastPollTime = null;
   let currentWorkerStates = [];
   let execStartTime = null;
-  let currentDashboardHeight = 11;
+  let currentDashboardHeight = 12;
   const menuState = { menuIndex: 0 };
   let gracefulShutdown = false;
 
@@ -87,7 +87,7 @@ function cmdWatch(cliProvider) {
   let altScreenActive = false;
 
   function getDashboardHeight() {
-    if (watchPhase !== 'executing' || currentWorkerStates.length === 0) return 10;
+    if (watchPhase !== 'executing' || currentWorkerStates.length === 0) return 12;
     if (currentWorkerStates.length === 1) return 12;
     return 9 + currentWorkerStates.length * 2;
   }
@@ -216,8 +216,10 @@ function cmdWatch(cliProvider) {
       // Waiting mode
       lines.push(boxLine(`${SLEEPCODE_BADGE_HOVER}  watch  ${C.dim}◆${C.reset} 대기 중${notionLink(dbId)}`, W));
       lines.push(`${C.dim}╠${'═'.repeat(W + 2)}╣${C.reset}`);
+      lines.push(boxLine(`${C.dim}전체${C.reset} ${pollInfo.total}  ${C.dim}·  대기${C.reset} ${C.cyan}${pollInfo.pending}${C.reset}`, W));
+      lines.push(`${C.dim}╠${'═'.repeat(W + 2)}╣${C.reset}`);
       const remaining = lastPollTime ? Math.max(0, pollIntervalSec - Math.floor((Date.now() - lastPollTime) / 1000)) : pollIntervalSec;
-      lines.push(boxLine(`${C.dim}전체${C.reset} ${pollInfo.total}  ${C.dim}·  대기${C.reset} ${C.cyan}${pollInfo.pending}${C.reset}  ${C.dim}·  다음 폴링${C.reset} ${C.cyan}${remaining}초${C.reset}`, W));
+      lines.push(boxLine(`${C.dim}다음 폴링${C.reset} ${C.cyan}${remaining}초${C.reset}`, W));
       lines.push(`${C.dim}╠${'═'.repeat(W + 2)}╣${C.reset}`);
     }
 

@@ -5,7 +5,10 @@ const { execSync, spawnSync } = require('child_process');
 const { C, PROVIDERS } = require('./constants');
 const { resolveProviderPlan, providerLabel, buildExecutionPrompt, getProviderRunCommand } = require('./provider');
 const {
-  MAIN_WORKER_NAME,
+  planParallelMerges,
+  runParallelMergePlan,
+} = require('./parallelMergePlan');
+const {
   getMergeBlockingStatus,
   parseParallelTasks,
 } = require('./parallelWorktrees');
@@ -268,54 +271,53 @@ function mergeWorktrees(targetDir, cliProvider) {
   } catch {}
 
   const results = { merged: [], conflicted: [], skipped: [] };
+  const mergePlan = planParallelMerges({
+    targetDir,
+    currentBranch,
+    workers,
+  });
+  const outcomes = runParallelMergePlan({
+    targetDir,
+    currentBranch,
+    mergePlan,
+    cliProvider,
+    attemptMergeBranchFn: attemptMergeBranch,
+  });
 
-  for (const worker of workers) {
-    if (worker.name === MAIN_WORKER_NAME) {
-      console.log(`  ${C.dim}-${C.reset} ${C.cyan}${currentBranch}${C.reset} ${C.dim}(현재 브랜치 워커, 머지 불필요)${C.reset}`);
-      results.skipped.push(worker.name);
-      continue;
-    }
-    const branch = `sleepcode/${worker.name}`;
-
-    try {
-      execSync(`git rev-parse --verify "${branch}"`, { cwd: targetDir, stdio: 'pipe' });
-    } catch {
-      console.log(`  ${C.dim}-${C.reset} ${branch} ${C.dim}(브랜치 없음, 스킵)${C.reset}`);
-      results.skipped.push(worker.name);
-      continue;
-    }
-
-    try {
-      const diff = execSync(`git log "${currentBranch}..${branch}" --oneline`, { cwd: targetDir, stdio: 'pipe' }).toString().trim();
-      if (!diff) {
-        console.log(`  ${C.dim}-${C.reset} ${branch} ${C.dim}(변경사항 없음, 스킵)${C.reset}`);
-        results.skipped.push(worker.name);
-        continue;
+  for (const outcome of outcomes) {
+    if (outcome.status === 'skipped') {
+      if (outcome.reason === 'current_branch') {
+        console.log(`  ${C.dim}-${C.reset} ${C.cyan}${currentBranch}${C.reset} ${C.dim}(현재 브랜치 워커, 머지 불필요)${C.reset}`);
+      } else if (outcome.reason === 'missing_branch') {
+        console.log(`  ${C.dim}-${C.reset} ${outcome.branch} ${C.dim}(브랜치 없음, 스킵)${C.reset}`);
+      } else if (outcome.reason === 'no_changes') {
+        console.log(`  ${C.dim}-${C.reset} ${outcome.branch} ${C.dim}(변경사항 없음, 스킵)${C.reset}`);
       }
-    } catch {}
+      results.skipped.push(outcome.name);
+      continue;
+    }
 
-    const mergeResult = attemptMergeBranch(targetDir, currentBranch, branch, cliProvider);
-    if (mergeResult.status === 'merged') {
-      if (mergeResult.autoResolved) {
-        console.log(`  ${C.green}✓${C.reset} ${branch} AI 머지 완료 (${providerLabel(mergeResult.provider)} 자동 해결)`);
+    if (outcome.status === 'merged') {
+      if (outcome.autoResolved) {
+        console.log(`  ${C.green}✓${C.reset} ${outcome.branch} AI 머지 완료 (${providerLabel(outcome.provider)} 자동 해결)`);
       } else {
-        console.log(`  ${C.green}✓${C.reset} ${branch} 머지 완료`);
+        console.log(`  ${C.green}✓${C.reset} ${outcome.branch} 머지 완료`);
       }
-      results.merged.push(worker.name);
+      results.merged.push(outcome.name);
       continue;
     }
 
-    if (mergeResult.status === 'conflicted') {
-      console.log(`  ${C.red}✗${C.reset} ${branch} ${C.red}AI 해결 실패${C.reset} — 수동 머지 필요`);
-      results.conflicted.push(worker.name);
+    if (outcome.status === 'conflicted') {
+      console.log(`  ${C.red}✗${C.reset} ${outcome.branch} ${C.red}AI 해결 실패${C.reset} — 수동 머지 필요`);
+      results.conflicted.push(outcome.name);
       continue;
     }
 
-    console.log(`  ${C.red}✗${C.reset} ${branch} 머지 실패`);
-    if (mergeResult.error) {
-      console.log(`  ${C.dim}${mergeResult.error}${C.reset}`);
+    console.log(`  ${C.red}✗${C.reset} ${outcome.branch} 머지 실패`);
+    if (outcome.error) {
+      console.log(`  ${C.dim}${outcome.error}${C.reset}`);
     }
-    results.conflicted.push(worker.name);
+    results.conflicted.push(outcome.name);
   }
 
   console.log(`\n${C.bold}머지 결과:${C.reset}`);
@@ -359,34 +361,26 @@ function autoMergeWorktrees(targetDir, workerStates, cliProvider) {
   }
 
   const results = { merged: [], conflicted: [], skipped: [] };
+  const mergePlan = planParallelMerges({
+    targetDir,
+    currentBranch,
+    workers: workerStates,
+  });
+  const outcomes = runParallelMergePlan({
+    targetDir,
+    currentBranch,
+    mergePlan,
+    cliProvider,
+    attemptMergeBranchFn: attemptMergeBranch,
+  });
 
-  for (const ws of workerStates) {
-    const branch = ws.branch || `sleepcode/${ws.name}`;
-    if (ws.name === MAIN_WORKER_NAME || branch === currentBranch) {
-      results.skipped.push(ws.name);
-      continue;
-    }
-
-    try {
-      execSync(`git rev-parse --verify "${branch}"`, { cwd: targetDir, stdio: 'pipe' });
-    } catch {
-      results.skipped.push(ws.name);
-      continue;
-    }
-
-    try {
-      const diff = execSync(`git log "${currentBranch}..${branch}" --oneline`, { cwd: targetDir, stdio: 'pipe' }).toString().trim();
-      if (!diff) {
-        results.skipped.push(ws.name);
-        continue;
-      }
-    } catch {}
-
-    const mergeResult = attemptMergeBranch(targetDir, currentBranch, branch, cliProvider);
-    if (mergeResult.status === 'merged') {
-      results.merged.push(ws.name);
+  for (const outcome of outcomes) {
+    if (outcome.status === 'skipped') {
+      results.skipped.push(outcome.name);
+    } else if (outcome.status === 'merged') {
+      results.merged.push(outcome.name);
     } else {
-      results.conflicted.push(ws.name);
+      results.conflicted.push(outcome.name);
     }
   }
 

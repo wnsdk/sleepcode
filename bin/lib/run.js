@@ -1,20 +1,10 @@
-const fs = require('fs');
-const path = require('path');
 const { C } = require('./constants');
-const {
-  loadEnvFileToProcessEnv,
-  parseNotionDbId,
-} = require('./utils');
-const { detectPython } = require('./prerequisites');
 const { isOverBudget, recordCost } = require('./config');
 const { syncClaudeMd } = require('./files');
 const { createRunDashboard } = require('./runDashboard');
 const { spawnWorker } = require('./worker');
 const { parseParallelTasks, createWorktrees, cleanupWorktrees, autoMergeWorktrees } = require('./parallel');
 const { getWorkerDoneState, syncWorkerTaskProgress } = require('./taskState');
-const {
-  createNotionSyncClient,
-} = require('./notionSync');
 const {
   parseTaskStatuses,
 } = require('./notionRun');
@@ -61,65 +51,32 @@ const {
   getFirstTaskIdsByWorker,
   splitTasksByWorkerPresence,
 } = require('./runWorkers');
-const {
-  ensureRuntimeDirs,
-  getRuntimeGracefulStopPath,
-  getRuntimeTaskQueuePath,
-} = require('./runtimePaths');
+const { createRunSetup } = require('./runSetup');
 
 function cmdWatch(cliProvider) {
-  const targetDir = process.cwd();
-  const scDir = path.join(targetDir, '.sleepcode');
-
-  if (!fs.existsSync(scDir)) {
-    console.error(`${C.red}.sleepcode/ 폴더가 없습니다. 먼저 'npx sleepcode init'으로 초기화하세요.${C.reset}`);
-    process.exit(1);
-  }
-
-  // .env load
-  const envPath = path.join(scDir, '.env');
-  loadEnvFileToProcessEnv(envPath);
-
-  // CLI 인자로 Notion 설정 오버라이드
-  const { parseArgs } = require('./cli');
-  const cliArgs = parseArgs();
-  if (cliArgs.notionKey) process.env.NOTION_API_KEY = cliArgs.notionKey;
-  if (cliArgs.notionDb) process.env.NOTION_DB_ID = parseNotionDbId(cliArgs.notionDb);
-  if (cliArgs.notionFilter) process.env.NOTION_FILTER = cliArgs.notionFilter;
-
-  const apiKey = process.env.NOTION_API_KEY;
-  const dbId = process.env.NOTION_DB_ID;
-
-  if (!apiKey || !dbId) {
-    console.error(`${C.red}Notion API Key와 DB ID가 필요합니다.${C.reset}`);
-    console.log(`\n  ${C.cyan}npx sleepcode run --notion-key <KEY> --notion-db <DB_ID>${C.reset}`);
-    console.log(`  ${C.dim}또는 .sleepcode/.env에 NOTION_API_KEY, NOTION_DB_ID를 설정하세요.${C.reset}`);
-    process.exit(1);
-  }
-
-  const py = detectPython();
-  if (!py) {
-    console.error(`${C.red}python3이 필요합니다.${C.reset}`);
-    process.exit(1);
-  }
-
-  let notionSync;
+  let setup;
   try {
-    notionSync = createNotionSyncClient({
-      targetDir,
-      pythonCommand: py.cmd,
-      env: process.env,
-    });
-  } catch (e) {
-    console.error(`${C.red}${e.message}${C.reset}`);
-    process.exit(1);
+    setup = createRunSetup();
+  } catch (error) {
+    const outputLines = Array.isArray(error.outputLines) ? error.outputLines : [`${C.red}${error.message}${C.reset}`];
+    for (const line of outputLines) {
+      if (!line) continue;
+      console.log(line);
+    }
+    process.exit(error.exitCode || 1);
   }
 
-  const pollIntervalSec = parseInt(cliArgs.interval || '30', 10);
-  const pollIntervalMs = pollIntervalSec * 1000;
-  const { logsDir: logDir } = ensureRuntimeDirs(targetDir);
-  const runtimeTasksPath = getRuntimeTaskQueuePath(targetDir);
-  const gracefulStopPath = getRuntimeGracefulStopPath(targetDir);
+  const {
+    dbId,
+    gracefulStopPath,
+    logDir,
+    notionSync,
+    pollIntervalMs,
+    pollIntervalSec,
+    py,
+    runtimeTasksPath,
+    targetDir,
+  } = setup;
 
   let isExecuting = false;
   let executingTaskIds = new Set(); // 현재 실행 중인 Notion task ID들

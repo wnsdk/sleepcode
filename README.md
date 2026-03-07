@@ -17,9 +17,6 @@ npx sleepcode run --loop
 
 # 병렬 실행 (여러 기능 동시 개발)
 npx sleepcode parallel
-
-# Notion 제어판 모드 (원격으로 태스크 관리)
-npx sleepcode watch
 ```
 
 ### 기본 흐름
@@ -104,35 +101,6 @@ npx sleepcode parallel --status     # 워커 상태 확인
  [feature-auth] JWT 토큰 저장 로직을 구현하겠습니다...
  [feature-home] Edit: src/screens/HomeScreen.tsx
 ```
-
----
-
-## Notion 제어판 (Watch 모드)
-
-Notion DB를 제어판으로 사용하여 원격으로 태스크를 관리합니다.
-
-```bash
-npx sleepcode watch
-```
-
-### Notion DB 스키마
-
-| 컬럼 | 타입 | 설명 |
-|------|------|------|
-| Task | Title | 태스크 내용 |
-| Status | Status/Select | 상태 (Start → Running → Done/Failed) |
-| Worker | Select | 워커 이름 (병렬 실행 시 그룹핑) |
-| Run | Checkbox | ✅ 체크하면 즉시 실행 |
-| Priority | Number | 우선순위 (높을수록 먼저 실행) |
-| Log | Rich Text | 실행 로그 (자동 기록) |
-| Cost | Number | API 비용 (자동 기록) |
-
-### 동작 방식
-
-1. 30초마다 Notion DB 폴링
-2. **Run** 체크 또는 **Status = Start** 인 태스크 감지
-3. Worker별 그룹핑 → 자동 실행 (단일/병렬)
-4. 완료 시 Status, Log, Cost 자동 업데이트
 
 ---
 
@@ -221,7 +189,6 @@ claude --dangerously-skip-permissions
 | `npx sleepcode parallel --merge` | 완료된 브랜치 자동 머지 |
 | `npx sleepcode parallel --clean` | worktree 정리 |
 | `npx sleepcode parallel --status` | 워커 상태 확인 |
-| `npx sleepcode watch` | Notion 제어판 모드 (원격 태스크 관리) |
 | `npx sleepcode usage` | 주간 사용량 확인 |
 
 ## CLI 옵션
@@ -242,6 +209,7 @@ npx sleepcode --type react-native --name my-app --role "쇼핑몰 앱 개발"
 | `--notion-db <id\|url>` | Notion DB ID 또는 URL (태스크 동기화용) |
 | `--notion-filter <f>` | Notion 필터 (예: `"Status = To Do"`) |
 | `--interval <sec>` | 반복 간격 초 (기본: 30) |
+| `--loop` | `run` 명령 무한 루프 실행 |
 | `--budget <usd>` | 주간 예산 USD |
 | `--threshold <pct>` | 예산 임계값 % (기본: 90) |
 | `-f, --force` | 기존 `.sleepcode/` 폴더 덮어쓰기 |
@@ -311,11 +279,11 @@ tasks.md → @worker별 분리 → git worktree 생성 → 동시 실행 → 완
 
 | 난이도 | 별점 | 설명 | Claude 모델 | Codex 모델 |
 |--------|------|------|-------------|------------|
-| 1 | ★☆☆☆☆ | 단순 작업 (오타 수정, 설정 변경, 텍스트 업데이트) | claude-haiku-4-5 | o4-mini |
-| 2 | ★★☆☆☆ | 쉬운 작업 (간단한 버그 수정, 소규모 기능 추가, 필드 추가) | claude-sonnet-4-6 | o4-mini |
-| 3 | ★★★☆☆ | 보통 작업 (기능 구현, 리팩토링, API 연동) | claude-sonnet-4-6 | o3 |
-| 4 | ★★★★☆ | 어려운 작업 (복잡한 기능, 아키텍처 변경, 멀티파일 리팩토링) | claude-opus-4-6 | o3 |
-| 5 | ★★★★★ | 매우 어려운 작업 (대규모 재설계, 복잡한 알고리즘, 시스템 전반 변경) | claude-opus-4-6 | o3 |
+| 1 | ★☆☆☆☆ | 단순 작업 (오타 수정, 설정 변경, 텍스트 업데이트) | claude-haiku-4-5 | gpt-5.1-codex-mini |
+| 2 | ★★☆☆☆ | 쉬운 작업 (간단한 버그 수정, 소규모 기능 추가, 필드 추가) | claude-sonnet-4-6 | gpt-5.1-codex-mini |
+| 3 | ★★★☆☆ | 보통 작업 (기능 구현, 리팩토링, API 연동) | claude-sonnet-4-6 | gpt-5.2-codex |
+| 4 | ★★★★☆ | 어려운 작업 (복잡한 기능, 아키텍처 변경, 멀티파일 리팩토링) | claude-opus-4-6 | gpt-5.3-codex |
+| 5 | ★★★★★ | 매우 어려운 작업 (대규모 재설계, 복잡한 알고리즘, 시스템 전반 변경) | claude-opus-4-6 | gpt-5.1-codex-max |
 
 ### 모델 선택 근거
 
@@ -325,14 +293,17 @@ tasks.md → @worker별 분리 → git worktree 생성 → 동시 실행 → 완
 - `claude-opus-4-6` (난이도 4-5): 최고 성능. 복잡한 설계·아키텍처 결정이 필요한 태스크에 사용.
 
 **Codex 모델**
-- `o4-mini` (난이도 1-2): 빠른 추론, 낮은 비용. 명확하게 정의된 단순 코딩 태스크에 적합.
-- `o3` (난이도 3-5): 강력한 추론 능력. 복잡한 로직, 설계 판단이 필요한 태스크에 사용.
+- `gpt-5.1-codex-mini` (난이도 1-2): 빠른 응답/낮은 비용의 경량 코딩 모델.
+- `gpt-5.2-codex` (난이도 3): 일반적인 기능 구현과 리팩토링에 균형.
+- `gpt-5.3-codex` / `gpt-5.1-codex-max` (난이도 4-5): 복잡한 설계/추론 작업 우선.
+- 계정에서 해당 모델이 보이지 않으면 Codex CLI 기본 모델(`default`)로 자동 fallback 됩니다.
 
 ### 동작 방식
 
 1. 태스크 시작 시 `claude-haiku-4-5`로 난이도를 빠르게 평가 (Claude 미설치 시 기본 난이도 3 적용)
-2. 평가된 난이도와 현재 프로바이더(Claude / Codex)에 맞는 모델 자동 선택
-3. 선택된 모델로 태스크 실행 (`[DIFFICULTY] ★★★☆☆ (3/5) → o3` 형태로 로그 출력)
+2. 평가된 난이도 기준으로 Claude/Codex 각각 모델을 선택하고 실행
+3. Codex 모델이 계정에서 미지원이면 `default`로 자동 fallback
+4. 실행 로그 예시: `[DIFFICULTY] ★★★☆☆ (3/5) -> gpt-5.2-codex` 또는 `-> default`
 
 ---
 

@@ -1,4 +1,5 @@
 const fs = require('fs');
+const os = require('os');
 const path = require('path');
 const { execSync, spawnSync } = require('child_process');
 const { PROVIDERS } = require('./constants');
@@ -120,12 +121,48 @@ const DIFFICULTY_MODELS = {
 
 // 난이도별 Codex 모델 매핑
 const DIFFICULTY_MODELS_CODEX = {
-  1: 'o4-mini',   // 단순 작업 (오타 수정, 설정 변경 등)
-  2: 'o4-mini',   // 쉬운 작업 (간단한 버그 수정, 작은 기능 추가)
-  3: 'o3',        // 보통 작업 (기능 구현, 리팩토링)
-  4: 'o3',        // 어려운 작업 (복잡한 기능, 아키텍처 변경)
-  5: 'o3',        // 매우 어려운 작업 (대규모 리팩토링, 설계)
+  1: ['gpt-5.1-codex-mini', 'gpt-5-codex-mini', 'gpt-5.2-codex', 'gpt-5.3-codex'],
+  2: ['gpt-5.1-codex-mini', 'gpt-5-codex-mini', 'gpt-5.2-codex', 'gpt-5.3-codex'],
+  3: ['gpt-5.2-codex', 'gpt-5.3-codex', 'gpt-5.1-codex-max'],
+  4: ['gpt-5.3-codex', 'gpt-5.1-codex-max', 'gpt-5.4'],
+  5: ['gpt-5.1-codex-max', 'gpt-5.3-codex', 'gpt-5.4'],
 };
+
+let _codexModelsCache = null;
+
+function loadAvailableCodexModels() {
+  try {
+    const cachePath = path.join(os.homedir(), '.codex', 'models_cache.json');
+    if (!fs.existsSync(cachePath)) return null;
+
+    const stat = fs.statSync(cachePath);
+    if (_codexModelsCache && _codexModelsCache.mtimeMs === stat.mtimeMs) {
+      return _codexModelsCache.models;
+    }
+
+    const raw = fs.readFileSync(cachePath, 'utf-8');
+    const parsed = JSON.parse(raw);
+    const models = new Set(
+      (parsed.models || [])
+        .map((m) => (m && m.slug ? String(m.slug) : ''))
+        .filter(Boolean)
+    );
+    _codexModelsCache = { mtimeMs: stat.mtimeMs, models };
+    return models;
+  } catch {
+    return null;
+  }
+}
+
+function pickCodexModelByDifficulty(difficulty) {
+  const candidates = DIFFICULTY_MODELS_CODEX[difficulty] || [];
+  if (!Array.isArray(candidates) || candidates.length === 0) return null;
+
+  const available = loadAvailableCodexModels();
+  if (!available || available.size === 0) return candidates[0];
+
+  return candidates.find((m) => available.has(m)) || null;
+}
 
 const DIFFICULTY_LABELS = {
   1: '★☆☆☆☆',
@@ -172,17 +209,24 @@ Reply with ONLY a single number (1-5), nothing else.`;
 
     const num = parseInt(result, 10);
     const difficulty = (num >= 1 && num <= 5) ? num : 3;
+    const model = provider === PROVIDERS.CODEX
+      ? pickCodexModelByDifficulty(difficulty)
+      : modelMap[difficulty];
     return {
       difficulty,
-      model: modelMap[difficulty],
+      model,
       label: DIFFICULTY_LABELS[difficulty],
     };
   } catch {
-    // 평가 실패 시 기본값 (보통 난이도)
+    // Fallback to medium difficulty when assessment fails.
+    const fallbackDifficulty = 3;
+    const fallbackModel = provider === PROVIDERS.CODEX
+      ? pickCodexModelByDifficulty(fallbackDifficulty)
+      : modelMap[fallbackDifficulty];
     return {
-      difficulty: 3,
-      model: modelMap[3],
-      label: DIFFICULTY_LABELS[3],
+      difficulty: fallbackDifficulty,
+      model: fallbackModel,
+      label: DIFFICULTY_LABELS[fallbackDifficulty],
     };
   }
 }
@@ -192,7 +236,7 @@ function getProviderRunCommand(provider, continueMode, model) {
     const args = continueMode
       ? ['exec', 'resume', '--last', '--json', '--dangerously-bypass-approvals-and-sandbox', '-']
       : ['exec', '--json', '--dangerously-bypass-approvals-and-sandbox', '-'];
-    if (model) args.push('--model', model);
+    if (model) args.push('--model', model, '-c', 'model_reasoning_effort=medium');
     return { command: 'codex', args };
   }
 

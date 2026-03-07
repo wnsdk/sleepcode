@@ -165,9 +165,17 @@ async function main() {
 
     const weeklyBudget = parseFloat(cliArgs.budget) || 0;
     const budgetThreshold = parseInt(cliArgs.threshold, 10) || 90;
-    if (weeklyBudget > 0) {
-      saveConfig(targetDir, { weeklyBudget, budgetThreshold });
+    let claudeRatio = null;
+    if (cliArgs.claudeRatio != null) {
+      const pct = parseInt(cliArgs.claudeRatio, 10);
+      if (!isNaN(pct) && pct >= 0 && pct <= 100) {
+        claudeRatio = pct / 100;
+      }
     }
+    const configToSave = {};
+    if (weeklyBudget > 0) { configToSave.weeklyBudget = weeklyBudget; configToSave.budgetThreshold = budgetThreshold; }
+    if (claudeRatio !== null) configToSave.claudeRatio = claudeRatio;
+    if (Object.keys(configToSave).length > 0) saveConfig(targetDir, configToSave);
 
     printResult(notionDbId);
     return;
@@ -301,6 +309,16 @@ async function main() {
       budgetThreshold = parseInt(thresholdStr, 10) || 90;
     }
 
+    // Claude / Codex 비율 설정
+    let claudeRatio = null;
+    const useRatio = await ask(rl, 'Claude와 Codex 비율을 설정할까요? (y/N)', 'N');
+    if (useRatio.toLowerCase() === 'y') {
+      const ratioStr = await ask(rl, 'Claude 비율 (0-100, 예: 30은 Claude 30% / Codex 70%)', '50');
+      const pct = parseInt(ratioStr, 10);
+      claudeRatio = Math.max(0, Math.min(100, isNaN(pct) ? 50 : pct)) / 100;
+      console.log(`  ${C.dim}→ Claude ${Math.round(claudeRatio * 100)}% / Codex ${Math.round((1 - claudeRatio) * 100)}%${C.reset}`);
+    }
+
     rl.close();
 
     generateFiles(targetDir, {
@@ -320,9 +338,20 @@ async function main() {
       provider: providerArg || PROVIDERS.CLAUDE,
     });
 
+    const configToSave = {};
     if (weeklyBudget > 0) {
-      saveConfig(targetDir, { weeklyBudget, budgetThreshold });
-      console.log(`  ${C.green}✓${C.reset} .sleepcode/config.json       ${C.dim}← 주간 예산: $${weeklyBudget} (${budgetThreshold}%)${C.reset}`);
+      configToSave.weeklyBudget = weeklyBudget;
+      configToSave.budgetThreshold = budgetThreshold;
+    }
+    if (claudeRatio !== null) configToSave.claudeRatio = claudeRatio;
+    if (Object.keys(configToSave).length > 0) {
+      saveConfig(targetDir, configToSave);
+      if (weeklyBudget > 0) {
+        console.log(`  ${C.green}✓${C.reset} .sleepcode/config.json       ${C.dim}← 주간 예산: $${weeklyBudget} (${budgetThreshold}%)${C.reset}`);
+      }
+      if (claudeRatio !== null) {
+        console.log(`  ${C.green}✓${C.reset} .sleepcode/config.json       ${C.dim}← 비율: Claude ${Math.round(claudeRatio * 100)}% / Codex ${Math.round((1 - claudeRatio) * 100)}%${C.reset}`);
+      }
     }
 
     printResult(notionDbId);

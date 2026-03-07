@@ -4,6 +4,7 @@ const { execSync, spawnSync } = require('child_process');
 const { PROVIDERS } = require('./constants');
 const { parseEnvFile } = require('./utils');
 const { checkCommand } = require('./prerequisites');
+const { loadConfig } = require('./config');
 
 function normalizeProvider(value, defaultValue = '') {
   const raw = (value || '').toString().trim().toLowerCase();
@@ -44,7 +45,10 @@ function isProviderAvailable(provider) {
 function resolveProviderPlan(targetDir, requestedProvider) {
   const envPath = path.join(targetDir, '.sleepcode', '.env');
   const envMap = parseEnvFile(envPath);
-  const preferred = normalizeProvider(requestedProvider)
+
+  // Explicit CLI arg takes highest priority
+  const explicit = normalizeProvider(requestedProvider);
+  const preferred = explicit
     || normalizeProvider(process.env.SLEEPCODE_PROVIDER || envMap.SLEEPCODE_PROVIDER)
     || PROVIDERS.CLAUDE;
 
@@ -53,21 +57,39 @@ function resolveProviderPlan(targetDir, requestedProvider) {
     [PROVIDERS.CODEX]: isProviderAvailable(PROVIDERS.CODEX),
   };
 
-  const candidates = preferred === PROVIDERS.AUTO
-    ? [PROVIDERS.CLAUDE, PROVIDERS.CODEX]
-    : [preferred, otherProvider(preferred)];
+  let selected;
+  let ratioSelected = false;
 
-  const selected = candidates.find((p) => available[p]);
+  // Apply ratio when no explicit CLI provider is given, both providers are available,
+  // and claudeRatio is configured in config.json
+  if (!explicit && available[PROVIDERS.CLAUDE] && available[PROVIDERS.CODEX]) {
+    const config = loadConfig(targetDir);
+    const claudeRatio = (config && config.claudeRatio != null) ? config.claudeRatio : null;
+    if (claudeRatio !== null) {
+      selected = Math.random() < claudeRatio ? PROVIDERS.CLAUDE : PROVIDERS.CODEX;
+      ratioSelected = true;
+    }
+  }
+
+  if (!selected) {
+    const candidates = preferred === PROVIDERS.AUTO
+      ? [PROVIDERS.CLAUDE, PROVIDERS.CODEX]
+      : [preferred, otherProvider(preferred)];
+    selected = candidates.find((p) => available[p]);
+  }
+
   if (!selected) {
     throw new Error('Claude CLI or Codex CLI is required. Install at least one provider first.');
   }
 
-  const fallback = candidates.find((p) => p !== selected && available[p]) || null;
+  const fallback = [PROVIDERS.CLAUDE, PROVIDERS.CODEX]
+    .find((p) => p !== selected && available[p]) || null;
   return {
     preferred,
     selected,
     fallback,
-    requestedUnavailable: preferred !== PROVIDERS.AUTO && !available[preferred],
+    requestedUnavailable: !!explicit && !available[explicit],
+    ratioSelected,
     available,
   };
 }

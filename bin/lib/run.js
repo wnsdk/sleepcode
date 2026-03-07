@@ -91,6 +91,9 @@ function runSingleWithDashboard(targetDir, cont, cliProvider) {
   if (providerPlan.requestedUnavailable) {
     console.log(C.yellow + 'requested provider unavailable, switched to ' + providerLabel(providerPlan.selected) + '.' + C.reset);
   }
+  if (providerPlan.ratioSelected) {
+    console.log(C.dim + '[비율 선택] ' + providerLabel(providerPlan.selected) + C.reset);
+  }
 
   // Notion 동기화: pull
   if (process.env.NOTION_API_KEY && process.env.NOTION_DB_ID) {
@@ -399,10 +402,10 @@ function runSingleWithDashboard(targetDir, cont, cliProvider) {
     }
   }
 
-  // 난이도 평가 (Claude provider일 때만)
-  if (ws.provider === PROVIDERS.CLAUDE && !cont) {
+  // 난이도 평가
+  if (!cont) {
     try {
-      const assessment = assessTaskDifficulty(prompt, targetDir);
+      const assessment = assessTaskDifficulty(prompt, targetDir, ws.provider);
       ws.difficulty = assessment.difficulty;
       ws.difficultyLabel = assessment.label;
       ws.model = assessment.model;

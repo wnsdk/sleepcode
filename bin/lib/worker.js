@@ -154,6 +154,9 @@ function spawnWorker(ws, py, onDone, onUpdate, pushLog, cliProvider) {
       if (plan.requestedUnavailable) {
         pushLog(ws.name, `${C.yellow}[PROVIDER] requested provider unavailable, switched to ${providerLabel(plan.selected)}${C.reset}`);
       }
+      if (plan.ratioSelected) {
+        pushLog(ws.name, `${C.dim}[비율 선택] ${providerLabel(plan.selected)}${C.reset}`);
+      }
     } else if (!ws.fallbackProvider) {
       const alt = otherProvider(ws.provider);
       ws.fallbackProvider = isProviderAvailable(alt) ? alt : null;

@@ -4,6 +4,38 @@ const { C, TEMPLATES_DIR, IS_WIN, PROVIDERS } = require('./constants');
 const { writeFile } = require('./utils');
 const { ensureRuntimeDirs } = require('./runtimePaths');
 
+function ensureSleepcodeGitignoreContent(content = '') {
+  const lines = String(content).replace(/\r\n/g, '\n').split('\n');
+  const nextLines = [];
+
+  for (const line of lines) {
+    const trimmed = line.trim();
+    if (
+      trimmed === '# sleepcode workspace'
+      || trimmed === '.sleepcode/'
+      || trimmed === '.sleepcode/*'
+      || trimmed === '!.sleepcode/task_done/'
+      || trimmed === '!.sleepcode/task_done/**'
+    ) {
+      continue;
+    }
+    nextLines.push(line);
+  }
+
+  while (nextLines.length > 0 && nextLines[nextLines.length - 1] === '') {
+    nextLines.pop();
+  }
+
+  if (nextLines.length > 0) nextLines.push('');
+  nextLines.push('# sleepcode workspace');
+  nextLines.push('.sleepcode/*');
+  nextLines.push('!.sleepcode/task_done/');
+  nextLines.push('!.sleepcode/task_done/**');
+  nextLines.push('');
+
+  return nextLines.join('\n');
+}
+
 function buildClaudeMdContent(targetDir) {
   const scDir = path.join(targetDir, '.sleepcode');
   const baseRulesPath = path.join(scDir, 'scripts', 'base_rules.md');
@@ -146,15 +178,13 @@ function generateFiles(targetDir, { typeKey, projectName, role, buildCmd, testCm
     writeFile(path.join(scDir, '.env'), envLines.join('\n') + '\n');
   }
 
-  // .gitignore — .sleepcode/ 전체를 무시
+  // .gitignore — 런타임/민감 정보는 무시하고 task_done 로그는 추적
   const gitignorePath = path.join(targetDir, '.gitignore');
   if (fs.existsSync(gitignorePath)) {
-    let gitignore = fs.readFileSync(gitignorePath, 'utf-8');
-    if (!gitignore.includes('.sleepcode/')) {
-      fs.appendFileSync(gitignorePath, '\n# sleepcode workspace\n.sleepcode/\n');
-    }
+    const gitignore = fs.readFileSync(gitignorePath, 'utf-8');
+    fs.writeFileSync(gitignorePath, ensureSleepcodeGitignoreContent(gitignore));
   } else {
-    fs.writeFileSync(gitignorePath, '# sleepcode workspace\n.sleepcode/\n');
+    fs.writeFileSync(gitignorePath, ensureSleepcodeGitignoreContent(''));
   }
 
   // .gitattributes — 병렬 브랜치 머지 시 task_queue/task_done 충돌 완화
@@ -217,6 +247,7 @@ ${C.bold}${C.green}완료!${C.reset} 다음 단계:
 
 module.exports = {
   buildClaudeMdContent,
+  ensureSleepcodeGitignoreContent,
   syncClaudeMd,
   generateFiles,
   printResult,

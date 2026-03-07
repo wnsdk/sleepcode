@@ -1,0 +1,377 @@
+const fs = require('fs');
+const path = require('path');
+const { execFileSync } = require('child_process');
+const { getTaskDoneFilePath, appendTaskDone } = require('./utils');
+const { formatExecError, gitOutput, getHeadCommit } = require('./workerGitOps');
+
+// --- Staging ---
+
+function stageTaskChanges(targetDir) {
+  try {
+    execFileSync('git', ['add', '-u', '--', '.'], {
+      cwd: targetDir,
+      stdio: ['ignore', 'pipe', 'pipe'],
+    });
+  } catch (e) {
+    return { ok: false, reason: 'git_add_failed', error: formatExecError(e) };
+  }
+
+  let untrackedFiles = [];
+  try {
+    untrackedFiles = gitOutput(targetDir, ['ls-files', '--others', '--exclude-standard', '--']).split(/\r?\n/).filter(Boolean);
+  } catch (e) {
+    return { ok: false, reason: 'git_ls_untracked_failed', error: formatExecError(e) };
+  }
+
+  const addableUntracked = untrackedFiles.filter((filePath) => {
+    const normalized = String(filePath || '').replace(/\\/g, '/');
+    return normalized !== '.sleepcode' && !normalized.startsWith('.sleepcode/');
+  });
+
+  if (addableUntracked.length > 0) {
+    try {
+      execFileSync('git', ['add', '--', ...addableUntracked], {
+        cwd: targetDir,
+        stdio: ['ignore', 'pipe', 'pipe'],
+      });
+    } catch (e) {
+      return { ok: false, reason: 'git_add_untracked_failed', error: formatExecError(e) };
+    }
+  }
+
+  let stagedFiles = [];
+  try {
+    stagedFiles = gitOutput(targetDir, ['diff', '--cached', '--name-only', '--']).split(/\r?\n/).filter(Boolean);
+  } catch (e) {
+    return { ok: false, reason: 'git_diff_cached_failed', error: formatExecError(e) };
+  }
+
+  if (stagedFiles.length === 0) {
+    return { ok: false, reason: 'no_changes' };
+  }
+
+  return { ok: true, stagedFiles };
+}
+
+function toGitPath(targetDir, filePath) {
+  return path.relative(targetDir, filePath).replace(/\\/g, '/');
+}
+
+function stageFile(targetDir, filePath) {
+  const gitPath = toGitPath(targetDir, filePath);
+  execFileSync('git', ['add', '--', gitPath], {
+    cwd: targetDir,
+    stdio: ['ignore', 'pipe', 'pipe'],
+  });
+}
+
+// --- Commit message generation ---
+
+function normalizeCommitSubject(taskTitle) {
+  let subject = String(taskTitle || '')
+    .replace(/\s*<!--[\s\S]*?-->/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+
+  if (!subject) return 'update project files';
+
+  const prefixed = subject.match(/^([a-z]+(?:\([^)]+\))?):\s+(.+)$/i);
+  if (prefixed) {
+    subject = prefixed[2].trim();
+  }
+
+  subject = subject
+    .replace(/^[`"'""'']+|[`"'""'']+$/g, '')
+    .replace(/[.。!！?？]+$/g, '')
+    .trim();
+
+  const trailingPatterns = [
+    /\s*(?:해줘|해주세요|해\s*주세요|부탁해(?:요)?|부탁합니다)$/u,
+    /\s*(?:해주기|진행해줘|진행해주세요|반영해줘|반영해주세요)$/u,
+    /\s*(?:되게 해줘|되도록 해줘|되게 해주세요|되도록 해주세요)$/u,
+  ];
+
+  let changed = true;
+  while (changed) {
+    changed = false;
+    for (const pattern of trailingPatterns) {
+      const next = subject.replace(pattern, '').trim();
+      if (next && next !== subject) {
+        subject = next;
+        changed = true;
+      }
+    }
+  }
+
+  return subject || 'update project files';
+}
+
+function inferCommitPrefix(taskTitle, stagedFiles = []) {
+  const title = String(taskTitle || '');
+  const lowered = title.toLowerCase();
+  const files = stagedFiles.map((filePath) => String(filePath || '').replace(/\\/g, '/').toLowerCase());
+  const hasFile = (pattern) => files.some((filePath) => pattern.test(filePath));
+  const allFilesMatch = (predicate) => files.length > 0 && files.every(predicate);
+
+  const prefixed = title.match(/^([a-z]+(?:\([^)]+\))?):\s+(.+)$/i);
+  if (prefixed) {
+    return prefixed[1].toLowerCase();
+  }
+
+  if (
+    /\b(readme|docs?)\b/i.test(title)
+    || /문서|가이드|설명|주석/u.test(title)
+    || allFilesMatch((filePath) => filePath.endsWith('.md') || filePath.startsWith('docs/') || filePath.startsWith('.sleepcode/docs/'))
+  ) {
+    return 'docs';
+  }
+
+  if (/\b(test|spec|jest|vitest|cypress|playwright)\b/i.test(title) || /테스트|검증|커버리지/u.test(title)) {
+    return 'test';
+  }
+
+  if (/\b(fix|bug|hotfix|regression|crash|incident)\b/i.test(title) || /버그|오류|에러|실패|깨짐|충돌|문제/u.test(title)) {
+    return 'fix';
+  }
+
+  if (/\b(refactor|cleanup|clean up)\b/i.test(title) || /리팩토링|정리/u.test(title)) {
+    return 'refactor';
+  }
+
+  if (/\b(perf|performance|optimi[sz]e)\b/i.test(title) || /성능|최적화/u.test(title)) {
+    return 'perf';
+  }
+
+  if (/\b(ci|workflow|github actions)\b/i.test(title) || hasFile(/(^|\/)\.github\/workflows\//)) {
+    return 'ci';
+  }
+
+  if (/\b(lint|format|prettier|eslint|style)\b/i.test(title) || /포맷|스타일|오타/u.test(title)) {
+    return 'style';
+  }
+
+  if (
+    /\b(build|deploy|release|publish|package|version|dependency|dependencies|deps|npm|pnpm|yarn)\b/i.test(title)
+    || /배포|릴리즈|퍼블리시|버전|의존성/u.test(title)
+    || hasFile(/(^|\/)(package(-lock)?\.json|pnpm-lock\.yaml|yarn\.lock)$/)
+  ) {
+    return 'chore';
+  }
+
+  if (
+    /\b(config|setting|settings|env|dotenv|gitignore|gitattributes)\b/i.test(title)
+    || /설정|환경변수|초기화/u.test(title)
+  ) {
+    return 'chore';
+  }
+
+  if (/\b(add|create|implement|support|introduce|enable|integrat(e|ion)|new)\b/i.test(lowered) || /추가|구현|생성|작성|도입|연동|지원|만들/u.test(title)) {
+    return 'feat';
+  }
+
+  return 'feat';
+}
+
+function buildTaskCommitMessage(taskEntry, stagedFiles = []) {
+  const taskTitle = taskEntry && taskEntry.title ? taskEntry.title : '';
+  const subject = normalizeCommitSubject(taskTitle);
+  const prefix = inferCommitPrefix(subject, stagedFiles);
+  return `${prefix}: ${subject}`;
+}
+
+// --- Task done transaction ---
+
+function captureTaskDoneSnapshot(doneFilePath) {
+  const exists = fs.existsSync(doneFilePath);
+  return {
+    exists,
+    content: exists ? fs.readFileSync(doneFilePath, 'utf-8') : '',
+  };
+}
+
+function restoreTaskDoneSnapshot(targetDir, doneFilePath, snapshot) {
+  const gitPath = toGitPath(targetDir, doneFilePath);
+
+  if (snapshot.exists) {
+    fs.mkdirSync(path.dirname(doneFilePath), { recursive: true });
+    fs.writeFileSync(doneFilePath, snapshot.content);
+    stageFile(targetDir, doneFilePath);
+    return;
+  }
+
+  if (fs.existsSync(doneFilePath)) {
+    fs.unlinkSync(doneFilePath);
+  }
+
+  try {
+    execFileSync('git', ['restore', '--staged', '--', gitPath], {
+      cwd: targetDir,
+      stdio: ['ignore', 'pipe', 'pipe'],
+    });
+  } catch {}
+}
+
+function prepareTaskDoneAppend(targetDir, taskEntry, doneFilePath, dedupeSet = null) {
+  const resolvedDoneFilePath = doneFilePath || getTaskDoneFilePath(targetDir);
+  const snapshot = captureTaskDoneSnapshot(resolvedDoneFilePath);
+
+  let appended = false;
+  try {
+    appended = appendTaskDone(targetDir, taskEntry, resolvedDoneFilePath, dedupeSet);
+  } catch (e) {
+    return {
+      ok: false,
+      reason: 'task_done_append_failed',
+      error: e.message,
+    };
+  }
+
+  if (!appended) {
+    return {
+      ok: false,
+      reason: 'task_done_append_skipped',
+    };
+  }
+
+  try {
+    stageFile(targetDir, resolvedDoneFilePath);
+  } catch (e) {
+    try {
+      restoreTaskDoneSnapshot(targetDir, resolvedDoneFilePath, snapshot);
+    } catch {}
+    return {
+      ok: false,
+      reason: 'task_done_stage_failed',
+      error: formatExecError(e),
+    };
+  }
+
+  return {
+    ok: true,
+    doneFilePath: resolvedDoneFilePath,
+    snapshot,
+  };
+}
+
+function rollbackPreparedTaskDone(targetDir, prepared) {
+  if (!prepared || !prepared.ok) return null;
+  try {
+    restoreTaskDoneSnapshot(targetDir, prepared.doneFilePath, prepared.snapshot);
+    return null;
+  } catch (e) {
+    return e.message || String(e);
+  }
+}
+
+// --- Commit orchestration ---
+
+function commitTaskNow(targetDir, taskEntry, startHead, options = null) {
+  if (!taskEntry || !taskEntry.title) {
+    return { committed: false, reason: 'empty_task' };
+  }
+
+  if (!startHead) {
+    return { committed: false, reason: 'missing_start_head' };
+  }
+
+  let currentHead = '';
+  try {
+    currentHead = getHeadCommit(targetDir);
+  } catch (e) {
+    return {
+      committed: false,
+      reason: 'git_head_failed',
+      error: formatExecError(e),
+    };
+  }
+
+  if (currentHead !== startHead) {
+    return {
+      committed: false,
+      reason: 'manual_commit_detected',
+      startHead,
+      endHead: currentHead,
+    };
+  }
+
+  const taskDoneTxn = options
+    ? prepareTaskDoneAppend(targetDir, taskEntry, options.doneFilePath, options.dedupeSet)
+    : null;
+
+  if (taskDoneTxn && !taskDoneTxn.ok) {
+    return {
+      committed: false,
+      reason: taskDoneTxn.reason,
+      error: taskDoneTxn.error,
+    };
+  }
+
+  const failWithRollback = (result) => {
+    const rollbackError = rollbackPreparedTaskDone(targetDir, taskDoneTxn);
+    if (!rollbackError) return result;
+    return { ...result, rollbackError };
+  };
+
+  const stageResult = stageTaskChanges(targetDir);
+  if (!stageResult.ok) {
+    return failWithRollback({
+      committed: false,
+      reason: stageResult.reason,
+      error: stageResult.error,
+    });
+  }
+
+  const msg = buildTaskCommitMessage(taskEntry, stageResult.stagedFiles);
+  try {
+    execFileSync('git', ['commit', '-m', msg], {
+      cwd: targetDir,
+      stdio: ['ignore', 'pipe', 'pipe'],
+    });
+  } catch (e) {
+    return failWithRollback({
+      committed: false,
+      reason: 'git_commit_failed',
+      error: formatExecError(e),
+      stagedFiles: stageResult.stagedFiles,
+    });
+  }
+
+  let endHead = '';
+  try {
+    endHead = getHeadCommit(targetDir);
+  } catch (e) {
+    return {
+      committed: false,
+      reason: 'git_head_failed',
+      error: formatExecError(e),
+      stagedFiles: stageResult.stagedFiles,
+    };
+  }
+
+  if (!endHead || endHead === startHead) {
+    return {
+      committed: false,
+      reason: 'head_unchanged',
+      stagedFiles: stageResult.stagedFiles,
+      startHead,
+      endHead,
+    };
+  }
+
+  return {
+    committed: true,
+    message: msg,
+    stagedFiles: stageResult.stagedFiles,
+    startHead,
+    endHead,
+    taskDoneAppended: !!taskDoneTxn,
+  };
+}
+
+module.exports = {
+  buildTaskCommitMessage,
+  commitTaskNow,
+  stageTaskChanges,
+  normalizeCommitSubject,
+  inferCommitPrefix,
+};

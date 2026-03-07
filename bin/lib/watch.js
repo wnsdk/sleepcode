@@ -88,7 +88,7 @@ function cmdWatch(cliProvider) {
 
   function getDashboardHeight() {
     if (watchPhase !== 'executing' || currentWorkerStates.length === 0) return 12;
-    return 9 + currentWorkerStates.length * 2;
+    return 8 + currentWorkerStates.length * 2;
   }
 
   function appendLogToScreen(line) {
@@ -141,7 +141,7 @@ function cmdWatch(cliProvider) {
         const wPct = ws.total > 0 ? Math.round(ws.done / ws.total * 100) : 0;
         const wModel = ws.provider ? `${C.dim}[${providerLabelWithModel(ws.provider, ws.model)}]${C.reset} ` : '';
         const wDiff = ws.difficultyLabel ? ` ${C.yellow}${ws.difficulty}${C.reset}` : '';
-        lines.push(boxLine(`${statusIcon} ${C.bold}${padEndVisual(ws.name, 18)}${C.reset} ${wModel}${bar} ${String(ws.done).padStart(2)}/${String(ws.total).padEnd(2)} ${C.cyan}${String(wPct).padStart(3)}%${C.reset}${wDiff}`, W));
+        lines.push(boxLine(`${statusIcon} ${C.bold}${padEndVisual(ws.name, 18)}${C.reset} ${bar} ${String(ws.done).padStart(2)}/${String(ws.total).padEnd(2)} ${C.cyan}${String(wPct).padStart(3)}%${C.reset} ${wModel}${wDiff}`, W));
         if (ws.currentTask && ws.status === 'running') {
           const maxTaskW = W - 6;
           let task = ws.currentTask;
@@ -175,7 +175,7 @@ function cmdWatch(cliProvider) {
       const totalTasks = currentWorkerStates.reduce((s, w) => s + w.total, 0);
       const totalPct = totalTasks > 0 ? Math.round(totalDone / totalTasks * 100) : 0;
       const remaining = lastPollTime ? Math.max(0, pollIntervalSec - Math.floor((Date.now() - lastPollTime) / 1000)) : pollIntervalSec;
-      lines.push(boxLine(`${C.dim}비용${C.reset} ${C.yellow}${costStr}${C.reset}  ${C.dim}·  경과${C.reset} ${C.cyan}${elapsedStr}${C.reset}  ${C.dim}·${C.reset}  ${C.cyan}${totalPct}%${C.reset}  ${C.dim}·  폴링${C.reset} ${remaining}초`, W));
+      lines.push(boxLine(`${C.dim}비용${C.reset} ${C.yellow}${costStr}${C.reset} ${C.dim}·${C.reset} ${C.dim}경과${C.reset} ${C.cyan}${elapsedStr}${C.reset} ${C.dim}·${C.reset} ${C.cyan}${totalPct}%${C.reset} ${C.dim}·${C.reset} ${C.dim}폴링${C.reset} ${remaining}초`, W));
     } else {
       // Waiting mode
       lines.push(boxLine(`${SLEEPCODE_BADGE_HOVER}  watch  ${C.dim}◆${C.reset} 대기 중${notionLink(dbId)}`, W));
@@ -184,18 +184,6 @@ function cmdWatch(cliProvider) {
       lines.push(`${C.dim}╠${'═'.repeat(W + 2)}╣${C.reset}`);
       const remaining = lastPollTime ? Math.max(0, pollIntervalSec - Math.floor((Date.now() - lastPollTime) / 1000)) : pollIntervalSec;
       lines.push(boxLine(`${C.dim}다음 폴링${C.reset} ${C.cyan}${remaining}초${C.reset}`, W));
-    }
-
-    if (watchPhase === 'executing') {
-      const budgetInfo = isOverBudget(targetDir);
-      if (budgetInfo) {
-        const pct = Math.min(100, (budgetInfo.total / budgetInfo.budget * 100)).toFixed(0);
-        const budgetBar = progressBar(Math.min(budgetInfo.total, budgetInfo.budget), budgetInfo.budget, 10);
-        const warn = budgetInfo.over ? ` ${C.red}한도 도달!${C.reset}` : '';
-        lines.push(boxLine(`${C.dim}주간${C.reset} ${C.yellow}$${budgetInfo.total.toFixed(2)}${C.reset}/${C.dim}$${budgetInfo.budget}${C.reset} (${pct}%) ${budgetBar}${warn}`, W));
-      } else {
-        lines.push(boxLine('', W));
-      }
     }
 
     // 테이블 닫기

@@ -389,6 +389,13 @@ function cmdWatch(cliProvider) {
   function handleTaskCompleted(payload) {
     const taskEntry = payload && payload.taskEntry ? payload.taskEntry : null;
     if (!taskEntry) return;
+    const commit = payload && payload.commit ? payload.commit : null;
+    if (!commit || !commit.committed) {
+      const reason = commit && commit.reason ? commit.reason : 'unknown';
+      watchPushLog('SYSTEM', `${C.red}✗${C.reset} ${taskEntry.title} → commit 실패 (${reason})`);
+      scheduleRender();
+      return;
+    }
     const updated = updateNotionCompletion(taskEntry);
     if (taskEntry.notionId && updated !== null) {
       if (updated) {
@@ -426,10 +433,15 @@ function cmdWatch(cliProvider) {
       try {
         const content = fs.readFileSync(tp, 'utf-8');
         const doneState = readTaskDoneSet(wsPath, typeof ref === 'string' ? null : ref.doneFilePath);
+        const completedTaskKeys = (typeof ref === 'string' || !ref.completedTaskKeys)
+          ? null
+          : ref.completedTaskKeys;
         const tasks = extractTaskItems(content);
         for (const task of tasks) {
           if (!task.notionId) continue;
-          statuses[task.notionId] = task.checked || doneState.doneSet.has(task.key);
+          statuses[task.notionId] = task.checked
+            || doneState.doneSet.has(task.key)
+            || (completedTaskKeys ? completedTaskKeys.has(task.key) : false);
         }
       } catch {}
     }

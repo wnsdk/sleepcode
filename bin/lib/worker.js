@@ -1,6 +1,6 @@
 const fs = require('fs');
 const path = require('path');
-const { spawn, execSync } = require('child_process');
+const { spawn, execFileSync } = require('child_process');
 const { C, PROVIDERS } = require('./constants');
 const {
   countTasks,
@@ -11,9 +11,9 @@ const {
   appendTaskDone,
   visualWidth,
 } = require('./utils');
-const { isProviderAvailable, resolveProviderPlan, providerLabel, otherProvider, getProviderRunCommand, buildExecutionPrompt, assessTaskDifficulty } = require('./provider');
+const { resolveProviderPlan, providerLabel, getProviderRunCommand, buildExecutionPrompt, assessTaskDifficulty } = require('./provider');
 const { recordCost } = require('./config');
-const { syncClaudeMd } = require('./files');
+const { buildClaudeMdContent, syncClaudeMd } = require('./files');
 
 function processStreamEvent(ws, obj, onUpdate, pushLog) {
   const msgType = obj.type;
@@ -135,43 +135,137 @@ function processStreamEvent(ws, obj, onUpdate, pushLog) {
   }
 }
 
-function commitTaskNow(targetDir, taskEntry) {
+function formatExecError(err) {
+  if (!err) return 'unknown error';
+  const stderr = err.stderr ? String(err.stderr).trim() : '';
+  if (stderr) return stderr;
+  const stdout = err.stdout ? String(err.stdout).trim() : '';
+  if (stdout) return stdout;
+  return err.message || 'unknown error';
+}
+
+function gitOutput(targetDir, args) {
+  return execFileSync('git', args, {
+    cwd: targetDir,
+    stdio: ['ignore', 'pipe', 'pipe'],
+  }).toString().trim();
+}
+
+function getHeadCommit(targetDir) {
+  return gitOutput(targetDir, ['rev-parse', 'HEAD']);
+}
+
+function stageTaskChanges(targetDir) {
+  try {
+    execFileSync('git', ['add', '-A', '--', '.', ':(exclude).sleepcode', ':(exclude).sleepcode/**'], {
+      cwd: targetDir,
+      stdio: ['ignore', 'pipe', 'pipe'],
+    });
+  } catch (e) {
+    return { ok: false, reason: 'git_add_failed', error: formatExecError(e) };
+  }
+
+  let stagedFiles = [];
+  try {
+    stagedFiles = gitOutput(targetDir, ['diff', '--cached', '--name-only', '--']).split(/\r?\n/).filter(Boolean);
+  } catch (e) {
+    return { ok: false, reason: 'git_diff_cached_failed', error: formatExecError(e) };
+  }
+
+  if (stagedFiles.length === 0) {
+    return { ok: false, reason: 'no_changes' };
+  }
+
+  return { ok: true, stagedFiles };
+}
+
+function commitTaskNow(targetDir, taskEntry, startHead) {
   if (!taskEntry || !taskEntry.title) {
     return { committed: false, reason: 'empty_task' };
   }
 
-  try {
-    execSync('git add -A', { cwd: targetDir, stdio: 'pipe' });
-  } catch (e) {
-    return { committed: false, reason: 'git_add_failed', error: e.message };
+  if (!startHead) {
+    return { committed: false, reason: 'missing_start_head' };
   }
 
-  let status = '';
-  try {
-    status = execSync('git status --porcelain', { cwd: targetDir, stdio: 'pipe' }).toString().trim();
-  } catch (e) {
-    return { committed: false, reason: 'git_status_failed', error: e.message };
+  const stageResult = stageTaskChanges(targetDir);
+  if (!stageResult.ok) {
+    return {
+      committed: false,
+      reason: stageResult.reason,
+      error: stageResult.error,
+    };
   }
 
-  if (!status) {
-    return { committed: false, reason: 'no_changes' };
+  const msg = `task: ${taskEntry.title}`;
+  try {
+    execFileSync('git', ['commit', '-m', msg], {
+      cwd: targetDir,
+      stdio: ['ignore', 'pipe', 'pipe'],
+    });
+  } catch (e) {
+    return {
+      committed: false,
+      reason: 'git_commit_failed',
+      error: formatExecError(e),
+      stagedFiles: stageResult.stagedFiles,
+    };
   }
 
-  const msg = `task: ${taskEntry.title}`.replace(/"/g, '\\"');
+  let endHead = '';
   try {
-    execSync(`git commit -m "${msg}"`, { cwd: targetDir, stdio: 'pipe' });
-    return { committed: true, message: msg };
+    endHead = getHeadCommit(targetDir);
   } catch (e) {
-    return { committed: false, reason: 'git_commit_failed', error: e.message };
+    return {
+      committed: false,
+      reason: 'git_head_failed',
+      error: formatExecError(e),
+      stagedFiles: stageResult.stagedFiles,
+    };
   }
+
+  if (!endHead || endHead === startHead) {
+    return {
+      committed: false,
+      reason: 'head_unchanged',
+      stagedFiles: stageResult.stagedFiles,
+      startHead,
+      endHead,
+    };
+  }
+
+  return {
+    committed: true,
+    message: msg,
+    stagedFiles: stageResult.stagedFiles,
+    startHead,
+    endHead,
+  };
 }
 
 function spawnWorker(ws, py, onDone, onUpdate, pushLog, cliProvider, onTaskCompleted, onTaskStarted) {
   const wtDir = ws.path;
-  syncClaudeMd(wtDir);
-
   const tasksPath = ws.tasksPath || path.join(wtDir, '.sleepcode', 'task_queue.md');
+  const claudeMdPath = path.join(wtDir, 'CLAUDE.md');
+  const generatedClaudeMd = buildClaudeMdContent(wtDir);
+  const initialClaudeMd = fs.existsSync(claudeMdPath)
+    ? { exists: true, content: fs.readFileSync(claudeMdPath, 'utf-8') }
+    : { exists: false, content: '' };
+  syncClaudeMd(wtDir);
   ws.doneFilePath = ws.doneFilePath || getTaskDoneFilePath(wtDir);
+
+  const restoreRuntimeClaudeMd = () => {
+    if (!generatedClaudeMd) return;
+    if (!fs.existsSync(claudeMdPath)) return;
+    const current = fs.readFileSync(claudeMdPath, 'utf-8');
+    if (current !== generatedClaudeMd) return;
+    if (initialClaudeMd.exists) {
+      fs.writeFileSync(claudeMdPath, initialClaudeMd.content);
+    } else {
+      fs.unlinkSync(claudeMdPath);
+    }
+  };
+
   const readDoneLogText = () => {
     if (fs.existsSync(ws.doneFilePath)) {
       return fs.readFileSync(ws.doneFilePath, 'utf-8');
@@ -200,6 +294,10 @@ function spawnWorker(ws, py, onDone, onUpdate, pushLog, cliProvider, onTaskCompl
   delete env.CLAUDECODE;
 
   function finalize(code, errMsg) {
+    try {
+      restoreRuntimeClaudeMd();
+    } catch {}
+
     logLine(`=== Worker ${ws.name} end (code: ${code}) ===`);
     if (errMsg) logLine(`ERROR: ${errMsg}`);
     logStream.end();
@@ -215,17 +313,6 @@ function spawnWorker(ws, py, onDone, onUpdate, pushLog, cliProvider, onTaskCompl
     ws.status = (code === 0) ? 'done' : 'failed';
     ws.currentTask = errMsg || '';
     onUpdate();
-    if (typeof onTaskStarted === 'function' && nextTaskEntry) {
-      try {
-        onTaskStarted({
-          worker: ws,
-          taskEntry: nextTaskEntry,
-          model: ws.model,
-          provider: ws.provider,
-          difficulty: ws.difficulty,
-        });
-      } catch {}
-    }
     onDone();
   }
 
@@ -236,11 +323,7 @@ function spawnWorker(ws, py, onDone, onUpdate, pushLog, cliProvider, onTaskCompl
     if (!taskQueueText.trim()) {
       const relTasksPath = path.relative(wtDir, tasksPath).replace(/\\/g, '/');
       pushLog(ws.name, `${C.red}[ERROR] task prompt is empty (${relTasksPath}).${C.reset}`);
-      ws.status = 'failed';
-      ws.currentTask = 'task prompt is empty';
-      onUpdate();
-      logStream.end();
-      onDone();
+      finalize(1, 'task prompt is empty');
       return;
     }
 
@@ -266,11 +349,7 @@ function spawnWorker(ws, py, onDone, onUpdate, pushLog, cliProvider, onTaskCompl
       }
     } catch (e) {
       pushLog(ws.name, `${C.red}[ERROR] ${e.message}${C.reset}`);
-      ws.status = 'failed';
-      ws.currentTask = e.message;
-      onUpdate();
-      logStream.end();
-      onDone();
+      finalize(1, e.message);
       return;
     }
 
@@ -288,7 +367,29 @@ function spawnWorker(ws, py, onDone, onUpdate, pushLog, cliProvider, onTaskCompl
     }
     onUpdate();
 
+    let taskStartHead = '';
+    try {
+      taskStartHead = getHeadCommit(wtDir);
+    } catch (e) {
+      const message = `git head unavailable: ${formatExecError(e)}`;
+      pushLog(ws.name, `${C.red}[ERROR] ${message}${C.reset}`);
+      finalize(1, message);
+      return;
+    }
+
     logLine(`=== Task start (provider: ${ws.provider}, model: ${ws.model || 'default'}, difficulty: ${ws.difficulty || 'N/A'}) task: ${nextTask} ===`);
+
+    if (typeof onTaskStarted === 'function') {
+      try {
+        onTaskStarted({
+          worker: ws,
+          taskEntry: nextTaskEntry,
+          model: ws.model,
+          provider: ws.provider,
+          difficulty: ws.difficulty,
+        });
+      } catch {}
+    }
 
     const promptsByProvider = {
       [PROVIDERS.CLAUDE]: buildTaskPrompt(taskQueueText),
@@ -358,35 +459,50 @@ function spawnWorker(ws, py, onDone, onUpdate, pushLog, cliProvider, onTaskCompl
         if (fs.existsSync(tasksPath)) {
           const updatedContent = fs.readFileSync(tasksPath, 'utf-8');
           let updatedDoneState = readTaskDoneSet(wtDir, ws.doneFilePath);
-          const wasDone = nextTaskEntry ? updatedDoneState.doneSet.has(nextTaskEntry.key) : false;
-          let commitResult = null;
+          let finalCode = code;
+          let finalError = null;
 
-          // 모델이 task_queue 체크박스를 업데이트하지 않은 경우에도 append-only 완료 로그로 진행
           if (code === 0 && nextTaskEntry) {
-            const appended = appendTaskDone(wtDir, nextTaskEntry, ws.doneFilePath);
-            if (appended) {
-              updatedDoneState = readTaskDoneSet(wtDir, ws.doneFilePath);
+            try {
+              restoreRuntimeClaudeMd();
+            } catch (e) {
+              finalCode = 1;
+              finalError = `runtime cleanup failed: ${e.message}`;
             }
-            if (!wasDone && (appended || updatedDoneState.doneSet.has(nextTaskEntry.key))) {
-              completedEntry = nextTaskEntry;
-              commitResult = commitTaskNow(wtDir, nextTaskEntry);
-              if (typeof onTaskCompleted === 'function') {
-                try {
-                  onTaskCompleted({
-                    worker: ws,
-                    taskEntry: nextTaskEntry,
-                    commit: commitResult,
-                  });
-                } catch {}
+
+            const commitResult = finalCode === 0
+              ? commitTaskNow(wtDir, nextTaskEntry, taskStartHead)
+              : { committed: false, reason: 'runtime_cleanup_failed', error: finalError };
+
+            if (commitResult.committed) {
+              if (!ws.completedTaskKeys) ws.completedTaskKeys = new Set();
+              ws.completedTaskKeys.add(nextTaskEntry.key);
+              pushLog(ws.name, `${C.green}[COMMIT]${C.reset} ${nextTaskEntry.title}`);
+              try {
+                const appended = appendTaskDone(wtDir, nextTaskEntry, ws.doneFilePath);
+                if (appended) {
+                  pushLog(ws.name, `${C.green}[DONELOG]${C.reset} ${nextTaskEntry.title}`);
+                  updatedDoneState = readTaskDoneSet(wtDir, ws.doneFilePath);
+                }
+              } catch (e) {
+                finalCode = 1;
+                finalError = `task_done append failed: ${e.message}`;
+                pushLog(ws.name, `${C.red}[DONELOG]${C.reset} ${nextTaskEntry.title} (${e.message})`);
               }
-              if (commitResult && commitResult.committed) {
-                pushLog(ws.name, `${C.green}[COMMIT]${C.reset} ${nextTaskEntry.title}`);
-              } else if (commitResult && commitResult.reason && commitResult.reason !== 'no_changes') {
-                pushLog(ws.name, `${C.yellow}[COMMIT]${C.reset} ${nextTaskEntry.title} (${commitResult.reason})`);
-              }
-              if (appended) {
-                pushLog(ws.name, `${C.green}[DONELOG]${C.reset} ${nextTaskEntry.title}`);
-              }
+            } else {
+              finalCode = 1;
+              finalError = `commit failed: ${commitResult.reason}${commitResult.error ? ` (${commitResult.error})` : ''}`;
+              pushLog(ws.name, `${C.red}[COMMIT]${C.reset} ${nextTaskEntry.title} (${commitResult.reason})`);
+            }
+
+            if (typeof onTaskCompleted === 'function') {
+              try {
+                onTaskCompleted({
+                  worker: ws,
+                  taskEntry: nextTaskEntry,
+                  commit: commitResult,
+                });
+              } catch {}
             }
           }
 
@@ -397,11 +513,14 @@ function spawnWorker(ws, py, onDone, onUpdate, pushLog, cliProvider, onTaskCompl
 
           // 미완료 태스크가 남아있으면 다음 태스크 실행 (provider 재선택)
           const remaining = getNextPendingTask(updatedContent, updatedDoneState.doneSet);
-          if (remaining && code === 0) {
+          if (remaining && finalCode === 0) {
             pushLog(ws.name, `${C.cyan}[NEXT]${C.reset} 다음 태스크로 이동`);
             runNextTask();
             return;
           }
+
+          finalize(finalCode, finalError);
+          return;
         }
 
         finalize(code);

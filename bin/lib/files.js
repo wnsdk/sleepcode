@@ -3,26 +3,33 @@ const path = require('path');
 const { C, TEMPLATES_DIR, IS_WIN, PROVIDERS } = require('./constants');
 const { writeFile } = require('./utils');
 
+function buildClaudeMdContent(targetDir) {
+  const scDir = path.join(targetDir, '.sleepcode');
+  const baseRulesPath = path.join(scDir, 'scripts', 'base_rules.md');
+  const rulesPath = path.join(scDir, 'rules.md');
+
+  const parts = [];
+  if (fs.existsSync(baseRulesPath)) parts.push(fs.readFileSync(baseRulesPath, 'utf-8'));
+  if (fs.existsSync(rulesPath)) parts.push(fs.readFileSync(rulesPath, 'utf-8'));
+
+  if (parts.length === 0) return '';
+
+  let content = parts.join('\n\n---\n\n');
+  // API 키가 CLAUDE.md에 노출되지 않도록 마스킹
+  content = content.replace(/API Key: `[^`]+`/g, 'API Key는 .sleepcode/.env 참조');
+  content = content.replace(/\(API Key: [^)]+\)/g, '(API Key는 .sleepcode/.env 참조)');
+  return content;
+}
+
 /**
  * CLAUDE.md 동기화: base_rules.md + rules.md → 프로젝트 루트 CLAUDE.md
  * Claude CLI가 CLAUDE.md를 시스템 프롬프트로 자동 로드하며, 프롬프트 캐싱 적용됨.
  * -p 프롬프트에는 task_queue.md만 전달하여 토큰 절약.
  */
 function syncClaudeMd(targetDir) {
-  const scDir = path.join(targetDir, '.sleepcode');
-  const baseRulesPath = path.join(scDir, 'scripts', 'base_rules.md');
-  const rulesPath = path.join(scDir, 'rules.md');
   const claudeMdPath = path.join(targetDir, 'CLAUDE.md');
-
-  const parts = [];
-  if (fs.existsSync(baseRulesPath)) parts.push(fs.readFileSync(baseRulesPath, 'utf-8'));
-  if (fs.existsSync(rulesPath)) parts.push(fs.readFileSync(rulesPath, 'utf-8'));
-
-  if (parts.length > 0) {
-    let content = parts.join('\n\n---\n\n');
-    // API 키가 CLAUDE.md에 노출되지 않도록 마스킹
-    content = content.replace(/API Key: `[^`]+`/g, 'API Key는 .sleepcode/.env 참조');
-    content = content.replace(/\(API Key: [^)]+\)/g, '(API Key는 .sleepcode/.env 참조)');
+  const content = buildClaudeMdContent(targetDir);
+  if (content) {
     fs.writeFileSync(claudeMdPath, content);
   }
 }
@@ -207,6 +214,7 @@ ${C.bold}${C.green}완료!${C.reset} 다음 단계:
 }
 
 module.exports = {
+  buildClaudeMdContent,
   syncClaudeMd,
   generateFiles,
   printResult,

@@ -28,6 +28,10 @@ const {
   summarizeExecutionResults,
 } = require('./runCompletion');
 const {
+  areAllWorkersSettled,
+  mergeCompletedWorkerNow,
+} = require('./runWorkerCompletion');
+const {
   buildPollInfo,
   filterNewTasks,
   selectTasksToRun,
@@ -167,41 +171,17 @@ function cmdWatch(cliProvider) {
     dashboard.setWatchPhase();
   }
 
-  function tryMergeCompletedWorker(completedWs) {
-    if (!completedWs || completedWs.status !== 'done' || completedWs.merged) return;
-
-    if (completedWs.usesMainBranch || completedWs.name === 'main') {
-      completedWs.merged = true;
-      return;
-    }
-
-    watchPushLog('SYSTEM', `${C.green}${completedWs.name} 완료 — main 브랜치에 즉시 병합 중...${C.reset}`);
-    try {
-      const mergeResults = autoMergeWorktrees(targetDir, [completedWs], cliProvider);
-      if (mergeResults.merged.includes(completedWs.name)) {
-        completedWs.merged = true;
-        watchPushLog('SYSTEM', `${C.green}✓ ${completedWs.name} — main 브랜치 병합 완료${C.reset}`);
-        return;
-      }
-      if (mergeResults.skipped.includes(completedWs.name)) {
-        completedWs.merged = true;
-        watchPushLog('SYSTEM', `${C.dim}${completedWs.name} — 병합 스킵 (변경 없음)${C.reset}`);
-        return;
-      }
-      if (mergeResults.conflicted.includes(completedWs.name)) {
-        watchPushLog('SYSTEM', `${C.red}✗ ${completedWs.name} — 병합 충돌 (수동 처리 필요)${C.reset}`);
-      }
-    } catch (e) {
-      watchPushLog('SYSTEM', `${C.red}✗ ${completedWs.name} — 즉시 병합 실패: ${e.message}${C.reset}`);
-    }
-  }
-
   function handleWorkerDone(completedWs) {
     scheduleRender();
-    tryMergeCompletedWorker(completedWs);
+    mergeCompletedWorkerNow({
+      completedWorker: completedWs,
+      targetDir,
+      cliProvider,
+      autoMergeWorktrees,
+      pushLog: (message) => watchPushLog('SYSTEM', message),
+    });
 
-    const allDone = currentWorkerStates.every(s => s.status !== 'running');
-    if (allDone) {
+    if (areAllWorkersSettled(currentWorkerStates)) {
       finishExecution(currentNotionTasks, currentSchema, currentWorkerStates);
     }
   }

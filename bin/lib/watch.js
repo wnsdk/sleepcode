@@ -658,6 +658,11 @@ function cmdWatch(cliProvider) {
     execStartTime = null;
     setWatchPhase('waiting');
     watchPushLog('SYSTEM', `${C.dim}폴링 재개...${C.reset}`);
+
+    // 실행 완료 후 즉시 폴링 — 실행 중 추가된 태스크를 바로 감지
+    if (!gracefulShutdown) {
+      setTimeout(doPoll, 1000);
+    }
   }
 
   // ─── 실행 중 새 태스크 추가 ───

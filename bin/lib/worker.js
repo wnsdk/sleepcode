@@ -193,6 +193,42 @@ function detectForbiddenGitWriteCommand(obj) {
   return command;
 }
 
+function getTerminalResultMeta(obj) {
+  if (!obj || obj.type !== 'result') return null;
+
+  const subtype = String(obj.subtype || '').trim().toLowerCase();
+  const stopReason = String(obj.stop_reason || '').trim().toLowerCase();
+  const message = typeof obj.message === 'string'
+    ? obj.message.trim()
+    : typeof obj.result === 'string'
+      ? obj.result.trim()
+      : '';
+
+  return {
+    success: obj.is_error !== true && subtype !== 'error',
+    subtype,
+    stopReason,
+    message,
+  };
+}
+
+function terminateProcessTree(proc) {
+  if (!proc || !proc.pid) return;
+
+  if (process.platform === 'win32') {
+    try {
+      execFileSync('taskkill', ['/PID', String(proc.pid), '/T', '/F'], {
+        stdio: ['ignore', 'ignore', 'ignore'],
+      });
+      return;
+    } catch {}
+  }
+
+  try {
+    proc.kill('SIGTERM');
+  } catch {}
+}
+
 function stageTaskChanges(targetDir) {
   try {
     execFileSync('git', ['add', '-u', '--', '.'], {
@@ -617,6 +653,27 @@ function spawnWorker(ws, py, onDone, onUpdate, pushLog, cliProvider, onTaskCompl
       let buffer = '';
       let sawEvents = false;
       let blockedCommandError = null;
+      let terminalResult = null;
+      let resultExitTimer = null;
+
+      const clearResultExitTimer = () => {
+        if (!resultExitTimer) return;
+        clearTimeout(resultExitTimer);
+        resultExitTimer = null;
+      };
+
+      const scheduleResultExit = () => {
+        if (provider !== PROVIDERS.CLAUDE || !terminalResult || resultExitTimer) return;
+        // Claude may emit a terminal result while a background Bash task keeps the CLI process alive.
+        resultExitTimer = setTimeout(() => {
+          resultExitTimer = null;
+          if (proc.exitCode != null || proc.killed) return;
+          logLine(`FORCE_CLOSE_AFTER_RESULT: ${provider}`);
+          pushLog(ws.name, `${C.dim}[EXIT]${C.reset} Claude result 수신 후 남은 프로세스를 정리합니다`);
+          onUpdate();
+          terminateProcessTree(proc);
+        }, 1500);
+      };
 
       proc.stdout.on('data', (data) => {
         buffer += data.toString();
@@ -635,7 +692,12 @@ function spawnWorker(ws, py, onDone, onUpdate, pushLog, cliProvider, onTaskCompl
               logLine(`BLOCKED_GIT_WRITE: ${forbiddenCommand}`);
               pushLog(ws.name, `${C.red}[BLOCK]${C.reset} git write command 차단`);
               onUpdate();
-              try { proc.kill(); } catch {}
+              terminateProcessTree(proc);
+            }
+            const resultMeta = getTerminalResultMeta(obj);
+            if (resultMeta && !terminalResult) {
+              terminalResult = resultMeta;
+              scheduleResultExit();
             }
             processStreamEvent(ws, obj, onUpdate, pushLog);
           } catch {}
@@ -647,6 +709,8 @@ function spawnWorker(ws, py, onDone, onUpdate, pushLog, cliProvider, onTaskCompl
       });
 
       proc.on('close', async (code) => {
+        clearResultExitTimer();
+
         if (buffer.trim()) {
           logStream.write(buffer + '\n');
           try {
@@ -655,6 +719,10 @@ function spawnWorker(ws, py, onDone, onUpdate, pushLog, cliProvider, onTaskCompl
             if (forbiddenCommand && !blockedCommandError) {
               blockedCommandError = `forbidden git write command attempted: ${forbiddenCommand}`;
               logLine(`BLOCKED_GIT_WRITE: ${forbiddenCommand}`);
+            }
+            const resultMeta = getTerminalResultMeta(obj);
+            if (resultMeta && !terminalResult) {
+              terminalResult = resultMeta;
             }
             processStreamEvent(ws, obj, onUpdate, pushLog);
             sawEvents = true;
@@ -666,7 +734,15 @@ function spawnWorker(ws, py, onDone, onUpdate, pushLog, cliProvider, onTaskCompl
           return;
         }
 
-        if (code !== 0 && allowFallback && ws.fallbackProvider && ws.fallbackProvider !== provider && !sawEvents) {
+        let effectiveCode = code;
+        if (terminalResult) {
+          effectiveCode = terminalResult.success ? 0 : 1;
+        }
+        const closeError = terminalResult && !terminalResult.success
+          ? (terminalResult.message || 'provider returned an error')
+          : null;
+
+        if (effectiveCode !== 0 && allowFallback && ws.fallbackProvider && ws.fallbackProvider !== provider && !sawEvents && !terminalResult) {
           const fromLabel = providerLabel(provider);
           const toLabel = providerLabel(ws.fallbackProvider);
           pushLog(ws.name, `${C.yellow}[FALLBACK]${C.reset} ${fromLabel} failed, retrying with ${toLabel}`);
@@ -680,11 +756,11 @@ function spawnWorker(ws, py, onDone, onUpdate, pushLog, cliProvider, onTaskCompl
         if (fs.existsSync(tasksPath)) {
           const updatedContent = fs.readFileSync(tasksPath, 'utf-8');
           let updatedDoneState = getWorkerDoneState(ws, wtDir);
-          let finalCode = code;
-          let finalError = null;
+          let finalCode = effectiveCode;
+          let finalError = closeError;
           let commitResult = null;
 
-          if (code === 0 && nextTaskEntry) {
+          if (finalCode === 0 && nextTaskEntry) {
             try {
               restoreRuntimeClaudeMd();
             } catch (e) {
@@ -764,10 +840,11 @@ function spawnWorker(ws, py, onDone, onUpdate, pushLog, cliProvider, onTaskCompl
           return;
         }
 
-        finalize(code);
+        finalize(effectiveCode, effectiveCode === 0 ? null : closeError);
       });
 
       proc.on('error', (err) => {
+        clearResultExitTimer();
         if (allowFallback && ws.fallbackProvider && ws.fallbackProvider !== provider) {
           const fromLabel = providerLabel(provider);
           const toLabel = providerLabel(ws.fallbackProvider);

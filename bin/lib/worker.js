@@ -3,17 +3,12 @@ const path = require('path');
 const { spawn } = require('child_process');
 const { C, PROVIDERS } = require('./constants');
 const {
-  getNextPendingTask,
   getNextPendingTaskEntry,
   getTaskDoneFilePath,
 } = require('./utils');
 const {
-  resolveProviderPlan,
   providerLabel,
   getProviderRunCommand,
-  buildExecutionPrompt,
-  assessTaskDifficulty,
-  DEFAULT_PROVIDER_MODELS,
 } = require('./provider');
 const { buildClaudeMdContent, syncClaudeMd } = require('./files');
 const {
@@ -22,8 +17,10 @@ const {
   syncWorkerTaskProgress,
 } = require('./taskState');
 const { processStreamEvent, getTerminalResultMeta } = require('./workerStreamProcessing');
-const { formatExecError, getHeadCommit, detectForbiddenGitWriteCommand, terminateProcessTree } = require('./workerGitOps');
+const { detectForbiddenGitWriteCommand, terminateProcessTree } = require('./workerGitOps');
 const { buildTaskCommitMessage, commitTaskNow } = require('./workerCommit');
+const { prepareTaskExecution } = require('./workerTaskPrep');
+const { handleTaskCompletion } = require('./workerTaskCompletion');
 
 function spawnWorker(ws, py, onDone, onUpdate, pushLog, cliProvider, onTaskCompleted, onTaskStarted, onTaskUiUpdated) {
   const wtDir = ws.path;
@@ -125,46 +122,16 @@ function spawnWorker(ws, py, onDone, onUpdate, pushLog, cliProvider, onTaskCompl
       return;
     }
 
-    // 태스크마다 provider를 ratio에 따라 새로 선택
-    try {
-      const plan = resolveProviderPlan(ws.targetDir || wtDir, cliProvider);
-      ws.provider = plan.selected;
-      ws.fallbackProvider = plan.fallback;
-      if (plan.ratioSelected) {
-        pushLog(ws.name, `${C.dim}[비율 선택] ${providerLabel(plan.selected)}${C.reset}`);
-      }
-      if (plan.requestedUnavailable) {
-        pushLog(ws.name, `${C.yellow}[PROVIDER] requested provider unavailable, switched to ${providerLabel(plan.selected)}${C.reset}`);
-      }
-    } catch (e) {
-      pushLog(ws.name, `${C.red}[ERROR] ${e.message}${C.reset}`);
-      finalize(1, e.message);
+    const prep = prepareTaskExecution({
+      ws, wtDir, nextTask, cliProvider,
+      buildTaskPrompt, nextTaskEntry, pushLog, onUpdate,
+    });
+    if (prep.error) {
+      pushLog(ws.name, `${C.red}[ERROR] ${prep.error}${C.reset}`);
+      finalize(1, prep.error);
       return;
     }
-
-    // 태스크마다 난이도 재평가
-    try {
-      const assessment = assessTaskDifficulty(nextTask, ws.targetDir || wtDir, ws.provider);
-      ws.difficulty = assessment.difficulty;
-      ws.difficultyLabel = assessment.label;
-      ws.model = assessment.model;
-      pushLog(ws.name, `${C.cyan}[DIFFICULTY]${C.reset} ${assessment.label} (${assessment.difficulty}/5) → ${assessment.model}`);
-    } catch {
-      ws.difficulty = 3;
-      ws.difficultyLabel = '★★★☆☆';
-      ws.model = DEFAULT_PROVIDER_MODELS[ws.provider] || DEFAULT_PROVIDER_MODELS[PROVIDERS.CLAUDE];
-    }
-    onUpdate();
-
-    let taskStartHead = '';
-    try {
-      taskStartHead = getHeadCommit(wtDir);
-    } catch (e) {
-      const message = `git head unavailable: ${formatExecError(e)}`;
-      pushLog(ws.name, `${C.red}[ERROR] ${message}${C.reset}`);
-      finalize(1, message);
-      return;
-    }
+    const { taskStartHead, promptsByProvider, taskPrompt } = prep;
 
     logLine(`=== Task start (provider: ${ws.provider}, model: ${ws.model || 'default'}, difficulty: ${ws.difficulty || 'N/A'}) task: ${nextTask} ===`);
 
@@ -179,12 +146,6 @@ function spawnWorker(ws, py, onDone, onUpdate, pushLog, cliProvider, onTaskCompl
         });
       } catch {}
     }
-
-    const taskPrompt = buildTaskPrompt(nextTaskEntry);
-    const promptsByProvider = {
-      [PROVIDERS.CLAUDE]: taskPrompt,
-      [PROVIDERS.CODEX]: buildExecutionPrompt(wtDir, taskPrompt, PROVIDERS.CODEX),
-    };
 
     function runAttempt(provider, allowFallback) {
       ws.provider = provider;
@@ -303,81 +264,19 @@ function spawnWorker(ws, py, onDone, onUpdate, pushLog, cliProvider, onTaskCompl
           return;
         }
 
-        // 태스크 완료 여부 확인 후 다음 태스크로 이동
-        if (fs.existsSync(tasksPath)) {
-          const updatedContent = fs.readFileSync(tasksPath, 'utf-8');
-          let updatedDoneState = getWorkerDoneState(ws, wtDir);
-          let finalCode = effectiveCode;
-          let finalError = closeError;
-          let commitResult = null;
+        const result = await handleTaskCompletion({
+          ws, wtDir, tasksPath, nextTaskEntry, taskStartHead,
+          effectiveCode, closeError, restoreRuntimeClaudeMd,
+          pushLog, onUpdate, onTaskCompleted, onTaskUiUpdated,
+        });
 
-          if (finalCode === 0 && nextTaskEntry) {
-            try {
-              restoreRuntimeClaudeMd();
-            } catch (e) {
-              finalCode = 1;
-              finalError = `runtime cleanup failed: ${e.message}`;
-            }
-
-            commitResult = finalCode === 0
-              ? commitTaskNow(wtDir, nextTaskEntry, taskStartHead, {
-                doneFilePath: ws.doneFilePath,
-                dedupeSet: updatedDoneState.doneSet,
-              })
-              : { committed: false, reason: 'runtime_cleanup_failed', error: finalError };
-
-            if (commitResult.committed) {
-              ws.completedTaskKeys.add(nextTaskEntry.key);
-              pushLog(ws.name, `${C.green}[DONELOG]${C.reset} ${nextTaskEntry.title}`);
-              pushLog(ws.name, `${C.green}[COMMIT]${C.reset} ${nextTaskEntry.title}`);
-              updatedDoneState = getWorkerDoneState(ws, wtDir);
-            } else {
-              finalCode = 1;
-              finalError = `commit failed: ${commitResult.reason}${commitResult.error ? ` (${commitResult.error})` : ''}`;
-              if (commitResult.rollbackError) {
-                finalError += ` [rollback: ${commitResult.rollbackError}]`;
-              }
-              pushLog(ws.name, `${C.red}[COMMIT]${C.reset} ${nextTaskEntry.title} (${commitResult.reason})`);
-            }
-
-          }
-
-          syncWorkerTaskProgress(ws, wtDir, updatedContent);
-          if (typeof onTaskCompleted === 'function') {
-            try {
-              await Promise.resolve(onTaskCompleted({
-                worker: ws,
-                taskEntry: nextTaskEntry,
-                commit: commitResult,
-              }));
-            } catch {}
-          }
-
-          onUpdate();
-          if (typeof onTaskUiUpdated === 'function') {
-            try {
-              await Promise.resolve(onTaskUiUpdated({
-                worker: ws,
-                taskEntry: nextTaskEntry,
-                code: finalCode,
-                error: finalError,
-              }));
-            } catch {}
-          }
-
-          // 미완료 태스크가 남아있으면 다음 태스크 실행 (provider 재선택)
-          const remaining = getNextPendingTask(updatedContent, updatedDoneState.doneSet);
-          if (remaining && finalCode === 0) {
-            pushLog(ws.name, `${C.cyan}[NEXT]${C.reset} 다음 태스크로 이동`);
-            runNextTask();
-            return;
-          }
-
-          finalize(finalCode, finalError);
+        if (result.shouldContinue) {
+          pushLog(ws.name, `${C.cyan}[NEXT]${C.reset} 다음 태스크로 이동`);
+          runNextTask();
           return;
         }
 
-        finalize(effectiveCode, effectiveCode === 0 ? null : closeError);
+        finalize(result.finalCode, result.finalError);
       });
 
       proc.on('error', (err) => {

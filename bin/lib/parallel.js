@@ -34,6 +34,31 @@ function getWorkerDoneState(ws) {
   );
 }
 
+function normalizeStatusPathPart(value) {
+  return String(value || '').trim().replace(/^"|"$/g, '').replace(/\\/g, '/');
+}
+
+function isRuntimeOnlyStatusLine(line) {
+  const payload = String(line || '').slice(3).trim();
+  if (!payload) return false;
+  const paths = payload.split(' -> ').map(normalizeStatusPathPart).filter(Boolean);
+  if (paths.length === 0) return false;
+  return paths.every((part) => part.startsWith('.sleepcode/'));
+}
+
+function getMergeBlockingStatus(targetDir) {
+  try {
+    const output = execSync('git status --porcelain', { cwd: targetDir, stdio: 'pipe' }).toString();
+    if (!output.trim()) return '';
+    return output
+      .split(/\r?\n/)
+      .filter((line) => line.trim() && !isRuntimeOnlyStatusLine(line))
+      .join('\n');
+  } catch {
+    return '';
+  }
+}
+
 function parseParallelTasks(tasksPath) {
   if (!fs.existsSync(tasksPath)) return null;
   const content = fs.readFileSync(tasksPath, 'utf-8');
@@ -77,7 +102,7 @@ function copySleepcodeDirToWorktree(srcDir, wtPath) {
   if (!fs.existsSync(sleepcodeDir)) return;
 
   // 복사에서 제외할 디렉토리 (재귀 방지 + 불필요한 파일)
-  const EXCLUDE_DIRS = new Set(['worktrees', 'logs']);
+  const EXCLUDE_DIRS = new Set(['worktrees', 'logs', 'task_done']);
 
   function copyDirRecursive(src, dest) {
     fs.mkdirSync(dest, { recursive: true });
@@ -551,7 +576,7 @@ function mergeWorktrees(targetDir, cliProvider) {
 
   // 머지 전 uncommitted changes 체크
   try {
-    const status = execSync('git status --porcelain', { cwd: targetDir, stdio: 'pipe' }).toString().trim();
+    const status = getMergeBlockingStatus(targetDir);
     if (status) {
       console.error(`${C.red}커밋되지 않은 변경사항이 있습니다. 먼저 커밋하거나 stash 하세요.${C.reset}`);
       console.log(`${C.dim}${status}${C.reset}`);
@@ -650,7 +675,7 @@ function autoMergeWorktrees(targetDir, workerStates, cliProvider) {
 
   // 머지 전 uncommitted changes 체크
   try {
-    const status = execSync('git status --porcelain', { cwd: targetDir, stdio: 'pipe' }).toString().trim();
+    const status = getMergeBlockingStatus(targetDir);
     if (status) {
       throw new Error('커밋되지 않은 변경사항이 있습니다.');
     }

@@ -80,11 +80,18 @@ async function main() {
     console.log(`${C.dim}Notion DB 스키마 업데이트 중...${C.reset}`);
     try {
       const notionDbId = await validateNotionDbId(notionKey, rawId);
-      const addedCols = await syncNotionDbSchema(notionKey, notionDbId);
-      if (addedCols.length > 0) {
-        console.log(`${C.green}✓${C.reset} 누락된 컬럼 추가 완료: ${addedCols.join(', ')}`);
+      const schemaResult = await syncNotionDbSchema(notionKey, notionDbId);
+      const { added, updated, skipped } = schemaResult;
+      if (added.length > 0 || updated.length > 0) {
+        const parts = [];
+        if (added.length > 0) parts.push(`추가: ${added.join(', ')}`);
+        if (updated.length > 0) parts.push(`업데이트: ${updated.join(', ')}`);
+        console.log(`${C.green}✓${C.reset} Notion DB 스키마 반영 완료 (${parts.join(' / ')})`);
       } else {
         console.log(`${C.green}✓${C.reset} Notion DB 스키마가 이미 최신 버전입니다.`);
+      }
+      if (skipped.length > 0) {
+        console.log(`${C.yellow}⚠${C.reset} 스킵된 컬럼: ${skipped.join(', ')}`);
       }
     } catch (e) {
       console.error(`${C.red}${e.message}${C.reset}`);
@@ -156,9 +163,16 @@ async function main() {
       console.log(`${C.dim}Notion DB 확인 중...${C.reset}`);
       try {
         notionDbId = await validateNotionDbId(notionKey, rawId);
-        const addedCols = await syncNotionDbSchema(notionKey, notionDbId);
-        if (addedCols.length > 0) {
-          console.log(`${C.green}✓${C.reset} 누락된 컬럼 자동 추가: ${addedCols.join(', ')}`);
+        const schemaResult = await syncNotionDbSchema(notionKey, notionDbId);
+        const { added, updated, skipped } = schemaResult;
+        if (added.length > 0 || updated.length > 0) {
+          const parts = [];
+          if (added.length > 0) parts.push(`추가: ${added.join(', ')}`);
+          if (updated.length > 0) parts.push(`업데이트: ${updated.join(', ')}`);
+          console.log(`${C.green}✓${C.reset} Notion DB 스키마 반영 (${parts.join(' / ')})`);
+        }
+        if (skipped.length > 0) {
+          console.log(`${C.yellow}⚠${C.reset} 스킵된 컬럼: ${skipped.join(', ')}`);
         }
       } catch (e) {
         console.error(`${C.red}${e.message}${C.reset}`);
@@ -292,9 +306,16 @@ async function main() {
         } else {
           console.log(`${C.green}✓${C.reset} Notion DB 확인 완료`);
         }
-        const addedCols = await syncNotionDbSchema(notionKey, notionDbId);
-        if (addedCols.length > 0) {
-          console.log(`${C.green}✓${C.reset} 누락된 컬럼 자동 추가: ${addedCols.join(', ')}`);
+        const schemaResult = await syncNotionDbSchema(notionKey, notionDbId);
+        const { added, updated, skipped } = schemaResult;
+        if (added.length > 0 || updated.length > 0) {
+          const parts = [];
+          if (added.length > 0) parts.push(`추가: ${added.join(', ')}`);
+          if (updated.length > 0) parts.push(`업데이트: ${updated.join(', ')}`);
+          console.log(`${C.green}✓${C.reset} Notion DB 스키마 반영 (${parts.join(' / ')})`);
+        }
+        if (skipped.length > 0) {
+          console.log(`${C.yellow}⚠${C.reset} 스킵된 컬럼: ${skipped.join(', ')}`);
         }
       } catch (e) {
         console.error(`${C.red}${e.message}${C.reset}`);

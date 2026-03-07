@@ -76,6 +76,14 @@ Notion DB를 제어판으로 사용하여 원격으로 태스크를 관리합니
 npx sleepcode run         # 한 번 실행
 ```
 
+### 5-1. Notion DB 컬럼 업데이트
+
+기존 Notion DB 컬럼 구성이 오래된 경우 아래 명령으로 최신 스키마로 맞춥니다.
+
+```bash
+npx sleepcode notion-update --notion-key <KEY> --notion-db <ID|URL>
+```
+
 ### 6. tmux 분리 (백그라운드 전환, macOS/Linux)
 
 ```bash

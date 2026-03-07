@@ -181,6 +181,7 @@ claude --dangerously-skip-permissions
 | `npx sleepcode parallel --clean` | worktree 정리 |
 | `npx sleepcode parallel --status` | 워커 상태 확인 |
 | `npx sleepcode usage` | 주간 사용량 확인 |
+| `npx sleepcode notion-update` | 기존 Notion DB 컬럼을 최신 버전으로 업데이트 |
 
 ## CLI 옵션
 

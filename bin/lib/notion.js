@@ -160,6 +160,55 @@ const EXPECTED_DB_PROPERTIES = {
   'Completed At': { date: {} },
 };
 
+function normalizePropName(name) {
+  return String(name || '').toLowerCase().trim();
+}
+
+function getExpectedType(config) {
+  return Object.keys(config || {})[0] || '';
+}
+
+function optionKey(option) {
+  return normalizePropName(option?.name || '');
+}
+
+function mergeSelectOptions(existingOptions, expectedOptions) {
+  const merged = [];
+  const seen = new Set();
+
+  for (const opt of expectedOptions || []) {
+    const key = optionKey(opt);
+    if (!key || seen.has(key)) continue;
+    seen.add(key);
+    merged.push({ name: opt.name, color: opt.color || 'default' });
+  }
+
+  for (const opt of existingOptions || []) {
+    const key = optionKey(opt);
+    if (!key || seen.has(key)) continue;
+    seen.add(key);
+    merged.push({ name: opt.name, color: opt.color || 'default' });
+  }
+
+  return merged;
+}
+
+function optionsSignature(options) {
+  return (options || [])
+    .map((opt) => `${normalizePropName(opt?.name)}|${opt?.color || ''}`)
+    .join('|');
+}
+
+function findExistingProperty(existingProps, name) {
+  const target = normalizePropName(name);
+  for (const propName of Object.keys(existingProps || {})) {
+    if (normalizePropName(propName) === target) {
+      return { name: propName, prop: existingProps[propName] };
+    }
+  }
+  return null;
+}
+
 async function syncNotionDbSchema(apiKey, dbId) {
   // DB 스키마 조회
   let formattedId = dbId;
@@ -168,26 +217,77 @@ async function syncNotionDbSchema(apiKey, dbId) {
   }
   const db = await notionApiRequest('GET', `/databases/${formattedId}`, apiKey);
   const existingProps = db.properties || {};
-  const existingNames = new Set(Object.keys(existingProps).map(n => n.toLowerCase().trim()));
 
-  // 누락된 프로퍼티 찾기
+  // 누락된 프로퍼티 및 업데이트 대상 찾기
   const missingProps = {};
+  const updateProps = {};
+  const updated = [];
+  const skipped = [];
+
   for (const [name, config] of Object.entries(EXPECTED_DB_PROPERTIES)) {
-    if (!existingNames.has(name.toLowerCase().trim())) {
+    const existingEntry = findExistingProperty(existingProps, name);
+    if (!existingEntry) {
       missingProps[name] = config;
+      continue;
     }
+
+    const existingProp = existingEntry.prop || {};
+    const existingType = existingProp.type || '';
+    const expectedType = getExpectedType(config);
+
+    if (name === 'Status') {
+      if (existingType === 'select') {
+        const currentOptions = existingProp.select?.options || [];
+        const nextOptions = mergeSelectOptions(currentOptions, config.select?.options || []);
+        if (optionsSignature(currentOptions) !== optionsSignature(nextOptions)) {
+          updateProps[existingEntry.name] = { select: { options: nextOptions } };
+          updated.push(name);
+        }
+      } else if (existingType === 'status') {
+        skipped.push(`${name}(status)`);
+      } else {
+        skipped.push(`${name}(${existingType || 'unknown'})`);
+      }
+      continue;
+    }
+
+    if (expectedType === existingType) {
+      if (expectedType === 'select') {
+        const expectedOptions = config.select?.options || [];
+        if (expectedOptions.length > 0) {
+          const currentOptions = existingProp.select?.options || [];
+          const nextOptions = mergeSelectOptions(currentOptions, expectedOptions);
+          if (optionsSignature(currentOptions) !== optionsSignature(nextOptions)) {
+            updateProps[existingEntry.name] = { select: { options: nextOptions } };
+            updated.push(name);
+          }
+        }
+      }
+      continue;
+    }
+
+    if (name === 'Model' && existingType === 'select' && expectedType === 'rich_text') {
+      skipped.push(`${name}(select)`);
+      continue;
+    }
+
+    skipped.push(`${name}(${existingType || 'unknown'})`);
   }
 
-  if (Object.keys(missingProps).length === 0) {
-    return [];
+  if (Object.keys(missingProps).length > 0 || Object.keys(updateProps).length > 0) {
+    await notionApiRequest('PATCH', `/databases/${formattedId}`, apiKey, {
+      properties: {
+        ...missingProps,
+        ...updateProps,
+      },
+    });
   }
 
-  // 누락된 프로퍼티 추가
-  await notionApiRequest('PATCH', `/databases/${formattedId}`, apiKey, {
-    properties: missingProps,
-  });
-
-  return Object.keys(missingProps);
+  return {
+    added: Object.keys(missingProps),
+    updated,
+    skipped,
+  };
 }
 
 async function searchNotionPages(apiKey, query) {

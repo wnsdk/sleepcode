@@ -1,7 +1,7 @@
 const fs = require('fs');
 const path = require('path');
 const { execSync } = require('child_process');
-const { C, SLEEPCODE_BADGE, SLEEPCODE_VERSION, IS_WIN, TEMPLATES_DIR, branchColor, notionLink } = require('./constants');
+const { C, SLEEPCODE_BADGE_HOVER, IS_WIN, TEMPLATES_DIR, branchColor, notionLink } = require('./constants');
 const { countTasks, progressBar, visualWidth, padEndVisual, loadEnvFileToProcessEnv, parseNotionDbId } = require('./utils');
 const { detectPython } = require('./prerequisites');
 const { providerLabel, providerLabelWithModel } = require('./provider');
@@ -133,7 +133,7 @@ function cmdWatch(cliProvider) {
 
       if (useParallel) {
         const activeCount = currentWorkerStates.filter(w => w.status === 'running').length;
-        lines.push(boxLine(`${SLEEPCODE_BADGE} ${C.dim}v${SLEEPCODE_VERSION}${C.reset}  watch  ${C.cyan}⟳${C.reset} ${activeCount}/${currentWorkerStates.length} workers${notionLink(dbId)}`, W));
+        lines.push(boxLine(`${SLEEPCODE_BADGE_HOVER}  watch  ${C.cyan}⟳${C.reset} ${activeCount}/${currentWorkerStates.length} workers${notionLink(dbId)}`, W));
         lines.push(`${C.dim}╠${'═'.repeat(W + 2)}╣${C.reset}`);
 
         for (const ws of currentWorkerStates) {
@@ -172,7 +172,7 @@ function cmdWatch(cliProvider) {
         const statusText = ws.status === 'running' ? '실행 중' : ws.status === 'done' ? '완료' : '실패';
         const modelTag = ws.provider ? ` ${C.dim}[${providerLabelWithModel(ws.provider, ws.model)}]${C.reset}` : '';
         const diffInfo = ws.difficultyLabel ? `  ${C.yellow}${ws.difficultyLabel}${C.reset}` : '';
-        lines.push(boxLine(`${SLEEPCODE_BADGE} ${C.dim}v${SLEEPCODE_VERSION}${C.reset}  watch  ${statusIcon} ${statusText}${modelTag}${diffInfo}${notionLink(dbId)}`, W));
+        lines.push(boxLine(`${SLEEPCODE_BADGE_HOVER}  watch  ${statusIcon} ${statusText}${modelTag}${diffInfo}${notionLink(dbId)}`, W));
         lines.push(`${C.dim}╠${'═'.repeat(W + 2)}╣${C.reset}`);
 
         const bar = progressBar(ws.done, ws.total, 20);
@@ -214,7 +214,7 @@ function cmdWatch(cliProvider) {
       lines.push(boxLine(`${C.dim}비용${C.reset} ${C.yellow}${costStr}${C.reset}  ${C.dim}·  경과${C.reset} ${C.cyan}${elapsedStr}${C.reset}  ${C.dim}·${C.reset}  ${C.cyan}${totalPct}%${C.reset}  ${C.dim}·  폴링${C.reset} ${remaining}초`, W));
     } else {
       // Waiting mode
-      lines.push(boxLine(`${SLEEPCODE_BADGE} ${C.dim}v${SLEEPCODE_VERSION}${C.reset}  watch  ${C.dim}◆${C.reset} 대기 중${notionLink(dbId)}`, W));
+      lines.push(boxLine(`${SLEEPCODE_BADGE_HOVER}  watch  ${C.dim}◆${C.reset} 대기 중${notionLink(dbId)}`, W));
       lines.push(`${C.dim}╠${'═'.repeat(W + 2)}╣${C.reset}`);
       const remaining = lastPollTime ? Math.max(0, pollIntervalSec - Math.floor((Date.now() - lastPollTime) / 1000)) : pollIntervalSec;
       lines.push(boxLine(`${C.dim}전체${C.reset} ${pollInfo.total}  ${C.dim}·  대기${C.reset} ${C.cyan}${pollInfo.pending}${C.reset}  ${C.dim}·  다음 폴링${C.reset} ${C.cyan}${remaining}초${C.reset}`, W));

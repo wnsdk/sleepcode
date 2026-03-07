@@ -3,11 +3,16 @@ const path = require('path');
 const { execFileSync } = require('child_process');
 
 const { TEMPLATES_DIR, IS_WIN } = require('./constants');
+const {
+  SYNC_COMMANDS,
+  SYNC_SCRIPT_REL_PATH,
+  SYNC_TEMPLATE_REL_PATH,
+} = require('./notionSyncProtocol');
 
 function ensureNotionSyncScript(
   targetDir,
   {
-    templatePath = path.join(TEMPLATES_DIR, 'common', 'notion_sync.py'),
+    templatePath = path.join(TEMPLATES_DIR, SYNC_TEMPLATE_REL_PATH),
     existsSync = fs.existsSync,
     mkdirSync = fs.mkdirSync,
     readFileSync = fs.readFileSync,
@@ -15,7 +20,7 @@ function ensureNotionSyncScript(
     chmodSync = fs.chmodSync,
   } = {}
 ) {
-  const syncScript = path.join(targetDir, '.sleepcode', 'scripts', 'notion_sync.py');
+  const syncScript = path.join(targetDir, SYNC_SCRIPT_REL_PATH);
   if (existsSync(syncScript)) return syncScript;
 
   if (!existsSync(templatePath)) {
@@ -39,12 +44,13 @@ function createNotionSyncBridge({
   const scriptPath = syncScript || ensureNotionSyncScriptFn(targetDir);
 
   function runCommand(command, args = [], options = {}) {
-    return execFileSyncFn(pythonCommand, [scriptPath, command, ...args], {
+    const cmd = typeof command === 'object' ? command : { name: command, timeoutMs: 30000 };
+    return execFileSyncFn(pythonCommand, [scriptPath, cmd.name, ...args], {
       cwd: targetDir,
       env,
       stdio: ['pipe', 'pipe', 'pipe'],
       encoding: 'utf-8',
-      timeout: options.timeoutMs || 30000,
+      timeout: options.timeoutMs || cmd.timeoutMs || 30000,
       input: options.input,
     });
   }
@@ -52,20 +58,18 @@ function createNotionSyncBridge({
   return {
     scriptPath,
     appendContent(pageId, text) {
-      runCommand('append-content', [String(pageId)], {
+      runCommand(SYNC_COMMANDS.APPEND_CONTENT, [String(pageId)], {
         input: text,
-        timeoutMs: 60000,
       });
     },
     poll() {
-      const result = runCommand('poll').trim();
+      const result = runCommand(SYNC_COMMANDS.POLL).trim();
       return JSON.parse(result);
     },
     runCommand,
     updatePage(pageId, props) {
-      const result = runCommand('update-page', [String(pageId)], {
+      const result = runCommand(SYNC_COMMANDS.UPDATE_PAGE, [String(pageId)], {
         input: JSON.stringify(props),
-        timeoutMs: 15000,
       }).trim();
       return result ? JSON.parse(result) : null;
     },

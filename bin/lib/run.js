@@ -12,11 +12,6 @@ const {
   summarizeExecutionResults,
 } = require('./runCompletion');
 const {
-  handleTaskCompletedEvent,
-  handleTaskStartedEvent,
-  syncNextPendingTaskStatus,
-} = require('./runNotionEvents');
-const {
   createRunPollingController,
 } = require('./runPolling');
 const {
@@ -46,6 +41,7 @@ const {
   getFirstTaskIdsByWorker,
   splitTasksByWorkerPresence,
 } = require('./runWorkers');
+const { createRunNotionBindings } = require('./runNotionBindings');
 const { createRunSetup } = require('./runSetup');
 const {
   handleGracefulStopDetected,
@@ -127,53 +123,30 @@ function cmdWatch(cliProvider) {
   const scheduleRender = () => dashboard.scheduleRender();
   const flushRender = () => dashboard.flushRender();
   const renderDashboard = () => dashboard.renderDashboard();
+  const notionInProgressIds = new Set(); // 이미 Running으로 설정된 태스크 ID 추적
+  const notionBindings = createRunNotionBindings({
+    notionSync,
+    getCurrentSchema: () => currentSchema,
+    getCurrentNotionTasks: () => currentNotionTasks,
+    getNotionCompletedIds: () => notionCompletedIds,
+    notionInProgressIds,
+    getWorkerDoneState,
+    flushRender,
+    pushLog: (message) => watchPushLog('SYSTEM', message),
+  });
+  const {
+    appendContent: notionAppendContent,
+    handleTaskCompleted,
+    handleTaskStarted,
+    handleTaskUiUpdated,
+    poll: notionPoll,
+    updateNextTaskStatus,
+    updatePage: notionUpdatePage,
+  } = notionBindings;
 
   function setWatchPhase(newPhase) {
     watchPhase = newPhase;
     dashboard.setWatchPhase();
-  }
-
-  // ─── Notion API 헬퍼 ───
-
-  const notionPoll = () => notionSync.poll();
-  const notionUpdatePage = (pageId, props) => notionSync.updatePage(pageId, props);
-  const notionAppendContent = (pageId, text) => notionSync.appendContent(pageId, text);
-
-  function handleTaskCompleted(payload) {
-    handleTaskCompletedEvent({
-      payload,
-      schema: currentSchema,
-      notionCompletedIds,
-      updatePage: notionUpdatePage,
-      pushLog: (message) => watchPushLog('SYSTEM', message),
-    });
-  }
-
-  function handleTaskUiUpdated() {
-    flushRender();
-  }
-
-  function handleTaskStarted(payload) {
-    handleTaskStartedEvent({
-      payload,
-      schema: currentSchema,
-      updatePage: notionUpdatePage,
-      pushLog: (message) => watchPushLog('SYSTEM', message),
-    });
-  }
-
-  // 태스크 완료 감지 시 다음 대기 태스크를 Running으로 업데이트
-  const notionInProgressIds = new Set(); // 이미 Running으로 설정된 태스크 ID 추적
-
-  function updateNextTaskStatus(workerPaths) {
-    syncNextPendingTaskStatus({
-      schema: currentSchema,
-      tasks: currentNotionTasks,
-      workerPaths,
-      notionInProgressIds,
-      updatePage: notionUpdatePage,
-      getWorkerDoneState,
-    });
   }
 
   function spawnRunWorker(ws) {

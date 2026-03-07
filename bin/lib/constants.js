@@ -95,6 +95,12 @@ const PROJECT_TYPES = {
     testCmd: '',
     lintCmd: '',
   },
+  sveltekit: {
+    label: 'SvelteKit (TypeScript)',
+    buildCmd: 'npm run build',
+    testCmd: 'npm test',
+    lintCmd: 'npm run lint',
+  },
   custom: {
     label: 'Custom (직접 설정)',
     buildCmd: '',

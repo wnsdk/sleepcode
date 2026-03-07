@@ -2,7 +2,7 @@ const fs = require('fs');
 const path = require('path');
 const { execSync } = require('child_process');
 const { C, SLEEPCODE_BADGE, notionLink, branchColor } = require('./constants');
-const { countTasks, progressBar, visualWidth, padEndVisual } = require('./utils');
+const { countTasks, progressBar, visualWidth, padEndVisual, readTaskDoneSet } = require('./utils');
 const { detectPython } = require('./prerequisites');
 const { resolveProviderPlan } = require('./provider');
 const { isOverBudget, recordCost } = require('./config');
@@ -31,11 +31,16 @@ function parseParallelTasks(tasksPath) {
   if (workers.length === 0) return null;
 
   // 각 워커의 task_queue.md 콘텐츠 구성
-  return workers.map(w => ({
-    name: w.name,
-    tasks: `# 작업 목록\n\n${w.lines.join('\n')}`,
-    remaining: countTasks(w.lines.join('\n')).total - countTasks(w.lines.join('\n')).done,
-  }));
+  return workers.map(w => {
+    const joined = w.lines.join('\n');
+    const tc = countTasks(joined);
+    return {
+      // task_queue 자체의 [x]는 호환 목적으로 유지. 완료 집계는 워커별 task_done 로그와 함께 계산된다.
+      name: w.name,
+      tasks: `# 작업 목록\n\n${joined}`,
+      remaining: tc.total - tc.done,
+    };
+  });
 }
 
 /**
@@ -194,7 +199,8 @@ function showParallelStatus(targetDir) {
       const wtTasksPath = path.join(wtPath, '.sleepcode', 'task_queue.md');
       if (fs.existsSync(wtTasksPath)) {
         const wtContent = fs.readFileSync(wtTasksPath, 'utf-8');
-        const tc = countTasks(wtContent);
+        const doneState = readTaskDoneSet(wtPath);
+        const tc = countTasks(wtContent, doneState.doneSet);
         done = tc.done;
         total = tc.total;
       }
@@ -629,7 +635,8 @@ function runParallelWorkers(targetDir, workerInfos, cliProvider) {
     const tasksPath = path.join(ws.path, '.sleepcode', 'task_queue.md');
     if (fs.existsSync(tasksPath)) {
       const content = fs.readFileSync(tasksPath, 'utf-8');
-      const tc = countTasks(content);
+      const doneState = readTaskDoneSet(ws.path, ws.doneFilePath);
+      const tc = countTasks(content, doneState.doneSet);
       ws.total = tc.total;
       ws.done = tc.done;
     }
@@ -858,7 +865,8 @@ function runParallelWorkers(targetDir, workerInfos, cliProvider) {
       try {
         if (fs.existsSync(tp)) {
           const content = fs.readFileSync(tp, 'utf-8');
-          const tc = countTasks(content);
+          const doneState = readTaskDoneSet(ws.path, ws.doneFilePath);
+          const tc = countTasks(content, doneState.doneSet);
           ws.done = tc.done;
           ws.total = tc.total;
         }

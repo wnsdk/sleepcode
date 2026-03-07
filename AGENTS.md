@@ -24,10 +24,14 @@
 ## 태스크 완료 처리
 
 - `.sleepcode/task_queue.md` 파일에서 작업 목록을 확인한다.
+- `task_queue.md`는 **backlog(읽기 전용)** 으로 취급한다. 완료 처리를 위해 체크박스를 수정하지 않는다.
 - 태스크를 **한 항목씩** 순서대로 진행한다.
+- 완료 기록은 `.sleepcode/task_done/<브랜치명_정규화>.md` 파일에 누적(append-only)한다.
+  - 브랜치명 정규화 규칙: 영문/숫자/`.`/`_`/`-`만 유지, 나머지는 `_`로 치환
+  - 예: `main` → `task_done/main.md`, `sleepcode/feat-ui` → `task_done/sleepcode_feat-ui.md`
 - 한 항목을 완료하면 반드시 아래 순서를 따른다:
-  1. 해당 항목의 `[ ]`를 `[x]`로 변경한다.
-  2. 관련 파일을 모두 `git add` 한다. (task_queue.md 포함)
+  1. 완료 로그 파일에 `- [x] <태스크 원문>` 한 줄을 append 한다. (Notion 태스크면 `<!-- notion:... -->` 주석도 유지)
+  2. 관련 파일을 모두 `git add` 한다. (`task_done/*.md` 포함)
   3. `git commit` 한다. (커밋 메시지에 태스크 내용을 포함)
   4. 그 다음 항목으로 넘어간다.
 - 여러 항목을 한꺼번에 작업하지 않는다. 반드시 1항목 = 1커밋이다.
@@ -36,7 +40,7 @@
 
 ## Git 작업 규칙
 
-- task_queue.md의 항목 1개 완료 = git commit 1개. 이 규칙을 반드시 지킨다.
+- task_queue backlog의 항목 1개 완료 = git commit 1개. 이 규칙을 반드시 지킨다.
 - 작업 중간에는 commit 하지 않는다.
 - 기능이 정상 동작한다고 판단되면 commit 한다.
 - commit message 는 변경 내용을 구체적으로 설명한다.

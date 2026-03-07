@@ -24,6 +24,7 @@ if sys.platform == "win32":
         sys.stderr.reconfigure(encoding="utf-8")
 
 TASKS_FILE = ".sleepcode/task_queue.md"
+DONE_DIR = ".sleepcode/task_done"
 STATE_FILE = ".sleepcode/.notion_state.json"
 NOTION_API = "https://api.notion.com/v1"
 NOTION_VERSION = "2022-06-28"
@@ -133,6 +134,79 @@ def extract_done(page, status_prop, status_type):
             return name in ("done", "완료", "complete", "completed")
         return False
     return False
+
+
+def normalize_task_title(title):
+    return re.sub(r"\s+", " ", str(title or "")).strip().lower()
+
+
+def parse_task_body(task_body):
+    body = str(task_body or "").strip()
+    if not body:
+        return None
+    notion_match = re.search(r"\s*<!--\s*notion:([a-f0-9-]+)\s*-->\s*$", body, re.IGNORECASE)
+    notion_id = notion_match.group(1).lower() if notion_match else None
+    title = body[: notion_match.start()].strip() if notion_match else body
+    if not title:
+        return None
+    return {"title": title, "notion_id": notion_id}
+
+
+def build_task_key(title, notion_id=None):
+    if notion_id:
+        return f"notion:{str(notion_id).lower()}"
+    return f"title:{normalize_task_title(title)}"
+
+
+def read_done_keys():
+    done_keys = set()
+    if not os.path.isdir(DONE_DIR):
+        return done_keys
+
+    for name in sorted(os.listdir(DONE_DIR)):
+        path = os.path.join(DONE_DIR, name)
+        if not os.path.isfile(path) or not name.lower().endswith(".md"):
+            continue
+        try:
+            with open(path, "r", encoding="utf-8") as f:
+                for line in f:
+                    m = re.match(r"^\s*-\s*\[x\]\s+(.+?)\s*$", line, re.IGNORECASE)
+                    if not m:
+                        continue
+                    parsed = parse_task_body(m.group(1))
+                    if not parsed:
+                        continue
+                    done_keys.add(build_task_key(parsed["title"], parsed["notion_id"]))
+        except Exception:
+            continue
+    return done_keys
+
+
+def parse_task_queue_entries(content):
+    entries = []
+    in_code_block = False
+    for line in content.splitlines():
+        stripped = line.strip()
+        if stripped.startswith("```"):
+            in_code_block = not in_code_block
+            continue
+        if in_code_block:
+            continue
+        m = re.match(r"^\s*-\s*\[([ xX])\]\s+(.+?)\s*$", line)
+        if not m:
+            continue
+        parsed = parse_task_body(m.group(2))
+        if not parsed:
+            continue
+        entries.append(
+            {
+                "checked": m.group(1).lower() == "x",
+                "title": parsed["title"],
+                "notion_id": parsed["notion_id"],
+                "key": build_task_key(parsed["title"], parsed["notion_id"]),
+            }
+        )
+    return entries
 
 
 # ─── Watch 모드: DB 스키마 확장 분석 ───
@@ -315,7 +389,7 @@ def enqueue(api_key, db_id, notion_filter=None):
         lines = [
             "# 작업 목록",
             "",
-            "아래 태스크를 순서대로 진행하세요. 완료한 항목은 `[x]`로 체크하세요.",
+            "아래 태스크를 순서대로 진행하세요. task_queue.md는 backlog(읽기 전용)로 유지하세요.",
             "",
             "---",
             "",
@@ -470,10 +544,18 @@ def append_content(api_key, page_id):
 
 
 def get_commit_time_for_task(page_id, cwd=None):
-    """task_queue.md에서 특정 태스크가 [x]로 표시된 git commit의 ISO 타임스탬프를 반환"""
+    """task_queue/task_done에서 특정 태스크가 완료 처리된 git commit 시각을 반환"""
     try:
         result = subprocess.run(
-            ["git", "log", "--format=COMMIT %aI", "-p", "--", ".sleepcode/task_queue.md"],
+            [
+                "git",
+                "log",
+                "--format=COMMIT %aI",
+                "-p",
+                "--",
+                ".sleepcode/task_queue.md",
+                ".sleepcode/task_done",
+            ],
             capture_output=True,
             text=True,
             cwd=cwd or ".",
@@ -488,7 +570,7 @@ def get_commit_time_for_task(page_id, cwd=None):
             elif (
                 line.startswith("+")
                 and not line.startswith("+++")
-                and "[x]" in line
+                and re.search(r"\[[xX]\]", line)
                 and f"notion:{page_id}" in line
             ):
                 return current_time
@@ -535,7 +617,7 @@ def pull(api_key, db_id, notion_filter=None, status_prop_name=None, status_type_
     # task_queue.md 생성
     lines = [
         "# 작업 목록\n",
-        "아래 태스크를 순서대로 진행하세요. 완료한 항목은 `[x]`로 체크하세요.\n",
+        "아래 태스크를 순서대로 진행하세요. task_queue.md는 backlog(읽기 전용)로 유지하세요.\n",
         "---\n",
     ]
 
@@ -592,11 +674,14 @@ def push(api_key, db_id):
     with open(TASKS_FILE, "r", encoding="utf-8") as f:
         content = f.read()
 
-    pattern = re.compile(r"^- \[([ x])\] .+<!-- notion:([a-f0-9-]+) -->", re.MULTILINE)
+    task_entries = parse_task_queue_entries(content)
+    done_keys = read_done_keys()
     current_state = {}
-    for match in pattern.finditer(content):
-        done = match.group(1) == "x"
-        page_id = match.group(2)
+    for entry in task_entries:
+        page_id = entry.get("notion_id")
+        if not page_id:
+            continue
+        done = entry["checked"] or (entry["key"] in done_keys)
         current_state[page_id] = done
 
     # 변경된 항목만 업데이트

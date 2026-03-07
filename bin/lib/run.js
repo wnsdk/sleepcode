@@ -2,7 +2,16 @@ const fs = require('fs');
 const path = require('path');
 const { execSync } = require('child_process');
 const { C, SLEEPCODE_BADGE_HOVER, IS_WIN, TEMPLATES_DIR, branchColor, notionLink } = require('./constants');
-const { countTasks, progressBar, visualWidth, padEndVisual, loadEnvFileToProcessEnv, parseNotionDbId } = require('./utils');
+const {
+  countTasks,
+  extractTaskItems,
+  progressBar,
+  visualWidth,
+  padEndVisual,
+  readTaskDoneSet,
+  loadEnvFileToProcessEnv,
+  parseNotionDbId,
+} = require('./utils');
 const { detectPython } = require('./prerequisites');
 const { providerLabel, providerLabelWithModel } = require('./provider');
 const { isOverBudget, recordCost } = require('./config');
@@ -320,10 +329,11 @@ function cmdWatch(cliProvider) {
       if (!fs.existsSync(tp)) continue;
       try {
         const content = fs.readFileSync(tp, 'utf-8');
-        const pattern = /^- \[([ x])\] .+<!-- notion:([a-f0-9-]+) -->/gm;
-        let match;
-        while ((match = pattern.exec(content)) !== null) {
-          statuses[match[2]] = match[1] === 'x';
+        const doneState = readTaskDoneSet(wsPath);
+        const tasks = extractTaskItems(content);
+        for (const task of tasks) {
+          if (!task.notionId) continue;
+          statuses[task.notionId] = task.checked || doneState.doneSet.has(task.key);
         }
       } catch {}
     }
@@ -412,7 +422,7 @@ function cmdWatch(cliProvider) {
 
     if (useParallel) {
       watchPushLog('SYSTEM', `${C.cyan}병렬 모드${C.reset}: ${workerNames.join(', ')}`);
-      const lines = ['# 작업 목록\n'];
+      const lines = ['# 작업 목록\n', 'task_queue.md는 backlog(읽기 전용)로 유지하세요.\n'];
       for (const [worker, wTasks] of Object.entries(workerGroups)) {
         lines.push(`## @worker ${worker}`);
         for (const t of wTasks) {
@@ -451,7 +461,9 @@ function cmdWatch(cliProvider) {
       for (const ws of workerStates) {
         const tp = path.join(ws.path, '.sleepcode', 'task_queue.md');
         if (fs.existsSync(tp)) {
-          const tc = countTasks(fs.readFileSync(tp, 'utf-8'));
+          const content = fs.readFileSync(tp, 'utf-8');
+          const doneState = readTaskDoneSet(ws.path, ws.doneFilePath);
+          const tc = countTasks(content, doneState.doneSet);
           ws.total = tc.total;
           ws.done = tc.done;
         }
@@ -476,7 +488,7 @@ function cmdWatch(cliProvider) {
       // 단일 모드
       const allTasks = Object.values(workerGroups).flat();
       watchPushLog('SYSTEM', `${C.cyan}단일 모드${C.reset}: ${allTasks.length}개 태스크`);
-      const lines = ['# 작업 목록\n', '아래 태스크를 순서대로 진행하세요.\n', '---\n'];
+      const lines = ['# 작업 목록\n', '아래 태스크를 순서대로 진행하세요. task_queue.md는 backlog(읽기 전용)로 유지하세요.\n', '---\n'];
       for (const t of allTasks) {
         lines.push(`- [ ] ${t.title} <!-- notion:${t.id} -->`);
       }
@@ -498,7 +510,9 @@ function cmdWatch(cliProvider) {
         logFile: path.join(logDir, `run_main_${timestamp}.log`),
       };
 
-      const tc = countTasks(fs.readFileSync(tasksPath, 'utf-8'));
+      const singleContent = fs.readFileSync(tasksPath, 'utf-8');
+      const singleDoneState = readTaskDoneSet(targetDir, ws.doneFilePath);
+      const tc = countTasks(singleContent, singleDoneState.doneSet);
       ws.total = tc.total;
       ws.done = tc.done;
 
@@ -518,43 +532,11 @@ function cmdWatch(cliProvider) {
   function finishExecution(notionTasks, schema, workerStates) {
     watchPushLog('SYSTEM', `${C.bold}실행 완료 — Notion 업데이트${C.reset}`);
 
-    // task_queue.md에서 완료 상태 확인 (notion page ID 매칭)
-    const taskCompletion = {};
+    // task_queue + task_done/<branch>.md에서 완료 상태 확인 (notion page ID 매칭)
     const workerPaths = (workerStates && workerStates.length > 0)
       ? workerStates.map(ws => ws.path)
       : [targetDir];
-
-    for (const wsPath of workerPaths) {
-      const tp = path.join(wsPath, '.sleepcode', 'task_queue.md');
-      if (!fs.existsSync(tp)) continue;
-      const content = fs.readFileSync(tp, 'utf-8');
-      const pattern = /^- \[([ x])\] .+<!-- notion:([a-f0-9-]+) -->/gm;
-      let match;
-      while ((match = pattern.exec(content)) !== null) {
-        taskCompletion[match[2]] = match[1] === 'x';
-      }
-    }
-
-    // git 커밋 기록에서 [x] 완료된 태스크 확인
-    if (execStartTime) {
-      const sinceISO = new Date(execStartTime - 5000).toISOString();
-      for (const wsPath of workerPaths) {
-        try {
-          const gitLog = execSync(
-            `git log --format= -p --since="${sinceISO}" -- ".sleepcode/task_queue.md"`,
-            { cwd: wsPath, stdio: 'pipe', timeout: 15000 }
-          ).toString();
-          for (const line of gitLog.split('\n')) {
-            if (line.startsWith('+') && !line.startsWith('+++') && line.includes('[x]')) {
-              const m = line.match(/notion:([a-f0-9-]+)/);
-              if (m && !taskCompletion[m[1]]) {
-                taskCompletion[m[1]] = true;
-              }
-            }
-          }
-        } catch {}
-      }
-    }
+    const taskCompletion = parseTaskStatuses(workerPaths);
 
     // 총 비용
     const totalCost = (workerStates && workerStates.length > 0)
@@ -725,7 +707,8 @@ function cmdWatch(cliProvider) {
         fs.writeFileSync(tp, content);
 
         // 워커 total 갱신
-        const tc = countTasks(content);
+        const doneState = readTaskDoneSet(ws.path, ws.doneFilePath);
+        const tc = countTasks(content, doneState.doneSet);
         ws.total = tc.total;
         ws.done = tc.done;
       } catch (e) {
@@ -741,7 +724,7 @@ function cmdWatch(cliProvider) {
         // 단일 모드에서 main이 아닌 새 워커 → 병렬로 전환해야 하므로 worktree 생성
         const timestamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
         const taskLines = tasks.map(t => `- [ ] ${t.title} <!-- notion:${t.id} -->`).join('\n');
-        const workerContent = `# 작업 목록\n\n## @worker ${workerName}\n${taskLines}\n`;
+        const workerContent = `# 작업 목록\n\ntask_queue.md는 backlog(읽기 전용)로 유지하세요.\n\n## @worker ${workerName}\n${taskLines}\n`;
 
         const workers = [{ name: workerName, tasks: workerContent, remaining: tasks.length }];
         const created = createWorktrees(targetDir, workers);
@@ -803,7 +786,8 @@ function cmdWatch(cliProvider) {
               if (Object.keys(props).length > 0) notionUpdatePage(task.id, props);
             }
             fs.writeFileSync(tp, content);
-            const tc = countTasks(content);
+            const doneState = readTaskDoneSet(ws.path, ws.doneFilePath);
+            const tc = countTasks(content, doneState.doneSet);
             ws.total = tc.total;
             ws.done = tc.done;
             watchPushLog('SYSTEM', `${C.yellow}↷${C.reset} worktree 생성 실패 → main에 ${tasks.length}개 태스크 추가`);
@@ -813,7 +797,7 @@ function cmdWatch(cliProvider) {
         // 이미 병렬 모드 → 새 worktree 생성
         const timestamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
         const taskLines = tasks.map(t => `- [ ] ${t.title} <!-- notion:${t.id} -->`).join('\n');
-        const workerContent = `# 작업 목록\n\n## @worker ${workerName}\n${taskLines}\n`;
+        const workerContent = `# 작업 목록\n\ntask_queue.md는 backlog(읽기 전용)로 유지하세요.\n\n## @worker ${workerName}\n${taskLines}\n`;
 
         const workers = [{ name: workerName, tasks: workerContent, remaining: tasks.length }];
         const created = createWorktrees(targetDir, workers);
@@ -952,7 +936,8 @@ function cmdWatch(cliProvider) {
       try {
         if (fs.existsSync(tp)) {
           const content = fs.readFileSync(tp, 'utf-8');
-          const tc = countTasks(content);
+          const doneState = readTaskDoneSet(ws.path, ws.doneFilePath);
+          const tc = countTasks(content, doneState.doneSet);
           ws.done = tc.done;
           ws.total = tc.total;
         }

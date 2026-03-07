@@ -33,6 +33,7 @@ function generateFiles(targetDir, { typeKey, projectName, role, buildCmd, testCm
   fs.mkdirSync(path.join(scDir, 'docs'), { recursive: true });
   fs.mkdirSync(path.join(scDir, 'scripts'), { recursive: true });
   fs.mkdirSync(path.join(scDir, 'logs'), { recursive: true });
+  fs.mkdirSync(path.join(scDir, 'task_done'), { recursive: true });
   fs.mkdirSync(claudeDir, { recursive: true });
 
   // 스크립트 파일 → scripts/ 하위로 복사 (OS별 분기)
@@ -102,8 +103,10 @@ function generateFiles(targetDir, { typeKey, projectName, role, buildCmd, testCm
 
   // docs/.gitkeep
   writeFile(path.join(scDir, 'docs', '.gitkeep'), '');
+  writeFile(path.join(scDir, 'task_done', '.gitkeep'), '');
+  writeFile(path.join(scDir, 'task_done', 'main.md'), '# 완료 기록\n\n');
 
-  // task_queue.md는 Notion에서 동적으로 생성됨 (로컬 기본 템플릿 폐기)
+  // task_queue.md는 backlog(읽기 전용)로 Notion에서 동적으로 생성됨
 
   // rules.md
   const rulesTemplate = path.join(TEMPLATES_DIR, 'rules', `${typeKey}.md`);
@@ -163,6 +166,7 @@ function printResult(notionDbId) {
     console.log(`  ${C.green}✓${C.reset} .sleepcode/scripts/encoding_bootstrap.ps1`);
   }
   console.log(`  ${C.green}✓${C.reset} .sleepcode/scripts/log_filter.py`);
+  console.log(`  ${C.green}✓${C.reset} .sleepcode/task_done/main.md   ${C.dim}← 완료 로그(append-only)${C.reset}`);
   console.log(`  ${C.green}✓${C.reset} .sleepcode/README.md`);
   console.log(`  ${C.green}✓${C.reset} .claude/settings.local.json`);
   console.log(`  ${C.green}✓${C.reset} CLAUDE.md                    ${C.dim}← 프롬프트 캐싱 (자동 생성)${C.reset}`);

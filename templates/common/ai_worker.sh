@@ -69,19 +69,36 @@ echo "[$(date '+%Y-%m-%d %H:%M:%S')] AI single run start (provider: $PROVIDER)"
   fi
 }
 
+BRANCH_NAME="$(git rev-parse --abbrev-ref HEAD 2>/dev/null || printf 'main')"
+[ -z "$BRANCH_NAME" ] && BRANCH_NAME="main"
+[ "$BRANCH_NAME" = "HEAD" ] && BRANCH_NAME="main"
+SAFE_BRANCH="$(printf '%s' "$BRANCH_NAME" | sed -E 's/[^A-Za-z0-9._-]+/_/g')"
+DONE_FILE=".sleepcode/task_done/${SAFE_BRANCH}.md"
+
+MERGED_PROMPT_FILE="$(mktemp)"
+cat .sleepcode/task_queue.md > "$MERGED_PROMPT_FILE"
+printf '\n\n---\n\n' >> "$MERGED_PROMPT_FILE"
+if [ -f "$DONE_FILE" ]; then
+  cat "$DONE_FILE" >> "$MERGED_PROMPT_FILE"
+else
+  printf '# 완료 기록\n\n' >> "$MERGED_PROMPT_FILE"
+fi
+
 if [ "$PROVIDER" = "codex" ]; then
   TMP_PROMPT="$(mktemp)"
-  build_codex_prompt_file ".sleepcode/task_queue.md" "$TMP_PROMPT"
+  build_codex_prompt_file "$MERGED_PROMPT_FILE" "$TMP_PROMPT"
   cat "$TMP_PROMPT" | codex exec --json --dangerously-bypass-approvals-and-sandbox - 2>&1 \
     | python3 .sleepcode/scripts/log_filter.py
   EXIT_CODE=${PIPESTATUS[0]}
   rm -f "$TMP_PROMPT"
 else
-  PROMPT=$(cat .sleepcode/task_queue.md)
+  PROMPT=$(cat "$MERGED_PROMPT_FILE")
   claude -p "$PROMPT" --dangerously-skip-permissions --output-format stream-json --verbose 2>&1 \
     | python3 .sleepcode/scripts/log_filter.py
   EXIT_CODE=${PIPESTATUS[0]}
 fi
+
+rm -f "$MERGED_PROMPT_FILE"
 
 echo "[$(date '+%Y-%m-%d %H:%M:%S')] provider exit code: $EXIT_CODE"
 echo "[$(date '+%Y-%m-%d %H:%M:%S')] AI single run end"

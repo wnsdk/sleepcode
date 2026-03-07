@@ -26,6 +26,8 @@ claude --dangerously-skip-permissions
 - [ ] 홈 화면 UI 개선
 ```
 
+`task_queue.md`는 backlog(읽기 전용)로 유지하고, 완료 기록은 `.sleepcode/task_done/<branch>.md`에 `- [x] ...` 형태로 append-only로 남기세요.
+
 ### 3. 실행
 
 ```bash
@@ -123,7 +125,9 @@ npx sleepcode usage
 ```
 .sleepcode/
   rules.md           # AI 역할 + 작업 규칙 (수정하세요)
-  task_queue.md           # 오늘 진행할 작업 목록 (수정하세요)
+  task_queue.md      # 오늘 진행할 작업 backlog (읽기 전용)
+  task_done/         # 완료 로그 (append-only, 브랜치별 파일)
+    main.md
   docs/              # 개발 참고 자료 (피그마 스크린샷, 기획서 등)
   config.json        # 주간 예산 설정 (budget 설정 시)
   scripts/           # 시스템 (수정하지 마세요)
@@ -138,7 +142,7 @@ npx sleepcode usage
 ## 작동 원리
 
 ```
-rules.md + task_queue.md → 프롬프트 조합 → claude -p → 코드 작성 → git commit → 반복
+rules.md + task_queue.md(+ task_done/*.md) → 프롬프트 조합 → claude/codex 실행 → 코드 작성 → git commit → 반복
 ```
 
 ---
@@ -146,6 +150,7 @@ rules.md + task_queue.md → 프롬프트 조합 → claude -p → 코드 작성
 ## 커스터마이징
 
 - **역할/규칙 변경**: `.sleepcode/rules.md` 수정
-- **태스크 변경**: `.sleepcode/task_queue.md` 수정
+- **태스크 backlog 변경**: `.sleepcode/task_queue.md` 수정
+- **완료 기록 확인**: `.sleepcode/task_done/*.md` 확인
 - **참고 자료 추가**: `.sleepcode/docs/` 에 파일 추가
 - **주간 예산 변경**: `.sleepcode/config.json` 수정

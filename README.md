@@ -40,6 +40,9 @@ npx sleepcode run      # 실행
 - [ ] 홈 화면 UI 개선
 ```
 
+`task_queue.md`는 backlog(읽기 전용)로 유지하고, 완료 체크는 `.sleepcode/task_done/<branch>.md`에 append-only로 기록합니다.
+브랜치별 파일을 사용하면 병렬 브랜치 머지 시 `task_queue.md` 충돌을 피할 수 있습니다.
+
 ---
 
 ## 병렬 실행
@@ -205,7 +208,9 @@ npx sleepcode --type react-native --name my-app --role "쇼핑몰 앱 개발"
 ```
 .sleepcode/
   rules.md               # ✏️ AI 역할 + 작업 규칙 (수정하세요)
-  task_queue.md               # ✏️ 작업 목록 (수정하세요)
+  task_queue.md          # ✏️ 작업 backlog (읽기 전용)
+  task_done/             # ✏️ 완료 로그 (append-only, 브랜치별 파일)
+    main.md
   docs/                  # ✏️ 참고 자료 (피그마 스크린샷, 기획서 등)
   config.json            # ⚙️ 주간 예산 설정 (budget 설정 시)
   usage.json             # ⚙️ 사용량 추적 (자동 생성, gitignored)
@@ -228,7 +233,7 @@ npx sleepcode --type react-native --name my-app --role "쇼핑몰 앱 개발"
 ### 기본 모드
 
 ```
-rules.md + task_queue.md → 프롬프트 조합 → claude -p → 코드 작성 → git commit → 반복
+rules.md + task_queue.md(+ task_done/*.md) → 프롬프트 조합 → claude/codex 실행 → 코드 작성 → git commit → 반복
 ```
 
 ### 병렬 모드
@@ -344,7 +349,8 @@ sleepcode는 난이도에 따라 모델을 자동 선택하므로, 단순 작업
 ## 커스터마이징
 
 - **AI 역할/규칙 변경**: `.sleepcode/rules.md` 수정
-- **작업 목록 변경**: `.sleepcode/task_queue.md` 수정 (또는 Notion DB에서 관리)
+- **작업 backlog 변경**: `.sleepcode/task_queue.md` 수정 (또는 Notion DB에서 관리)
+- **완료 기록 확인**: `.sleepcode/task_done/*.md` 확인
 - **참고 자료 추가**: `.sleepcode/docs/`에 파일 추가
 - **주간 예산 변경**: `.sleepcode/config.json` 수정
 

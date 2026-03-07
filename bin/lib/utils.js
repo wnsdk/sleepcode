@@ -1,5 +1,11 @@
 const fs = require('fs');
+const path = require('path');
+const { execSync } = require('child_process');
 const { C } = require('./constants');
+
+const TASK_LINE_RE = /^- \[([ xX])\]\s+(.+?)\s*$/;
+const DONE_LINE_RE = /^- \[x\]\s+(.+?)\s*$/i;
+const NOTION_TAG_RE = /\s*<!--\s*notion:([a-f0-9-]+)\s*-->\s*$/i;
 
 // ─── 유틸 ───
 function ask(rl, question, defaultVal) {
@@ -64,45 +70,146 @@ function loadEnvFileToProcessEnv(envPath) {
 }
 
 function writeFile(filePath, content) {
-  const path = require('path');
   const dir = path.dirname(filePath);
   fs.mkdirSync(dir, { recursive: true });
   fs.writeFileSync(filePath, content);
 }
 
-/** task_queue.md에서 코드 블록 내부를 제외한 실제 태스크만 카운트 */
-function countTasks(content) {
+function normalizeTaskTitle(title) {
+  return String(title || '').replace(/\s+/g, ' ').trim().toLowerCase();
+}
+
+function sanitizeBranchName(branch) {
+  const safe = String(branch || '').trim().replace(/[^a-zA-Z0-9._-]+/g, '_');
+  return safe || 'main';
+}
+
+function getCurrentBranchName(targetDir) {
+  try {
+    const branch = execSync('git rev-parse --abbrev-ref HEAD', {
+      cwd: targetDir,
+      stdio: ['ignore', 'pipe', 'ignore'],
+    }).toString().trim();
+    if (branch && branch !== 'HEAD') return branch;
+  } catch {}
+  return 'main';
+}
+
+function getTaskDoneFilePath(targetDir, branchName) {
+  const branch = sanitizeBranchName(branchName || getCurrentBranchName(targetDir));
+  return path.join(targetDir, '.sleepcode', 'task_done', `${branch}.md`);
+}
+
+function parseTaskBody(taskBody) {
+  const src = String(taskBody || '').trim();
+  if (!src) return null;
+  const notionMatch = src.match(NOTION_TAG_RE);
+  const notionId = notionMatch ? notionMatch[1].toLowerCase() : null;
+  const title = notionMatch ? src.slice(0, notionMatch.index).trim() : src;
+  if (!title) return null;
+  return { title, notionId };
+}
+
+function buildTaskKey(title, notionId) {
+  if (notionId) return `notion:${String(notionId).toLowerCase()}`;
+  return `title:${normalizeTaskTitle(title)}`;
+}
+
+function extractTaskItems(content) {
+  const items = [];
   const lines = content.split('\n');
+  let lineNo = 0;
   let inCodeBlock = false;
-  let done = 0;
-  let pending = 0;
+
   for (const line of lines) {
+    lineNo += 1;
     if (line.trimStart().startsWith('```')) {
       inCodeBlock = !inCodeBlock;
       continue;
     }
     if (inCodeBlock) continue;
-    if (/^- \[x\]/i.test(line.trimStart())) done++;
-    else if (/^- \[ \]/.test(line.trimStart())) pending++;
+    const trimmed = line.trimStart();
+    const match = trimmed.match(TASK_LINE_RE);
+    if (!match) continue;
+    const parsed = parseTaskBody(match[2]);
+    if (!parsed) continue;
+    items.push({
+      lineNo,
+      checked: match[1].toLowerCase() === 'x',
+      title: parsed.title,
+      notionId: parsed.notionId,
+      key: buildTaskKey(parsed.title, parsed.notionId),
+      raw: trimmed,
+    });
+  }
+
+  return items;
+}
+
+function readTaskDoneSet(targetDir, doneFilePath) {
+  const donePath = doneFilePath || getTaskDoneFilePath(targetDir);
+  const doneSet = new Set();
+
+  if (!fs.existsSync(donePath)) {
+    return { doneFilePath: donePath, doneSet };
+  }
+
+  const lines = fs.readFileSync(donePath, 'utf-8').split('\n');
+  for (const line of lines) {
+    const trimmed = line.trimStart();
+    const match = trimmed.match(DONE_LINE_RE);
+    if (!match) continue;
+    const parsed = parseTaskBody(match[1]);
+    if (!parsed) continue;
+    doneSet.add(buildTaskKey(parsed.title, parsed.notionId));
+  }
+
+  return { doneFilePath: donePath, doneSet };
+}
+
+function ensureTaskDoneFile(doneFilePath) {
+  if (fs.existsSync(doneFilePath)) return;
+  fs.mkdirSync(path.dirname(doneFilePath), { recursive: true });
+  fs.writeFileSync(doneFilePath, '# 완료 기록\n\n');
+}
+
+function appendTaskDone(targetDir, taskEntry, doneFilePath) {
+  if (!taskEntry || !taskEntry.title) return false;
+  const state = readTaskDoneSet(targetDir, doneFilePath);
+  if (state.doneSet.has(taskEntry.key)) return false;
+
+  ensureTaskDoneFile(state.doneFilePath);
+  const notionTag = taskEntry.notionId ? ` <!-- notion:${taskEntry.notionId} -->` : '';
+  fs.appendFileSync(state.doneFilePath, `- [x] ${taskEntry.title}${notionTag}\n`);
+  return true;
+}
+
+/** task_queue.md에서 코드 블록 내부를 제외한 실제 태스크만 카운트 */
+function countTasks(content, doneSet = null) {
+  const items = extractTaskItems(content);
+  let done = 0;
+  let pending = 0;
+  for (const task of items) {
+    if (task.checked || (doneSet && doneSet.has(task.key))) done++;
+    else pending++;
   }
   return { done, total: done + pending };
 }
 
 /** task_queue.md에서 첫 번째 미완료 태스크의 텍스트를 반환. 없으면 null */
-function getNextPendingTask(content) {
-  const lines = content.split('\n');
-  let inCodeBlock = false;
-  for (const line of lines) {
-    if (line.trimStart().startsWith('```')) {
-      inCodeBlock = !inCodeBlock;
-      continue;
-    }
-    if (inCodeBlock) continue;
-    if (/^- \[ \]/.test(line.trimStart())) {
-      return line.trimStart().replace(/^- \[ \]\s*/, '');
-    }
+function getNextPendingTaskEntry(content, doneSet = null) {
+  const items = extractTaskItems(content);
+  for (const task of items) {
+    if (task.checked) continue;
+    if (doneSet && doneSet.has(task.key)) continue;
+    return task;
   }
   return null;
+}
+
+function getNextPendingTask(content, doneSet = null) {
+  const entry = getNextPendingTaskEntry(content, doneSet);
+  return entry ? entry.title : null;
 }
 
 /** ANSI 이스케이프 코드를 제거한 문자열 반환 */
@@ -162,7 +269,17 @@ module.exports = {
   parseEnvFile,
   loadEnvFileToProcessEnv,
   writeFile,
+  normalizeTaskTitle,
+  sanitizeBranchName,
+  getCurrentBranchName,
+  getTaskDoneFilePath,
+  parseTaskBody,
+  buildTaskKey,
+  extractTaskItems,
+  readTaskDoneSet,
+  appendTaskDone,
   countTasks,
+  getNextPendingTaskEntry,
   getNextPendingTask,
   stripAnsi,
   visualWidth,

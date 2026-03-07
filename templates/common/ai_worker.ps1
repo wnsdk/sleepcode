@@ -66,7 +66,13 @@ if ($baseRules -or $rules) {
 }
 
 $tasksPrompt = Get-Content .sleepcode/task_queue.md -Raw -Encoding UTF8
-$stdinPrompt = if ($providerName -eq 'codex') { Build-CodexPrompt $tasksPrompt } else { $tasksPrompt }
+$branchName = (git rev-parse --abbrev-ref HEAD 2>$null).Trim()
+if (-not $branchName -or $branchName -eq 'HEAD') { $branchName = 'main' }
+$safeBranch = [Regex]::Replace($branchName, '[^A-Za-z0-9._-]', '_')
+$doneFile = ".sleepcode/task_done/$safeBranch.md"
+$donePrompt = if (Test-Path $doneFile) { Get-Content $doneFile -Raw -Encoding UTF8 } else { "# 완료 기록`n`n" }
+$combinedPrompt = "$tasksPrompt`n`n---`n`n$donePrompt"
+$stdinPrompt = if ($providerName -eq 'codex') { Build-CodexPrompt $combinedPrompt } else { $combinedPrompt }
 
 $tempFile = [System.IO.Path]::GetTempFileName()
 [System.IO.File]::WriteAllText($tempFile, $stdinPrompt, [System.Text.Encoding]::UTF8)

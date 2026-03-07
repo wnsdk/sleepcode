@@ -2,7 +2,15 @@ const fs = require('fs');
 const path = require('path');
 const { spawn } = require('child_process');
 const { C, PROVIDERS } = require('./constants');
-const { countTasks, getNextPendingTask, visualWidth } = require('./utils');
+const {
+  countTasks,
+  getNextPendingTask,
+  getNextPendingTaskEntry,
+  getTaskDoneFilePath,
+  readTaskDoneSet,
+  appendTaskDone,
+  visualWidth,
+} = require('./utils');
 const { isProviderAvailable, resolveProviderPlan, providerLabel, otherProvider, getProviderRunCommand, buildExecutionPrompt, assessTaskDifficulty } = require('./provider');
 const { recordCost } = require('./config');
 const { syncClaudeMd } = require('./files');
@@ -79,7 +87,8 @@ function processStreamEvent(ws, obj, onUpdate, pushLog) {
     const tasksPath2 = path.join(ws.path, '.sleepcode', 'task_queue.md');
     if (fs.existsSync(tasksPath2)) {
       const content = fs.readFileSync(tasksPath2, 'utf-8');
-      const tc = countTasks(content);
+      const doneState = readTaskDoneSet(ws.path, ws.doneFilePath);
+      const tc = countTasks(content, doneState.doneSet);
       ws.done = tc.done;
       ws.total = tc.total;
     }
@@ -131,6 +140,19 @@ function spawnWorker(ws, py, onDone, onUpdate, pushLog, cliProvider) {
   syncClaudeMd(wtDir);
 
   const tasksPath = path.join(wtDir, '.sleepcode', 'task_queue.md');
+  ws.doneFilePath = ws.doneFilePath || getTaskDoneFilePath(wtDir);
+  const readDoneLogText = () => {
+    if (fs.existsSync(ws.doneFilePath)) {
+      return fs.readFileSync(ws.doneFilePath, 'utf-8');
+    }
+    return '# 완료 기록\n\n';
+  };
+  const buildTaskPrompt = (queueText) => {
+    const q = String(queueText || '').trimEnd();
+    const doneLog = readDoneLogText().trimEnd();
+    if (!doneLog) return q;
+    return `${q}\n\n---\n\n${doneLog}\n`;
+  };
 
   const logStream = fs.createWriteStream(ws.logFile, { flags: 'a' });
   const logLine = (msg) => logStream.write(`[${new Date().toISOString()}] ${msg}\n`);
@@ -145,7 +167,8 @@ function spawnWorker(ws, py, onDone, onUpdate, pushLog, cliProvider) {
 
     if (fs.existsSync(tasksPath)) {
       const content = fs.readFileSync(tasksPath, 'utf-8');
-      const tc = countTasks(content);
+      const doneState = readTaskDoneSet(wtDir, ws.doneFilePath);
+      const tc = countTasks(content, doneState.doneSet);
       ws.done = tc.done;
       ws.total = tc.total;
     }
@@ -158,9 +181,9 @@ function spawnWorker(ws, py, onDone, onUpdate, pushLog, cliProvider) {
 
   /** 태스크 1개를 실행하는 내부 함수. 완료 후 다음 태스크가 있으면 재귀 호출. */
   function runNextTask() {
-    const prompt = fs.existsSync(tasksPath) ? fs.readFileSync(tasksPath, 'utf-8') : '';
+    const taskQueueText = fs.existsSync(tasksPath) ? fs.readFileSync(tasksPath, 'utf-8') : '';
 
-    if (!prompt.trim()) {
+    if (!taskQueueText.trim()) {
       pushLog(ws.name, `${C.red}[ERROR] task prompt is empty (.sleepcode/task_queue.md).${C.reset}`);
       ws.status = 'failed';
       ws.currentTask = 'task prompt is empty';
@@ -171,8 +194,10 @@ function spawnWorker(ws, py, onDone, onUpdate, pushLog, cliProvider) {
     }
 
     // 미완료 태스크가 없으면 완료 처리
-    const nextTask = getNextPendingTask(prompt);
-    if (!nextTask) {
+    const doneState = readTaskDoneSet(wtDir, ws.doneFilePath);
+    const nextTaskEntry = getNextPendingTaskEntry(taskQueueText, doneState.doneSet);
+    const nextTask = nextTaskEntry ? nextTaskEntry.title : null;
+    if (!nextTaskEntry) {
       finalize(0);
       return;
     }
@@ -215,14 +240,14 @@ function spawnWorker(ws, py, onDone, onUpdate, pushLog, cliProvider) {
     logLine(`=== Task start (provider: ${ws.provider}, model: ${ws.model || 'default'}, difficulty: ${ws.difficulty || 'N/A'}) task: ${nextTask} ===`);
 
     const promptsByProvider = {
-      [PROVIDERS.CLAUDE]: prompt,
-      [PROVIDERS.CODEX]: buildExecutionPrompt(wtDir, prompt, PROVIDERS.CODEX),
+      [PROVIDERS.CLAUDE]: buildTaskPrompt(taskQueueText),
+      [PROVIDERS.CODEX]: buildExecutionPrompt(wtDir, buildTaskPrompt(taskQueueText), PROVIDERS.CODEX),
     };
 
     function runAttempt(provider, allowFallback) {
       ws.provider = provider;
       const invoke = getProviderRunCommand(provider, false, ws.model);
-      const stdinPrompt = promptsByProvider[provider] || prompt;
+      const stdinPrompt = promptsByProvider[provider] || buildTaskPrompt(taskQueueText);
 
       const proc = spawn(invoke.command, invoke.args, {
         cwd: wtDir,
@@ -281,13 +306,27 @@ function spawnWorker(ws, py, onDone, onUpdate, pushLog, cliProvider) {
         // 태스크 완료 여부 확인 후 다음 태스크로 이동
         if (fs.existsSync(tasksPath)) {
           const updatedContent = fs.readFileSync(tasksPath, 'utf-8');
-          const tc = countTasks(updatedContent);
+          let updatedDoneState = readTaskDoneSet(wtDir, ws.doneFilePath);
+
+          // 모델이 task_queue 체크박스를 업데이트하지 않은 경우에도 append-only 완료 로그로 진행
+          if (code === 0 && nextTaskEntry) {
+            const firstPending = getNextPendingTaskEntry(updatedContent, updatedDoneState.doneSet);
+            if (firstPending && firstPending.key === nextTaskEntry.key) {
+              const appended = appendTaskDone(wtDir, nextTaskEntry, ws.doneFilePath);
+              if (appended) {
+                pushLog(ws.name, `${C.green}[DONELOG]${C.reset} ${nextTaskEntry.title}`);
+                updatedDoneState = readTaskDoneSet(wtDir, ws.doneFilePath);
+              }
+            }
+          }
+
+          const tc = countTasks(updatedContent, updatedDoneState.doneSet);
           ws.done = tc.done;
           ws.total = tc.total;
           onUpdate();
 
           // 미완료 태스크가 남아있으면 다음 태스크 실행 (provider 재선택)
-          const remaining = getNextPendingTask(updatedContent);
+          const remaining = getNextPendingTask(updatedContent, updatedDoneState.doneSet);
           if (remaining && code === 0) {
             pushLog(ws.name, `${C.cyan}[NEXT]${C.reset} 다음 태스크로 이동`);
             runNextTask();

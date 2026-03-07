@@ -16,7 +16,7 @@ claude --dangerously-skip-permissions
 
 ### 2. 작업 목록 작성
 
-`.sleepcode/tasks.md`:
+`.sleepcode/task_queue.md`:
 
 ```markdown
 # 작업 목록
@@ -35,10 +35,10 @@ npx sleepcode run
 
 ### 4. 병렬 실행 (여러 기능 동시 개발)
 
-`tasks.md`에 `@worker`로 워커별 태스크를 나누면 여러 기능을 동시에 개발할 수 있습니다.
+`task_queue.md`에 `@worker`로 워커별 태스크를 나누면 여러 기능을 동시에 개발할 수 있습니다.
 각 워커가 독립된 git worktree에서 작업하므로 충돌 없이 동시에 진행됩니다.
 
-**tasks.md 작성:**
+**task_queue.md 작성:**
 
 ```markdown
 ## @worker feature-auth
@@ -123,7 +123,7 @@ npx sleepcode usage
 ```
 .sleepcode/
   rules.md           # AI 역할 + 작업 규칙 (수정하세요)
-  tasks.md           # 오늘 진행할 작업 목록 (수정하세요)
+  task_queue.md           # 오늘 진행할 작업 목록 (수정하세요)
   docs/              # 개발 참고 자료 (피그마 스크린샷, 기획서 등)
   config.json        # 주간 예산 설정 (budget 설정 시)
   scripts/           # 시스템 (수정하지 마세요)
@@ -138,7 +138,7 @@ npx sleepcode usage
 ## 작동 원리
 
 ```
-rules.md + tasks.md → 프롬프트 조합 → claude -p → 코드 작성 → git commit → 반복
+rules.md + task_queue.md → 프롬프트 조합 → claude -p → 코드 작성 → git commit → 반복
 ```
 
 ---
@@ -146,6 +146,6 @@ rules.md + tasks.md → 프롬프트 조합 → claude -p → 코드 작성 → 
 ## 커스터마이징
 
 - **역할/규칙 변경**: `.sleepcode/rules.md` 수정
-- **태스크 변경**: `.sleepcode/tasks.md` 수정
+- **태스크 변경**: `.sleepcode/task_queue.md` 수정
 - **참고 자료 추가**: `.sleepcode/docs/` 에 파일 추가
 - **주간 예산 변경**: `.sleepcode/config.json` 수정

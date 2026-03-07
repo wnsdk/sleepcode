@@ -6,7 +6,7 @@ const { writeFile } = require('./utils');
 /**
  * CLAUDE.md 동기화: base_rules.md + rules.md → 프로젝트 루트 CLAUDE.md
  * Claude CLI가 CLAUDE.md를 시스템 프롬프트로 자동 로드하며, 프롬프트 캐싱 적용됨.
- * -p 프롬프트에는 tasks.md만 전달하여 토큰 절약.
+ * -p 프롬프트에는 task_queue.md만 전달하여 토큰 절약.
  */
 function syncClaudeMd(targetDir) {
   const scDir = path.join(targetDir, '.sleepcode');
@@ -103,7 +103,7 @@ function generateFiles(targetDir, { typeKey, projectName, role, buildCmd, testCm
   // docs/.gitkeep
   writeFile(path.join(scDir, 'docs', '.gitkeep'), '');
 
-  // tasks.md는 Notion에서 동적으로 생성됨 (로컬 기본 템플릿 폐기)
+  // task_queue.md는 Notion에서 동적으로 생성됨 (로컬 기본 템플릿 폐기)
 
   // rules.md
   const rulesTemplate = path.join(TEMPLATES_DIR, 'rules', `${typeKey}.md`);

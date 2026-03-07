@@ -65,7 +65,7 @@ if ($baseRules -or $rules) {
     [System.IO.File]::WriteAllText('CLAUDE.md', $claudeMd, [System.Text.Encoding]::UTF8)
 }
 
-$tasksPrompt = Get-Content .sleepcode/tasks.md -Raw -Encoding UTF8
+$tasksPrompt = Get-Content .sleepcode/task_queue.md -Raw -Encoding UTF8
 $stdinPrompt = if ($providerName -eq 'codex') { Build-CodexPrompt $tasksPrompt } else { $tasksPrompt }
 
 $tempFile = [System.IO.Path]::GetTempFileName()

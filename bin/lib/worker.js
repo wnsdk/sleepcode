@@ -76,7 +76,7 @@ function processStreamEvent(ws, obj, onUpdate, pushLog) {
       if (ws.targetDir) recordCost(ws.targetDir, cost, 'parallel', ws.name);
     }
 
-    const tasksPath2 = path.join(ws.path, '.sleepcode', 'tasks.md');
+    const tasksPath2 = path.join(ws.path, '.sleepcode', 'task_queue.md');
     if (fs.existsSync(tasksPath2)) {
       const content = fs.readFileSync(tasksPath2, 'utf-8');
       const tc = countTasks(content);
@@ -130,7 +130,7 @@ function spawnWorker(ws, py, onDone, onUpdate, pushLog, cliProvider) {
   const wtDir = ws.path;
   syncClaudeMd(wtDir);
 
-  const tasksPath = path.join(wtDir, '.sleepcode', 'tasks.md');
+  const tasksPath = path.join(wtDir, '.sleepcode', 'task_queue.md');
 
   const logStream = fs.createWriteStream(ws.logFile, { flags: 'a' });
   const logLine = (msg) => logStream.write(`[${new Date().toISOString()}] ${msg}\n`);
@@ -161,7 +161,7 @@ function spawnWorker(ws, py, onDone, onUpdate, pushLog, cliProvider) {
     const prompt = fs.existsSync(tasksPath) ? fs.readFileSync(tasksPath, 'utf-8') : '';
 
     if (!prompt.trim()) {
-      pushLog(ws.name, `${C.red}[ERROR] task prompt is empty (.sleepcode/tasks.md).${C.reset}`);
+      pushLog(ws.name, `${C.red}[ERROR] task prompt is empty (.sleepcode/task_queue.md).${C.reset}`);
       ws.status = 'failed';
       ws.currentTask = 'task prompt is empty';
       onUpdate();

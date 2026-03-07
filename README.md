@@ -25,12 +25,12 @@ npx sleepcode run      # 실행
 ```
 
 1. 프로젝트 루트에서 `npx sleepcode` → 인터랙티브 초기화
-2. `.sleepcode/tasks.md`에 작업 목록 작성 (또는 Notion DB에서 관리)
+2. `.sleepcode/task_queue.md`에 작업 목록 작성 (또는 Notion DB에서 관리)
 3. `npx sleepcode run` → AI가 태스크를 순서대로 수행
 
-### tasks.md 작성
+### task_queue.md 작성
 
-`.sleepcode/tasks.md`:
+`.sleepcode/task_queue.md`:
 
 ```markdown
 # 작업 목록
@@ -46,7 +46,7 @@ npx sleepcode run      # 실행
 
 여러 기능을 동시에 개발합니다. 각 워커가 독립된 git worktree에서 작업하므로 충돌 없이 동시 진행됩니다.
 
-`tasks.md`에 `@worker`로 워커별 태스크를 나눕니다:
+`task_queue.md`에 `@worker`로 워커별 태스크를 나눕니다:
 
 ```markdown
 ## @worker feature-auth
@@ -205,7 +205,7 @@ npx sleepcode --type react-native --name my-app --role "쇼핑몰 앱 개발"
 ```
 .sleepcode/
   rules.md               # ✏️ AI 역할 + 작업 규칙 (수정하세요)
-  tasks.md               # ✏️ 작업 목록 (수정하세요)
+  task_queue.md               # ✏️ 작업 목록 (수정하세요)
   docs/                  # ✏️ 참고 자료 (피그마 스크린샷, 기획서 등)
   config.json            # ⚙️ 주간 예산 설정 (budget 설정 시)
   usage.json             # ⚙️ 사용량 추적 (자동 생성, gitignored)
@@ -228,19 +228,19 @@ npx sleepcode --type react-native --name my-app --role "쇼핑몰 앱 개발"
 ### 기본 모드
 
 ```
-rules.md + tasks.md → 프롬프트 조합 → claude -p → 코드 작성 → git commit → 반복
+rules.md + task_queue.md → 프롬프트 조합 → claude -p → 코드 작성 → git commit → 반복
 ```
 
 ### 병렬 모드
 
 ```
-tasks.md → @worker별 분리 → git worktree 생성 → 동시 실행 → 완료 후 머지
+task_queue.md → @worker별 분리 → git worktree 생성 → 동시 실행 → 완료 후 머지
 ```
 
 ### Notion 동기화
 
 ```
-[Notion DB] ──pull──→ [tasks.md] ──prompt──→ [Claude] ──완료──→ [tasks.md] ──push──→ [Notion DB]
+[Notion DB] ──pull──→ [task_queue.md] ──prompt──→ [Claude] ──완료──→ [task_queue.md] ──push──→ [Notion DB]
 ```
 
 ### 실시간 로그
@@ -344,7 +344,7 @@ sleepcode는 난이도에 따라 모델을 자동 선택하므로, 단순 작업
 ## 커스터마이징
 
 - **AI 역할/규칙 변경**: `.sleepcode/rules.md` 수정
-- **작업 목록 변경**: `.sleepcode/tasks.md` 수정 (또는 Notion DB에서 관리)
+- **작업 목록 변경**: `.sleepcode/task_queue.md` 수정 (또는 Notion DB에서 관리)
 - **참고 자료 추가**: `.sleepcode/docs/`에 파일 추가
 - **주간 예산 변경**: `.sleepcode/config.json` 수정
 

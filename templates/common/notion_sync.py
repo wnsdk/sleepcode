@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 """
-Notion DB ↔ tasks.md 동기화 스크립트.
+Notion DB ↔ task_queue.md 동기화 스크립트.
 Usage:
-  python3 .sleepcode/notion_sync.py pull   # Notion → tasks.md
-  python3 .sleepcode/notion_sync.py push   # tasks.md → Notion
+  python3 .sleepcode/notion_sync.py pull   # Notion → task_queue.md
+  python3 .sleepcode/notion_sync.py push   # task_queue.md → Notion
 """
 
 import json
@@ -23,7 +23,7 @@ if sys.platform == "win32":
     if hasattr(sys.stderr, "reconfigure"):
         sys.stderr.reconfigure(encoding="utf-8")
 
-TASKS_FILE = ".sleepcode/tasks.md"
+TASKS_FILE = ".sleepcode/task_queue.md"
 STATE_FILE = ".sleepcode/.notion_state.json"
 NOTION_API = "https://api.notion.com/v1"
 NOTION_VERSION = "2022-06-28"
@@ -291,7 +291,7 @@ def poll(api_key, db_id, notion_filter=None):
 
 
 def enqueue(api_key, db_id, notion_filter=None):
-    """Run 체크된 신규 태스크를 tasks.md 실행 대기열에 추가"""
+    """Run 체크된 신규 태스크를 task_queue.md 실행 대기열에 추가"""
     result = poll_tasks(api_key, db_id, notion_filter)
     if not result:
         return False
@@ -470,10 +470,10 @@ def append_content(api_key, page_id):
 
 
 def get_commit_time_for_task(page_id, cwd=None):
-    """tasks.md에서 특정 태스크가 [x]로 표시된 git commit의 ISO 타임스탬프를 반환"""
+    """task_queue.md에서 특정 태스크가 [x]로 표시된 git commit의 ISO 타임스탬프를 반환"""
     try:
         result = subprocess.run(
-            ["git", "log", "--format=COMMIT %aI", "-p", "--", ".sleepcode/tasks.md"],
+            ["git", "log", "--format=COMMIT %aI", "-p", "--", ".sleepcode/task_queue.md"],
             capture_output=True,
             text=True,
             cwd=cwd or ".",
@@ -497,7 +497,7 @@ def get_commit_time_for_task(page_id, cwd=None):
         return None
 
 
-# ─── PULL: Notion → tasks.md ───
+# ─── PULL: Notion → task_queue.md ───
 
 
 def pull(api_key, db_id, notion_filter=None, status_prop_name=None, status_type_name=None):
@@ -532,7 +532,7 @@ def pull(api_key, db_id, notion_filter=None, status_prop_name=None, status_type_
         has_more = result.get("has_more", False)
         start_cursor = result.get("next_cursor")
 
-    # tasks.md 생성
+    # task_queue.md 생성
     lines = [
         "# 작업 목록\n",
         "아래 태스크를 순서대로 진행하세요. 완료한 항목은 `[x]`로 체크하세요.\n",
@@ -561,7 +561,7 @@ def pull(api_key, db_id, notion_filter=None, status_prop_name=None, status_type_
     print(f"[notion_sync] pull 완료: {total}개 태스크 ({done_count}개 완료)")
 
 
-# ─── PUSH: tasks.md → Notion ───
+# ─── PUSH: task_queue.md → Notion ───
 
 
 def push(api_key, db_id):
@@ -585,7 +585,7 @@ def push(api_key, db_id):
         with open(STATE_FILE, "r", encoding="utf-8") as f:
             prev_state = json.load(f)
 
-    # tasks.md 파싱
+    # task_queue.md 파싱
     if not os.path.exists(TASKS_FILE):
         return
 

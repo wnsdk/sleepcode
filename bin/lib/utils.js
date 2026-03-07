@@ -70,7 +70,7 @@ function writeFile(filePath, content) {
   fs.writeFileSync(filePath, content);
 }
 
-/** tasks.md에서 코드 블록 내부를 제외한 실제 태스크만 카운트 */
+/** task_queue.md에서 코드 블록 내부를 제외한 실제 태스크만 카운트 */
 function countTasks(content) {
   const lines = content.split('\n');
   let inCodeBlock = false;
@@ -88,7 +88,7 @@ function countTasks(content) {
   return { done, total: done + pending };
 }
 
-/** tasks.md에서 첫 번째 미완료 태스크의 텍스트를 반환. 없으면 null */
+/** task_queue.md에서 첫 번째 미완료 태스크의 텍스트를 반환. 없으면 null */
 function getNextPendingTask(content) {
   const lines = content.split('\n');
   let inCodeBlock = false;

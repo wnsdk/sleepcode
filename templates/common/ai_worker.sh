@@ -71,13 +71,13 @@ echo "[$(date '+%Y-%m-%d %H:%M:%S')] AI single run start (provider: $PROVIDER)"
 
 if [ "$PROVIDER" = "codex" ]; then
   TMP_PROMPT="$(mktemp)"
-  build_codex_prompt_file ".sleepcode/tasks.md" "$TMP_PROMPT"
+  build_codex_prompt_file ".sleepcode/task_queue.md" "$TMP_PROMPT"
   cat "$TMP_PROMPT" | codex exec --json --dangerously-bypass-approvals-and-sandbox - 2>&1 \
     | python3 .sleepcode/scripts/log_filter.py
   EXIT_CODE=${PIPESTATUS[0]}
   rm -f "$TMP_PROMPT"
 else
-  PROMPT=$(cat .sleepcode/tasks.md)
+  PROMPT=$(cat .sleepcode/task_queue.md)
   claude -p "$PROMPT" --dangerously-skip-permissions --output-format stream-json --verbose 2>&1 \
     | python3 .sleepcode/scripts/log_filter.py
   EXIT_CODE=${PIPESTATUS[0]}

@@ -667,12 +667,190 @@ function cmdWatch(cliProvider) {
     }
   }
 
-  // ─── 실행 중 새 태스크 추가 ───
+  // ─── 실행 중 새 태스크 추가 (즉시 반영) ───
 
   function addTasksDuringExecution(newTasks, schema) {
+    // 현재 워커 그룹별로 분류
+    const existingWorkerNames = new Set(currentWorkerStates.map(ws => ws.name));
+
+    // 새 태스크를 워커 그룹별로 분류
+    const tasksForExisting = {}; // workerName -> [task]
+    const tasksForNew = {};      // workerName -> [task]
+
     for (const task of newTasks) {
       executingTaskIds.add(task.id);
-      watchPushLog('SYSTEM', `${C.yellow}↷${C.reset} ${task.title} — 현재 배치 완료 후 다음 실행`);
+      const rawWorker = (task.worker || '').trim();
+      const workerKey = rawWorker.replace(/^@worker\s*/i, '').trim() || 'main';
+
+      if (existingWorkerNames.has(workerKey)) {
+        if (!tasksForExisting[workerKey]) tasksForExisting[workerKey] = [];
+        tasksForExisting[workerKey].push(task);
+      } else {
+        if (!tasksForNew[workerKey]) tasksForNew[workerKey] = [];
+        tasksForNew[workerKey].push(task);
+      }
+    }
+
+    // 1. 기존 워커에 태스크 추가: task_queue.md에 라인 추가
+    for (const [workerName, tasks] of Object.entries(tasksForExisting)) {
+      const ws = currentWorkerStates.find(w => w.name === workerName);
+      if (!ws) continue;
+
+      const tp = path.join(ws.path, '.sleepcode', 'task_queue.md');
+      try {
+        let content = fs.existsSync(tp) ? fs.readFileSync(tp, 'utf-8') : '';
+        for (const task of tasks) {
+          const taskLine = `- [ ] ${task.title} <!-- notion:${task.id} -->`;
+          content = content.trimEnd() + '\n' + taskLine + '\n';
+          currentNotionTasks.push(task);
+
+          // Notion 상태: Pending + Run 해제
+          const props = {};
+          const sp = buildStatusProps(schema, 'Pending');
+          if (sp) Object.assign(props, sp);
+          if (schema.run_prop) props[schema.run_prop] = { checkbox: false };
+          if (Object.keys(props).length > 0) notionUpdatePage(task.id, props);
+
+          watchPushLog('SYSTEM', `${C.green}+${C.reset} ${task.title} → ${C.cyan}${workerName}${C.reset} 에 추가`);
+        }
+        fs.writeFileSync(tp, content);
+
+        // 워커 total 갱신
+        const tc = countTasks(content);
+        ws.total = tc.total;
+        ws.done = tc.done;
+      } catch (e) {
+        watchPushLog('SYSTEM', `${C.red}태스크 추가 실패 (${workerName}): ${e.message}${C.reset}`);
+      }
+    }
+
+    // 2. 새로운 워커 그룹: worktree 생성 + 워커 스폰
+    for (const [workerName, tasks] of Object.entries(tasksForNew)) {
+      const isParallel = currentWorkerStates.length > 1 || currentWorkerStates[0]?.name !== 'main';
+
+      if (!isParallel && currentWorkerStates.length === 1 && currentWorkerStates[0].name === 'main') {
+        // 단일 모드에서 main이 아닌 새 워커 → 병렬로 전환해야 하므로 worktree 생성
+        const timestamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
+        const taskLines = tasks.map(t => `- [ ] ${t.title} <!-- notion:${t.id} -->`).join('\n');
+        const workerContent = `# 작업 목록\n\n## @worker ${workerName}\n${taskLines}\n`;
+
+        const workers = [{ name: workerName, tasks: workerContent, remaining: tasks.length }];
+        const created = createWorktrees(targetDir, workers);
+
+        if (created.length > 0) {
+          const wtInfo = created[0];
+          const newWs = {
+            ...wtInfo,
+            targetDir,
+            status: 'running',
+            currentTask: '',
+            done: 0,
+            total: tasks.length,
+            cost: 0,
+            reportLines: [],
+            _proc: null,
+            logFile: path.join(logDir, `run_${workerName}_${timestamp}.log`),
+          };
+
+          // Notion 상태 업데이트
+          const firstTask = tasks[0];
+          for (const task of tasks) {
+            currentNotionTasks.push(task);
+            const props = {};
+            const statusValue = task.id === firstTask.id ? 'Running' : 'Pending';
+            if (statusValue === 'Running') notionInProgressIds.add(task.id);
+            const sp = buildStatusProps(schema, statusValue);
+            if (sp) Object.assign(props, sp);
+            if (schema.run_prop) props[schema.run_prop] = { checkbox: false };
+            if (Object.keys(props).length > 0) notionUpdatePage(task.id, props);
+          }
+
+          currentWorkerStates.push(newWs);
+          setWatchPhase('executing'); // 대시보드 높이 재계산
+
+          watchPushLog('SYSTEM', `${C.green}▶${C.reset} 새 워커 ${C.cyan}${workerName}${C.reset} 시작 (${tasks.length}개 태스크)`);
+
+          // 워커 스폰
+          spawnWorker(newWs, py, () => {
+            scheduleRender();
+            const allDone = currentWorkerStates.every(s => s.status !== 'running');
+            if (allDone) {
+              finishExecution(currentNotionTasks, currentSchema, currentWorkerStates);
+            }
+          }, scheduleRender, watchPushLog, cliProvider);
+        } else {
+          // worktree 생성 실패 시 main에 태스크 추가
+          const ws = currentWorkerStates[0];
+          const tp = path.join(ws.path, '.sleepcode', 'task_queue.md');
+          try {
+            let content = fs.existsSync(tp) ? fs.readFileSync(tp, 'utf-8') : '';
+            for (const task of tasks) {
+              content = content.trimEnd() + '\n' + `- [ ] ${task.title} <!-- notion:${task.id} -->` + '\n';
+              currentNotionTasks.push(task);
+              const props = {};
+              const sp = buildStatusProps(schema, 'Pending');
+              if (sp) Object.assign(props, sp);
+              if (schema.run_prop) props[schema.run_prop] = { checkbox: false };
+              if (Object.keys(props).length > 0) notionUpdatePage(task.id, props);
+            }
+            fs.writeFileSync(tp, content);
+            const tc = countTasks(content);
+            ws.total = tc.total;
+            ws.done = tc.done;
+            watchPushLog('SYSTEM', `${C.yellow}↷${C.reset} worktree 생성 실패 → main에 ${tasks.length}개 태스크 추가`);
+          } catch {}
+        }
+      } else {
+        // 이미 병렬 모드 → 새 worktree 생성
+        const timestamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
+        const taskLines = tasks.map(t => `- [ ] ${t.title} <!-- notion:${t.id} -->`).join('\n');
+        const workerContent = `# 작업 목록\n\n## @worker ${workerName}\n${taskLines}\n`;
+
+        const workers = [{ name: workerName, tasks: workerContent, remaining: tasks.length }];
+        const created = createWorktrees(targetDir, workers);
+
+        if (created.length > 0) {
+          const wtInfo = created[0];
+          const newWs = {
+            ...wtInfo,
+            targetDir,
+            status: 'running',
+            currentTask: '',
+            done: 0,
+            total: tasks.length,
+            cost: 0,
+            reportLines: [],
+            _proc: null,
+            logFile: path.join(logDir, `run_${workerName}_${timestamp}.log`),
+          };
+
+          for (const task of tasks) {
+            currentNotionTasks.push(task);
+            const props = {};
+            const statusValue = task.id === tasks[0].id ? 'Running' : 'Pending';
+            if (statusValue === 'Running') notionInProgressIds.add(task.id);
+            const sp = buildStatusProps(schema, statusValue);
+            if (sp) Object.assign(props, sp);
+            if (schema.run_prop) props[schema.run_prop] = { checkbox: false };
+            if (Object.keys(props).length > 0) notionUpdatePage(task.id, props);
+          }
+
+          currentWorkerStates.push(newWs);
+          setWatchPhase('executing');
+
+          watchPushLog('SYSTEM', `${C.green}▶${C.reset} 새 워커 ${C.cyan}${workerName}${C.reset} 시작 (${tasks.length}개 태스크)`);
+
+          spawnWorker(newWs, py, () => {
+            scheduleRender();
+            const allDone = currentWorkerStates.every(s => s.status !== 'running');
+            if (allDone) {
+              finishExecution(currentNotionTasks, currentSchema, currentWorkerStates);
+            }
+          }, scheduleRender, watchPushLog, cliProvider);
+        } else {
+          watchPushLog('SYSTEM', `${C.red}워커 ${workerName} worktree 생성 실패${C.reset}`);
+        }
+      }
     }
 
     scheduleRender();

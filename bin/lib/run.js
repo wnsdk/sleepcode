@@ -79,6 +79,7 @@ function cmdWatch(cliProvider) {
   let executingTaskIds = new Set(); // 현재 실행 중인 Notion task ID들
   let currentSchema = null; // 현재 실행에서 사용 중인 schema
   let currentNotionTasks = []; // 현재 실행 중인 Notion task 목록 (finishExecution에서 참조)
+  let notionCompletedIds = new Set(); // 완료 즉시 Notion 업데이트된 task ID들
 
   // ─── 대시보드 상태 ───
   let watchPhase = 'waiting'; // 'waiting' | 'executing'
@@ -349,6 +350,48 @@ function cmdWatch(cliProvider) {
     return null;
   }
 
+  function buildCompletedAtProp(schema) {
+    if (!schema.completed_at_prop) return null;
+    const now = new Date();
+    const kstOffset = 9 * 60 * 60 * 1000;
+    const kst = new Date(now.getTime() + kstOffset);
+    const isoStr = kst.toISOString().replace('Z', '+09:00');
+    return { [schema.completed_at_prop]: { date: { start: isoStr } } };
+  }
+
+  function updateNotionCompletion(taskEntry) {
+    if (!taskEntry || !taskEntry.notionId) return false;
+    if (!currentSchema) return false;
+    if (!currentSchema.status_prop && !currentSchema.completed_at_prop) return null;
+    const notionId = taskEntry.notionId;
+    if (notionCompletedIds.has(notionId)) return true;
+
+    const props = {};
+    const sp = buildStatusProps(currentSchema, 'Success');
+    if (sp) Object.assign(props, sp);
+    const cap = buildCompletedAtProp(currentSchema);
+    if (cap) Object.assign(props, cap);
+
+    if (Object.keys(props).length === 0) return false;
+    const ok = notionUpdatePage(notionId, props);
+    if (ok) notionCompletedIds.add(notionId);
+    return ok;
+  }
+
+  function handleTaskCompleted(payload) {
+    const taskEntry = payload && payload.taskEntry ? payload.taskEntry : null;
+    if (!taskEntry) return;
+    const updated = updateNotionCompletion(taskEntry);
+    if (taskEntry.notionId && updated !== null) {
+      if (updated) {
+        watchPushLog('SYSTEM', `${C.green}✓${C.reset} ${taskEntry.title} → Success`);
+      } else {
+        watchPushLog('SYSTEM', `${C.yellow}⚠${C.reset} ${taskEntry.title} → Notion 업데이트 실패`);
+      }
+    }
+    scheduleRender();
+  }
+
   // task_queue.md에서 개별 태스크의 완료 상태를 파싱 (notion page ID 매칭)
   function parseTaskStatuses(workerPaths) {
     const statuses = {}; // { notionId: boolean (true=done) }
@@ -510,7 +553,7 @@ function cmdWatch(cliProvider) {
       }
 
       for (const ws of workerStates) {
-        spawnWorker(ws, py, onWorkerDone, scheduleRender, watchPushLog, cliProvider);
+        spawnWorker(ws, py, onWorkerDone, scheduleRender, watchPushLog, cliProvider, handleTaskCompleted);
       }
     } else {
       // 단일 모드
@@ -553,7 +596,7 @@ function cmdWatch(cliProvider) {
         if (allDone) {
           finishExecution(currentNotionTasks, currentSchema, currentWorkerStates);
         }
-      }, scheduleRender, watchPushLog, cliProvider);
+      }, scheduleRender, watchPushLog, cliProvider, handleTaskCompleted);
     }
   }
 
@@ -577,22 +620,18 @@ function cmdWatch(cliProvider) {
       const newStatus = isDone ? 'Success' : 'Failed';
       const props = {};
 
-      const sp = buildStatusProps(schema, newStatus);
-      if (sp) Object.assign(props, sp);
+      if (!notionCompletedIds.has(task.id)) {
+        const sp = buildStatusProps(schema, newStatus);
+        if (sp) Object.assign(props, sp);
+        if (schema.completed_at_prop && isDone) {
+          const cap = buildCompletedAtProp(schema);
+          if (cap) Object.assign(props, cap);
+        }
+      }
 
       if (schema.cost_prop && totalCost > 0) {
         const perTaskCost = totalCost / notionTasks.length;
         props[schema.cost_prop] = { number: Math.round(perTaskCost * 10000) / 10000 };
-      }
-
-      if (schema.completed_at_prop && isDone) {
-        const now = new Date();
-        const kstOffset = 9 * 60 * 60 * 1000;
-        const kst = new Date(now.getTime() + kstOffset);
-        const isoStr = kst.toISOString().replace('Z', '+09:00');
-        props[schema.completed_at_prop] = {
-          date: { start: isoStr },
-        };
       }
 
       if (schema.log_prop) {
@@ -675,6 +714,7 @@ function cmdWatch(cliProvider) {
     executingTaskIds = new Set();
     currentSchema = null;
     currentNotionTasks = [];
+    notionCompletedIds = new Set();
     currentWorkerStates = [];
     execStartTime = null;
     setWatchPhase('waiting');
@@ -797,7 +837,7 @@ function cmdWatch(cliProvider) {
             if (allDone) {
               finishExecution(currentNotionTasks, currentSchema, currentWorkerStates);
             }
-          }, scheduleRender, watchPushLog, cliProvider);
+          }, scheduleRender, watchPushLog, cliProvider, handleTaskCompleted);
         } else {
           // worktree 생성 실패 시 main에 태스크 추가
           const ws = currentWorkerStates[0];
@@ -867,7 +907,7 @@ function cmdWatch(cliProvider) {
             if (allDone) {
               finishExecution(currentNotionTasks, currentSchema, currentWorkerStates);
             }
-          }, scheduleRender, watchPushLog, cliProvider);
+          }, scheduleRender, watchPushLog, cliProvider, handleTaskCompleted);
         } else {
           watchPushLog('SYSTEM', `${C.red}워커 ${workerName} worktree 생성 실패${C.reset}`);
         }

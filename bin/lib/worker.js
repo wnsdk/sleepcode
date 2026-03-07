@@ -1,6 +1,6 @@
 const fs = require('fs');
 const path = require('path');
-const { spawn } = require('child_process');
+const { spawn, execSync } = require('child_process');
 const { C, PROVIDERS } = require('./constants');
 const {
   countTasks,
@@ -135,7 +135,38 @@ function processStreamEvent(ws, obj, onUpdate, pushLog) {
   }
 }
 
-function spawnWorker(ws, py, onDone, onUpdate, pushLog, cliProvider) {
+function commitTaskNow(targetDir, taskEntry) {
+  if (!taskEntry || !taskEntry.title) {
+    return { committed: false, reason: 'empty_task' };
+  }
+
+  try {
+    execSync('git add -A', { cwd: targetDir, stdio: 'pipe' });
+  } catch (e) {
+    return { committed: false, reason: 'git_add_failed', error: e.message };
+  }
+
+  let status = '';
+  try {
+    status = execSync('git status --porcelain', { cwd: targetDir, stdio: 'pipe' }).toString().trim();
+  } catch (e) {
+    return { committed: false, reason: 'git_status_failed', error: e.message };
+  }
+
+  if (!status) {
+    return { committed: false, reason: 'no_changes' };
+  }
+
+  const msg = `task: ${taskEntry.title}`.replace(/"/g, '\\"');
+  try {
+    execSync(`git commit -m "${msg}"`, { cwd: targetDir, stdio: 'pipe' });
+    return { committed: true, message: msg };
+  } catch (e) {
+    return { committed: false, reason: 'git_commit_failed', error: e.message };
+  }
+}
+
+function spawnWorker(ws, py, onDone, onUpdate, pushLog, cliProvider, onTaskCompleted) {
   const wtDir = ws.path;
   syncClaudeMd(wtDir);
 
@@ -315,15 +346,34 @@ function spawnWorker(ws, py, onDone, onUpdate, pushLog, cliProvider) {
         if (fs.existsSync(tasksPath)) {
           const updatedContent = fs.readFileSync(tasksPath, 'utf-8');
           let updatedDoneState = readTaskDoneSet(wtDir, ws.doneFilePath);
+          const wasDone = nextTaskEntry ? updatedDoneState.doneSet.has(nextTaskEntry.key) : false;
+          let commitResult = null;
 
           // 모델이 task_queue 체크박스를 업데이트하지 않은 경우에도 append-only 완료 로그로 진행
           if (code === 0 && nextTaskEntry) {
-            const firstPending = getNextPendingTaskEntry(updatedContent, updatedDoneState.doneSet);
-            if (firstPending && firstPending.key === nextTaskEntry.key) {
-              const appended = appendTaskDone(wtDir, nextTaskEntry, ws.doneFilePath);
+            const appended = appendTaskDone(wtDir, nextTaskEntry, ws.doneFilePath);
+            if (appended) {
+              updatedDoneState = readTaskDoneSet(wtDir, ws.doneFilePath);
+            }
+            if (!wasDone && (appended || updatedDoneState.doneSet.has(nextTaskEntry.key))) {
+              completedEntry = nextTaskEntry;
+              commitResult = commitTaskNow(wtDir, nextTaskEntry);
+              if (typeof onTaskCompleted === 'function') {
+                try {
+                  onTaskCompleted({
+                    worker: ws,
+                    taskEntry: nextTaskEntry,
+                    commit: commitResult,
+                  });
+                } catch {}
+              }
+              if (commitResult && commitResult.committed) {
+                pushLog(ws.name, `${C.green}[COMMIT]${C.reset} ${nextTaskEntry.title}`);
+              } else if (commitResult && commitResult.reason && commitResult.reason !== 'no_changes') {
+                pushLog(ws.name, `${C.yellow}[COMMIT]${C.reset} ${nextTaskEntry.title} (${commitResult.reason})`);
+              }
               if (appended) {
                 pushLog(ws.name, `${C.green}[DONELOG]${C.reset} ${nextTaskEntry.title}`);
-                updatedDoneState = readTaskDoneSet(wtDir, ws.doneFilePath);
               }
             }
           }

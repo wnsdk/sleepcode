@@ -7,7 +7,7 @@ const { detectPython } = require('./prerequisites');
 const { resolveProviderPlan } = require('./provider');
 const { isOverBudget, recordCost } = require('./config');
 const { syncClaudeMd } = require('./files');
-const { boxLine, renderMenuLine, setupMenuInput } = require('./dashboard');
+const { boxLine, renderMenuLineWithLayout, setupMenuInput } = require('./dashboard');
 const { spawnWorker } = require('./worker');
 
 function parseParallelTasks(tasksPath) {
@@ -30,7 +30,7 @@ function parseParallelTasks(tasksPath) {
 
   if (workers.length === 0) return null;
 
-  // 각 워커의 tasks.md 콘텐츠 구성
+  // 각 워커의 task_queue.md 콘텐츠 구성
   return workers.map(w => ({
     name: w.name,
     tasks: `# 작업 목록\n\n${w.lines.join('\n')}`,
@@ -86,7 +86,7 @@ function createWorktrees(targetDir, workers) {
         copySleepcodeDirToWorktree(targetDir, wtPath);
       }
       // 태스크 파일 갱신
-      const wtTasksPath = path.join(wtPath, '.sleepcode', 'tasks.md');
+      const wtTasksPath = path.join(wtPath, '.sleepcode', 'task_queue.md');
       fs.mkdirSync(path.dirname(wtTasksPath), { recursive: true });
       fs.writeFileSync(wtTasksPath, worker.tasks);
       created.push({ name: worker.name, path: wtPath, branch });
@@ -114,8 +114,8 @@ function createWorktrees(targetDir, workers) {
     // .sleepcode 디렉토리를 worktree로 복사 (scripts, rules, docs 등)
     copySleepcodeDirToWorktree(targetDir, wtPath);
 
-    // worktree 안의 tasks.md를 해당 워커 태스크만으로 덮어쓰기
-    const wtTasksPath = path.join(wtPath, '.sleepcode', 'tasks.md');
+    // worktree 안의 task_queue.md를 해당 워커 태스크만으로 덮어쓰기
+    const wtTasksPath = path.join(wtPath, '.sleepcode', 'task_queue.md');
     fs.mkdirSync(path.dirname(wtTasksPath), { recursive: true });
     fs.writeFileSync(wtTasksPath, worker.tasks);
 
@@ -171,12 +171,12 @@ function cleanupWorktrees(targetDir, workers) {
 }
 
 function showParallelStatus(targetDir) {
-  const tasksPath = path.join(targetDir, '.sleepcode', 'tasks.md');
+  const tasksPath = path.join(targetDir, '.sleepcode', 'task_queue.md');
   const workers = parseParallelTasks(tasksPath);
 
   if (!workers) {
-    console.log(`${C.yellow}tasks.md에 @worker 섹션이 없습니다.${C.reset}`);
-    console.log(`${C.dim}병렬 실행을 위해 tasks.md에 ## @worker <name> 섹션을 추가하세요.${C.reset}`);
+    console.log(`${C.yellow}task_queue.md에 @worker 섹션이 없습니다.${C.reset}`);
+    console.log(`${C.dim}병렬 실행을 위해 task_queue.md에 ## @worker <name> 섹션을 추가하세요.${C.reset}`);
     return;
   }
 
@@ -187,11 +187,11 @@ function showParallelStatus(targetDir) {
     const wtPath = path.join(wtBase, worker.name);
     const exists = fs.existsSync(wtPath);
 
-    // worktree가 있으면 그 안의 tasks.md에서 진행률 확인
+    // worktree가 있으면 그 안의 task_queue.md에서 진행률 확인
     let done = 0;
     let total = 0;
     if (exists) {
-      const wtTasksPath = path.join(wtPath, '.sleepcode', 'tasks.md');
+      const wtTasksPath = path.join(wtPath, '.sleepcode', 'task_queue.md');
       if (fs.existsSync(wtTasksPath)) {
         const wtContent = fs.readFileSync(wtTasksPath, 'utf-8');
         const tc = countTasks(wtContent);
@@ -327,11 +327,11 @@ IMPORTANT:
 }
 
 function mergeWorktrees(targetDir) {
-  const tasksPath = path.join(targetDir, '.sleepcode', 'tasks.md');
+  const tasksPath = path.join(targetDir, '.sleepcode', 'task_queue.md');
   const workers = parseParallelTasks(tasksPath);
 
   if (!workers) {
-    console.error(`${C.red}tasks.md에 @worker 섹션이 없습니다.${C.reset}`);
+    console.error(`${C.red}task_queue.md에 @worker 섹션이 없습니다.${C.reset}`);
     process.exit(1);
   }
 
@@ -534,13 +534,13 @@ function runParallel(subArgs, cliProvider) {
   }
 
   // --setup 또는 기본 동작: worktree 생성
-  const tasksPath = path.join(scDir, 'tasks.md');
+  const tasksPath = path.join(scDir, 'task_queue.md');
   const workers = parseParallelTasks(tasksPath);
 
   if (!workers) {
-    console.error(`${C.red}tasks.md에 @worker 섹션이 없습니다.${C.reset}`);
+    console.error(`${C.red}task_queue.md에 @worker 섹션이 없습니다.${C.reset}`);
     console.log(`
-${C.bold}tasks.md 병렬 포맷 예시:${C.reset}
+${C.bold}task_queue.md 병렬 포맷 예시:${C.reset}
 
   ${C.dim}# 작업 목록${C.reset}
   ${C.cyan}## @worker feature-auth${C.reset}
@@ -626,7 +626,7 @@ function runParallelWorkers(targetDir, workerInfos, cliProvider) {
 
   // 초기 태스크 수 계산
   for (const ws of workerStates) {
-    const tasksPath = path.join(ws.path, '.sleepcode', 'tasks.md');
+    const tasksPath = path.join(ws.path, '.sleepcode', 'task_queue.md');
     if (fs.existsSync(tasksPath)) {
       const content = fs.readFileSync(tasksPath, 'utf-8');
       const tc = countTasks(content);
@@ -731,8 +731,11 @@ function runParallelWorkers(targetDir, workerInfos, cliProvider) {
     // 메뉴 (테이블 밖)
     if (gracefulShutdown) {
       lines.push(`  ${C.yellow}⏳ 마무리 중... 현재 작업 완료 후 종료됩니다${C.reset}`);
+      menuState._menuLayout = null;
     } else {
-      lines.push(renderMenuLine(menuState.menuIndex, W, menuState.confirmPending, menuState._menuItems));
+      const menuRender = renderMenuLineWithLayout(menuState.menuIndex, W, menuState.confirmPending, menuState._menuItems);
+      lines.push(menuRender.line);
+      menuState._menuLayout = { row: lines.length, items: menuRender.items };
     }
     lines.push(`${C.dim} ══ ${C.reset}${C.cyan}logs${C.reset}${C.dim} ${'═'.repeat(W - 6)}${C.reset}`);
 
@@ -832,11 +835,11 @@ function runParallelWorkers(targetDir, workerInfos, cliProvider) {
   // 대시보드 갱신 타이머
   const dashboardInterval = setInterval(renderDashboard, 3000);
 
-  // 5초마다 tasks.md를 읽어 진행률 갱신
+  // 5초마다 task_queue.md를 읽어 진행률 갱신
   const taskProgressInterval = setInterval(() => {
     for (const ws of workerStates) {
       if (ws.status !== 'running') continue;
-      const tp = path.join(ws.path, '.sleepcode', 'tasks.md');
+      const tp = path.join(ws.path, '.sleepcode', 'task_queue.md');
       try {
         if (fs.existsSync(tp)) {
           const content = fs.readFileSync(tp, 'utf-8');

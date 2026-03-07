@@ -9,7 +9,7 @@ function boxLine(content, innerWidth) {
 /** 대시보드 하단 메뉴 렌더링 */
 const MENU_ITEMS = ['마무리 후 종료', '즉시 종료'];
 
-function renderMenuLine(selectedIndex, innerWidth, confirmPending, menuItems) {
+function renderMenuLineWithLayout(selectedIndex, innerWidth, confirmPending, menuItems) {
   const items = menuItems || MENU_ITEMS;
   const parts = items.map((label, i) => {
     if (i === selectedIndex) {
@@ -17,14 +17,34 @@ function renderMenuLine(selectedIndex, innerWidth, confirmPending, menuItems) {
     }
     return `${C.dim}  ${label}${C.reset}`;
   });
-  let content = parts.join('    ');
+  const plainParts = items.map((label, i) => (i === selectedIndex ? `▸ ${label}` : `  ${label}`));
+  const joiner = '    ';
+  let content = parts.join(joiner);
+  let contentPlain = plainParts.join(joiner);
   if (confirmPending) {
     content += `  ${C.yellow}← Enter로 확인${C.reset}`;
+    contentPlain += '  ← Enter로 확인';
   }
-  const raw = `  ${content}  `;
-  const vw = visualWidth(raw.replace(/\x1b\[[0-9;]*m/g, ''));
+  const rawPlain = `  ${contentPlain}  `;
+  const vw = visualWidth(rawPlain);
   const pad = Math.max(0, innerWidth - vw);
-  return `  ${content}  ${' '.repeat(pad)}`;
+  const line = `  ${content}  ${' '.repeat(pad)}`;
+
+  // 클릭 영역 계산 (1-based column)
+  const layout = [];
+  let col = 1 + 2; // leading "  "
+  for (let i = 0; i < plainParts.length; i++) {
+    const w = visualWidth(plainParts[i]);
+    layout.push({ index: i, start: col, end: col + w - 1 });
+    col += w;
+    if (i < plainParts.length - 1) col += visualWidth(joiner);
+  }
+
+  return { line, items: layout };
+}
+
+function renderMenuLine(selectedIndex, innerWidth, confirmPending, menuItems) {
+  return renderMenuLineWithLayout(selectedIndex, innerWidth, confirmPending, menuItems).line;
 }
 
 /** 대시보드 메뉴 키 입력 핸들러 설정 */
@@ -32,6 +52,9 @@ function setupMenuInput(state, onRender, onGraceful, onImmediate, extraActions) 
   if (!process.stdin.isTTY) return null;
   process.stdin.setRawMode(true);
   process.stdin.resume();
+  if (process.stdout.isTTY) {
+    process.stdout.write('\x1b[?1000h\x1b[?1006h');
+  }
 
   state.confirmPending = false;
   const actions = [onGraceful, onImmediate, ...(extraActions || []).map(a => a.handler)];
@@ -39,7 +62,52 @@ function setupMenuInput(state, onRender, onGraceful, onImmediate, extraActions) 
   const itemCount = state._menuItems.length;
 
   const handler = (data) => {
-    const key = data.toString();
+    const input = data.toString();
+
+    // Mouse (SGR) 처리: \x1b[<b;x;yM
+    if (input.includes('\x1b[<')) {
+      const re = /\x1b\[<(\d+);(\d+);(\d+)([mM])/g;
+      let match;
+      let handledMouse = false;
+      while ((match = re.exec(input)) !== null) {
+        handledMouse = true;
+        const btn = parseInt(match[1], 10);
+        const x = parseInt(match[2], 10);
+        const y = parseInt(match[3], 10);
+        const type = match[4];
+        const isPress = type === 'M';
+        const isLeft = (btn & 3) === 0 && btn < 64;
+        if (isPress && isLeft) {
+          const layout = state._menuLayout;
+          if (!layout || layout.row !== y) continue;
+          const hit = layout.items.find(it => x >= it.start && x <= it.end);
+          if (!hit) continue;
+          if (hit.index !== state.menuIndex) {
+            state.confirmPending = false;
+            state.menuIndex = hit.index;
+            onRender();
+            continue;
+          }
+          const action = actions[state.menuIndex];
+          const extraIdx = state.menuIndex - 2;
+          const isNoConfirm = extraIdx >= 0 && extraActions && extraActions[extraIdx] && extraActions[extraIdx].noConfirm;
+          if (isNoConfirm) {
+            action();
+            continue;
+          }
+          if (!state.confirmPending) {
+            state.confirmPending = true;
+            onRender();
+            continue;
+          }
+          state.confirmPending = false;
+          action();
+        }
+      }
+      if (handledMouse) return;
+    }
+
+    const key = input;
 
     // Ctrl+C → 즉시 종료
     if (key === '\x03') {
@@ -89,6 +157,9 @@ function setupMenuInput(state, onRender, onGraceful, onImmediate, extraActions) 
       process.stdin.setRawMode(false);
       process.stdin.pause();
     }
+    if (process.stdout.isTTY) {
+      process.stdout.write('\x1b[?1000l\x1b[?1006l');
+    }
   };
 }
 
@@ -96,5 +167,6 @@ module.exports = {
   boxLine,
   MENU_ITEMS,
   renderMenuLine,
+  renderMenuLineWithLayout,
   setupMenuInput,
 };

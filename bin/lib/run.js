@@ -7,7 +7,7 @@ const { detectPython } = require('./prerequisites');
 const { providerLabel, providerLabelWithModel } = require('./provider');
 const { isOverBudget, recordCost } = require('./config');
 const { syncClaudeMd } = require('./files');
-const { boxLine, renderMenuLine, setupMenuInput } = require('./dashboard');
+const { boxLine, renderMenuLineWithLayout, setupMenuInput } = require('./dashboard');
 const { spawnWorker } = require('./worker');
 const { parseParallelTasks, createWorktrees, cleanupWorktrees, autoMergeWorktrees } = require('./parallel');
 
@@ -192,8 +192,11 @@ function cmdWatch(cliProvider) {
     // 메뉴 (테이블 밖)
     if (gracefulShutdown) {
       lines.push(`  ${C.yellow}⏳ 마무리 중... 현재 작업 완료 후 종료됩니다${C.reset}`);
+      menuState._menuLayout = null;
     } else {
-      lines.push(renderMenuLine(menuState.menuIndex, W, menuState.confirmPending, menuState._menuItems));
+      const menuRender = renderMenuLineWithLayout(menuState.menuIndex, W, menuState.confirmPending, menuState._menuItems);
+      lines.push(menuRender.line);
+      menuState._menuLayout = { row: lines.length, items: menuRender.items };
     }
     lines.push(`${C.dim} ══ ${C.reset}${C.cyan}logs${C.reset}${C.dim} ${'═'.repeat(W - 6)}${C.reset}`);
 
@@ -300,11 +303,11 @@ function cmdWatch(cliProvider) {
     return null;
   }
 
-  // tasks.md에서 개별 태스크의 완료 상태를 파싱 (notion page ID 매칭)
+  // task_queue.md에서 개별 태스크의 완료 상태를 파싱 (notion page ID 매칭)
   function parseTaskStatuses(workerPaths) {
     const statuses = {}; // { notionId: boolean (true=done) }
     for (const wsPath of workerPaths) {
-      const tp = path.join(wsPath, '.sleepcode', 'tasks.md');
+      const tp = path.join(wsPath, '.sleepcode', 'task_queue.md');
       if (!fs.existsSync(tp)) continue;
       try {
         const content = fs.readFileSync(tp, 'utf-8');
@@ -395,8 +398,8 @@ function cmdWatch(cliProvider) {
       if (Object.keys(props).length > 0) notionUpdatePage(task.id, props);
     }
 
-    // tasks.md 생성
-    const tasksPath = path.join(scDir, 'tasks.md');
+    // task_queue.md 생성
+    const tasksPath = path.join(scDir, 'task_queue.md');
 
     if (useParallel) {
       watchPushLog('SYSTEM', `${C.cyan}병렬 모드${C.reset}: ${workerNames.join(', ')}`);
@@ -437,7 +440,7 @@ function cmdWatch(cliProvider) {
       }));
 
       for (const ws of workerStates) {
-        const tp = path.join(ws.path, '.sleepcode', 'tasks.md');
+        const tp = path.join(ws.path, '.sleepcode', 'task_queue.md');
         if (fs.existsSync(tp)) {
           const tc = countTasks(fs.readFileSync(tp, 'utf-8'));
           ws.total = tc.total;
@@ -506,14 +509,14 @@ function cmdWatch(cliProvider) {
   function finishExecution(notionTasks, schema, workerStates) {
     watchPushLog('SYSTEM', `${C.bold}실행 완료 — Notion 업데이트${C.reset}`);
 
-    // tasks.md에서 완료 상태 확인 (notion page ID 매칭)
+    // task_queue.md에서 완료 상태 확인 (notion page ID 매칭)
     const taskCompletion = {};
     const workerPaths = (workerStates && workerStates.length > 0)
       ? workerStates.map(ws => ws.path)
       : [targetDir];
 
     for (const wsPath of workerPaths) {
-      const tp = path.join(wsPath, '.sleepcode', 'tasks.md');
+      const tp = path.join(wsPath, '.sleepcode', 'task_queue.md');
       if (!fs.existsSync(tp)) continue;
       const content = fs.readFileSync(tp, 'utf-8');
       const pattern = /^- \[([ x])\] .+<!-- notion:([a-f0-9-]+) -->/gm;
@@ -529,7 +532,7 @@ function cmdWatch(cliProvider) {
       for (const wsPath of workerPaths) {
         try {
           const gitLog = execSync(
-            `git log --format= -p --since="${sinceISO}" -- ".sleepcode/tasks.md"`,
+            `git log --format= -p --since="${sinceISO}" -- ".sleepcode/task_queue.md"`,
             { cwd: wsPath, stdio: 'pipe', timeout: 15000 }
           ).toString();
           for (const line of gitLog.split('\n')) {
@@ -753,12 +756,12 @@ function cmdWatch(cliProvider) {
   // 대시보드 갱신 타이머 (카운트다운을 위해 1초 간격)
   const dashboardInterval = setInterval(renderDashboard, 1000);
 
-  // 5초마다 tasks.md를 읽어 진행률 갱신 + 개별 태스크 Notion 상태 업데이트
+  // 5초마다 task_queue.md를 읽어 진행률 갱신 + 개별 태스크 Notion 상태 업데이트
   const taskProgressInterval = setInterval(() => {
     if (watchPhase !== 'executing' || currentWorkerStates.length === 0) return;
     for (const ws of currentWorkerStates) {
       if (ws.status !== 'running') continue;
-      const tp = path.join(ws.path, '.sleepcode', 'tasks.md');
+      const tp = path.join(ws.path, '.sleepcode', 'task_queue.md');
       try {
         if (fs.existsSync(tp)) {
           const content = fs.readFileSync(tp, 'utf-8');

@@ -56,8 +56,8 @@ const {
   selectTasksToRun,
 } = require('./runPoll');
 const {
-  appendTasksToQueueContent,
-  buildTaskRunUpdates,
+  appendWorkerTasks,
+  applyTaskRunUpdates,
   getFirstTaskIdsByWorker,
   splitTasksByWorkerPresence,
 } = require('./runWorkers');
@@ -246,18 +246,6 @@ function cmdWatch(cliProvider) {
     });
   }
 
-  function applyRunTaskUpdates(tasks, schema, firstRunningTaskIds, options = {}) {
-    const { trackTasks = true } = options;
-    const updates = buildTaskRunUpdates(tasks, schema, firstRunningTaskIds);
-    for (const update of updates) {
-      if (trackTasks) currentNotionTasks.push(update.task);
-      if (update.statusValue === 'Running') notionInProgressIds.add(update.task.id);
-      if (Object.keys(update.props).length > 0) {
-        notionUpdatePage(update.task.id, update.props);
-      }
-    }
-  }
-
   function spawnRunWorker(ws) {
     spawnWorker(
       ws,
@@ -270,30 +258,6 @@ function cmdWatch(cliProvider) {
       handleTaskStarted,
       handleTaskUiUpdated
     );
-  }
-
-  function appendTasksToWorkerQueue(ws, tasks, schema, options = {}) {
-    const {
-      errorPrefix = '',
-      firstRunningTaskIds = new Set(),
-      successMessage = '',
-    } = options;
-    const tasksPath = ws.tasksPath || path.join(ws.path, '.sleepcode', 'task_queue.md');
-
-    try {
-      const existingContent = fs.existsSync(tasksPath) ? fs.readFileSync(tasksPath, 'utf-8') : '';
-      const nextContent = appendTasksToQueueContent(existingContent, tasks);
-      applyRunTaskUpdates(tasks, schema, firstRunningTaskIds, { trackTasks: true });
-      fs.writeFileSync(tasksPath, nextContent);
-      syncWorkerTaskProgress(ws, null, nextContent);
-      if (successMessage) watchPushLog('SYSTEM', successMessage);
-      return true;
-    } catch (e) {
-      if (errorPrefix) {
-        watchPushLog('SYSTEM', `${errorPrefix}${e.message}${C.reset}`);
-      }
-      return false;
-    }
   }
 
   // ─── 태스크 실행 ───
@@ -313,7 +277,15 @@ function cmdWatch(cliProvider) {
 
     // Notion 상태: 첫 번째 태스크만 Running, 나머지는 Pending + Run 해제
     notionInProgressIds.clear();
-    applyRunTaskUpdates(tasks, schema, getFirstTaskIdsByWorker(workerGroups), { trackTasks: false });
+    applyTaskRunUpdates({
+      tasks,
+      schema,
+      firstRunningTaskIds: getFirstTaskIdsByWorker(workerGroups),
+      trackTasks: false,
+      trackedTasks: currentNotionTasks,
+      notionInProgressIds,
+      updatePage: notionUpdatePage,
+    });
 
     // task_queue.md 생성
     const tasksPath = runtimeTasksPath;
@@ -443,10 +415,19 @@ function cmdWatch(cliProvider) {
     for (const [workerName, tasks] of Object.entries(tasksForExisting)) {
       const ws = currentWorkerStates.find(w => w.name === workerName);
       if (!ws) continue;
-      const ok = appendTasksToWorkerQueue(ws, tasks, schema, {
-        errorPrefix: `${C.red}태스크 추가 실패 (${workerName}): `,
+      const result = appendWorkerTasks({
+        workerState: ws,
+        tasks,
+        schema,
+        trackedTasks: currentNotionTasks,
+        notionInProgressIds,
+        updatePage: notionUpdatePage,
+        syncWorkerTaskProgress,
+        onError: (error) => {
+          watchPushLog('SYSTEM', `${C.red}태스크 추가 실패 (${workerName}): ${error.message}${C.reset}`);
+        },
       });
-      if (!ok) {
+      if (!result.ok) {
         continue;
       }
       for (const task of tasks) {
@@ -466,7 +447,17 @@ function cmdWatch(cliProvider) {
         createWorktrees,
         createRunTimestamp,
         createDynamicWorkerState,
-        applyRunTaskUpdates,
+        applyRunTaskUpdates: ({ tasks, schema, firstRunningTaskIds, options }) => applyTaskRunUpdates({
+          tasks,
+          schema,
+          firstRunningTaskIds,
+          trackTasks: options && Object.prototype.hasOwnProperty.call(options, 'trackTasks')
+            ? options.trackTasks
+            : true,
+          trackedTasks: currentNotionTasks,
+          notionInProgressIds,
+          updatePage: notionUpdatePage,
+        }),
         setWatchPhase,
         pushLog: (message) => watchPushLog('SYSTEM', message),
         spawnRunWorker,
@@ -478,11 +469,19 @@ function cmdWatch(cliProvider) {
 
       if (isSingleMainWorkerMode(currentWorkerStates)) {
         const ws = currentWorkerStates[0];
-        const ok = appendTasksToWorkerQueue(ws, tasks, schema, {
-          errorPrefix: '',
-          successMessage: `${C.yellow}↷${C.reset} worktree 생성 실패 → main에 ${tasks.length}개 태스크 추가`,
+        const result = appendWorkerTasks({
+          workerState: ws,
+          tasks,
+          schema,
+          trackedTasks: currentNotionTasks,
+          notionInProgressIds,
+          updatePage: notionUpdatePage,
+          syncWorkerTaskProgress,
+          onSuccess: () => {
+            watchPushLog('SYSTEM', `${C.yellow}↷${C.reset} worktree 생성 실패 → main에 ${tasks.length}개 태스크 추가`);
+          },
         });
-        if (!ok) {
+        if (!result.ok) {
           continue;
         }
       } else {

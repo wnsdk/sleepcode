@@ -1,14 +1,28 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
+const fs = require('fs');
+const os = require('os');
+const path = require('path');
 
 const {
+  appendWorkerTasks,
   appendTasksToQueueContent,
+  applyTaskRunUpdates,
   buildRunWorkerState,
   buildTaskRunUpdates,
   buildWorkerTaskQueueContent,
   getFirstTaskIdsByWorker,
   splitTasksByWorkerPresence,
 } = require('../bin/lib/runWorkers');
+
+function withTempDir(prefix, fn) {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), prefix));
+  try {
+    return fn(dir);
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+}
 
 test('splitTasksByWorkerPresence separates existing and new worker buckets', () => {
   const result = splitTasksByWorkerPresence(
@@ -100,4 +114,64 @@ test('buildTaskRunUpdates marks only the first worker tasks as running', () => {
       { id: 'b', run: false, status: 'Pending' },
     ]
   );
+});
+
+test('applyTaskRunUpdates tracks tasks, running ids, and notion updates', () => {
+  const trackedTasks = [];
+  const notionInProgressIds = new Set();
+  const updates = [];
+
+  const result = applyTaskRunUpdates({
+    tasks: [
+      { id: 'a', title: '첫 번째' },
+      { id: 'b', title: '두 번째' },
+    ],
+    schema: { status_prop: 'Status', status_type: 'status', run_prop: 'Run' },
+    firstRunningTaskIds: new Set(['a']),
+    trackedTasks,
+    notionInProgressIds,
+    updatePage: (pageId, props) => updates.push({ pageId, props }),
+  });
+
+  assert.equal(result.length, 2);
+  assert.deepEqual(trackedTasks.map((task) => task.id), ['a', 'b']);
+  assert.deepEqual([...notionInProgressIds], ['a']);
+  assert.deepEqual(updates.map((update) => update.pageId), ['a', 'b']);
+});
+
+test('appendWorkerTasks appends queue content and syncs worker progress', () => {
+  withTempDir('sleepcode-run-workers-', (dir) => {
+    const sleepcodeDir = path.join(dir, '.sleepcode');
+    fs.mkdirSync(sleepcodeDir, { recursive: true });
+    const tasksPath = path.join(sleepcodeDir, 'task_queue.md');
+    fs.writeFileSync(tasksPath, '# 작업 목록\n');
+
+    const trackedTasks = [];
+    const notionInProgressIds = new Set();
+    const updates = [];
+    const syncCalls = [];
+    let onSuccessCalled = 0;
+
+    const result = appendWorkerTasks({
+      workerState: { name: 'main', path: dir, tasksPath },
+      tasks: [{ id: 'a', title: '새 태스크' }],
+      schema: { status_prop: 'Status', status_type: 'status', run_prop: 'Run' },
+      firstRunningTaskIds: new Set(['a']),
+      trackedTasks,
+      notionInProgressIds,
+      updatePage: (pageId, props) => updates.push({ pageId, props }),
+      syncWorkerTaskProgress: (worker, _baseline, content) => syncCalls.push({ name: worker.name, content }),
+      onSuccess: () => {
+        onSuccessCalled += 1;
+      },
+    });
+
+    assert.equal(result.ok, true);
+    assert.equal(onSuccessCalled, 1);
+    assert.deepEqual(trackedTasks.map((task) => task.id), ['a']);
+    assert.deepEqual([...notionInProgressIds], ['a']);
+    assert.deepEqual(updates.map((update) => update.pageId), ['a']);
+    assert.equal(syncCalls.length, 1);
+    assert.match(fs.readFileSync(tasksPath, 'utf-8'), /새 태스크/);
+  });
 });

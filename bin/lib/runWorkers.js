@@ -1,3 +1,4 @@
+const fs = require('fs');
 const path = require('path');
 
 const { buildStatusProps } = require('./notionSync');
@@ -82,8 +83,70 @@ function buildTaskRunUpdates(tasks, schema, firstRunningTaskIds) {
   });
 }
 
+function applyTaskRunUpdates({
+  tasks,
+  schema,
+  firstRunningTaskIds,
+  trackTasks = true,
+  trackedTasks = null,
+  notionInProgressIds = null,
+  updatePage,
+}) {
+  const updates = buildTaskRunUpdates(tasks, schema, firstRunningTaskIds);
+  for (const update of updates) {
+    if (trackTasks && Array.isArray(trackedTasks)) {
+      trackedTasks.push(update.task);
+    }
+    if (update.statusValue === 'Running' && notionInProgressIds) {
+      notionInProgressIds.add(update.task.id);
+    }
+    if (Object.keys(update.props).length > 0 && typeof updatePage === 'function') {
+      updatePage(update.task.id, update.props);
+    }
+  }
+  return updates;
+}
+
+function appendWorkerTasks({
+  workerState,
+  tasks,
+  schema,
+  firstRunningTaskIds = new Set(),
+  trackedTasks = null,
+  notionInProgressIds = null,
+  updatePage,
+  syncWorkerTaskProgress,
+  onSuccess,
+  onError,
+}) {
+  const tasksPath = workerState.tasksPath || path.join(workerState.path, '.sleepcode', 'task_queue.md');
+
+  try {
+    const existingContent = fs.existsSync(tasksPath) ? fs.readFileSync(tasksPath, 'utf-8') : '';
+    const nextContent = appendTasksToQueueContent(existingContent, tasks);
+    applyTaskRunUpdates({
+      tasks,
+      schema,
+      firstRunningTaskIds,
+      trackTasks: true,
+      trackedTasks,
+      notionInProgressIds,
+      updatePage,
+    });
+    fs.writeFileSync(tasksPath, nextContent);
+    syncWorkerTaskProgress(workerState, null, nextContent);
+    if (typeof onSuccess === 'function') onSuccess(nextContent);
+    return { ok: true, content: nextContent };
+  } catch (error) {
+    if (typeof onError === 'function') onError(error);
+    return { ok: false, error };
+  }
+}
+
 module.exports = {
+  appendWorkerTasks,
   appendTasksToQueueContent,
+  applyTaskRunUpdates,
   buildRunWorkerState,
   buildTaskQueueLine,
   buildTaskRunUpdates,

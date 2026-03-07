@@ -2,3 +2,7 @@
 *.sh text eol=lf
 *.py text eol=lf
 *.md text eol=lf
+
+# Avoid merge conflicts for sleepcode task tracking files
+.sleepcode/task_queue.md merge=union
+.sleepcode/task_done/*.md merge=union

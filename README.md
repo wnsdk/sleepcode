@@ -42,6 +42,7 @@ npx sleepcode run      # 실행
 
 `task_queue.md`는 backlog(읽기 전용)로 유지하고, 완료 체크는 `.sleepcode/task_done/<branch>.md`에 append-only로 기록합니다.
 브랜치별 파일을 사용하면 병렬 브랜치 머지 시 `task_queue.md` 충돌을 피할 수 있습니다.
+또한 sleepcode는 `.gitattributes`에 `task_queue/task_done`용 `merge=union` 규칙을 자동 추가합니다.
 
 ---
 

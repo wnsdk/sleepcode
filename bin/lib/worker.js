@@ -147,11 +147,19 @@ function spawnWorker(ws, py, onDone, onUpdate, pushLog, cliProvider) {
     }
     return '# 완료 기록\n\n';
   };
+  const doneFileRel = path.relative(wtDir, ws.doneFilePath).replace(/\\/g, '/');
+  const runtimeRules = [
+    '# Runtime Rules',
+    '- .sleepcode/task_queue.md is read-only backlog. NEVER edit or commit this file.',
+    `- Mark completion by appending to ${doneFileRel}: - [x] <task text>`,
+    '- Keep the original notion comment when present: <!-- notion:... -->',
+    '',
+  ].join('\n');
   const buildTaskPrompt = (queueText) => {
     const q = String(queueText || '').trimEnd();
     const doneLog = readDoneLogText().trimEnd();
-    if (!doneLog) return q;
-    return `${q}\n\n---\n\n${doneLog}\n`;
+    if (!doneLog) return `${runtimeRules}\n${q}`;
+    return `${runtimeRules}\n${q}\n\n---\n\n${doneLog}\n`;
   };
 
   const logStream = fs.createWriteStream(ws.logFile, { flags: 'a' });

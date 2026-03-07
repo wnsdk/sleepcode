@@ -149,6 +149,27 @@ function generateFiles(targetDir, { typeKey, projectName, role, buildCmd, testCm
     fs.writeFileSync(gitignorePath, '# sleepcode workspace\n.sleepcode/\n');
   }
 
+  // .gitattributes — 병렬 브랜치 머지 시 task_queue/task_done 충돌 완화
+  const gitattributesPath = path.join(targetDir, '.gitattributes');
+  const mergeRules = [
+    '.sleepcode/task_queue.md merge=union',
+    '.sleepcode/task_done/*.md merge=union',
+  ];
+  if (fs.existsSync(gitattributesPath)) {
+    let attrs = fs.readFileSync(gitattributesPath, 'utf-8');
+    const missing = mergeRules.filter(rule => !attrs.includes(rule));
+    if (missing.length > 0) {
+      if (!attrs.endsWith('\n')) attrs += '\n';
+      attrs += '\n# sleepcode merge rules\n' + missing.join('\n') + '\n';
+      fs.writeFileSync(gitattributesPath, attrs);
+    }
+  } else {
+    fs.writeFileSync(
+      gitattributesPath,
+      '# sleepcode merge rules\n' + mergeRules.join('\n') + '\n'
+    );
+  }
+
   // CLAUDE.md 생성 (base_rules + rules → 프로젝트 루트 CLAUDE.md)
   syncClaudeMd(targetDir);
 }

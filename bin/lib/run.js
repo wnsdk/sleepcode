@@ -1,18 +1,14 @@
 const fs = require('fs');
 const path = require('path');
-const { C, SLEEPCODE_BADGE_WITH_VERSION, branchColor, notionLink } = require('./constants');
+const { C } = require('./constants');
 const {
-  progressBar,
-  visualWidth,
-  padEndVisual,
   loadEnvFileToProcessEnv,
   parseNotionDbId,
 } = require('./utils');
 const { detectPython } = require('./prerequisites');
-const { providerLabel, providerLabelWithModel } = require('./provider');
 const { isOverBudget, recordCost } = require('./config');
 const { syncClaudeMd } = require('./files');
-const { boxLine, renderMenuLineWithLayout, setupMenuInput } = require('./dashboard');
+const { createRunDashboard } = require('./runDashboard');
 const { spawnWorker } = require('./worker');
 const { parseParallelTasks, createWorktrees, cleanupWorktrees, autoMergeWorktrees } = require('./parallel');
 const { getWorkerDoneState, syncWorkerTaskProgress } = require('./taskState');
@@ -102,9 +98,60 @@ function cmdWatch(cliProvider) {
   let lastPollTime = null;
   let currentWorkerStates = [];
   let execStartTime = null;
-  let currentDashboardHeight = 12;
-  const menuState = { menuIndex: 0 };
-  let gracefulShutdown = false;
+  let pollTimer = null;
+  let dashboardInterval = null;
+  let taskProgressInterval = null;
+
+  function stopWorkerProcesses(signal, runningOnly = false) {
+    for (const ws of currentWorkerStates) {
+      if (runningOnly && ws.status !== 'running') continue;
+      if (!ws._proc) continue;
+      try { ws._proc.kill(signal); } catch {}
+    }
+  }
+
+  function stopWatchTimers() {
+    clearInterval(pollTimer);
+    clearInterval(dashboardInterval);
+    clearInterval(taskProgressInterval);
+  }
+
+  const dashboard = createRunDashboard({
+    dbId,
+    pollIntervalSec,
+    getWatchPhase: () => watchPhase,
+    getPollInfo: () => pollInfo,
+    getLastPollTime: () => lastPollTime,
+    getWorkerStates: () => currentWorkerStates,
+    getExecStartTime: () => execStartTime,
+    onPollNow: () => {
+      watchPushLog('SYSTEM', `${C.cyan}즉시 폴링 실행${C.reset}`);
+      doPoll();
+      renderDashboard();
+    },
+    onGracefulExit: () => {
+      clearInterval(pollTimer);
+      stopWorkerProcesses('SIGINT', true);
+    },
+    onImmediateExit: () => {
+      stopWatchTimers();
+      stopWorkerProcesses();
+    },
+    onInterrupt: () => {
+      stopWatchTimers();
+      stopWorkerProcesses();
+    },
+  });
+
+  const watchPushLog = (...args) => dashboard.pushLog(...args);
+  const scheduleRender = () => dashboard.scheduleRender();
+  const flushRender = () => dashboard.flushRender();
+  const renderDashboard = () => dashboard.renderDashboard();
+
+  function setWatchPhase(newPhase) {
+    watchPhase = newPhase;
+    dashboard.setWatchPhase();
+  }
 
   function tryMergeCompletedWorker(completedWs) {
     if (!completedWs || completedWs.status !== 'done' || completedWs.merged) return;
@@ -144,235 +191,6 @@ function cmdWatch(cliProvider) {
       finishExecution(currentNotionTasks, currentSchema, currentWorkerStates);
     }
   }
-
-  // 로그 버퍼 (리사이즈 시 재렌더링용)
-  const MAX_LOG_BUFFER = 200;
-  const logBuffer = [];
-  let altScreenActive = false;
-  let cursorHidden = false;
-  let logScroll = 0;
-
-  function getLogRows() {
-    const rows = process.stdout.rows || 24;
-    return Math.max(0, rows - currentDashboardHeight);
-  }
-
-  function getMaxLogScroll() {
-    const logRows = getLogRows();
-    return Math.max(0, logBuffer.length - logRows);
-  }
-
-  function getDashboardHeight() {
-    if (watchPhase !== 'executing' || currentWorkerStates.length === 0) return 12;
-    return 8 + currentWorkerStates.length * 2;
-  }
-
-  function appendLogToScreen(line) {
-    if (!altScreenActive) return;
-    if (logScroll > 0) return;
-    const rows = process.stdout.rows || 24;
-    process.stdout.write(`\x1b[${rows};1H`);
-    process.stdout.write(`\n  ${line}\x1b[K`);
-  }
-
-  function renderLogs(force = false) {
-    if (!altScreenActive) return;
-    const logRows = getLogRows();
-    if (logRows <= 0) return;
-
-    const maxScroll = getMaxLogScroll();
-    if (logScroll > maxScroll) logScroll = maxScroll;
-    if (!force && logScroll === 0) return;
-
-    const start = Math.max(0, logBuffer.length - logRows - logScroll);
-    const slice = logBuffer.slice(start, start + logRows);
-    for (let i = 0; i < logRows; i++) {
-      const line = slice[i] || '';
-      process.stdout.write(`\x1b[${currentDashboardHeight + 1 + i};1H`);
-      process.stdout.write(`  ${line}\x1b[K`);
-    }
-    process.stdout.write('\x1b[1;1H');
-  }
-
-  function watchPushLog(name, msg) {
-    const t = new Date().toLocaleTimeString();
-    const color = branchColor(name);
-    const formatted = name && name !== 'SYSTEM'
-      ? `${C.dim}[${t}]${C.reset} ${color}[${name}]${C.reset} ${msg}`
-      : `${C.dim}[${t}]${C.reset} ${msg}`;
-    logBuffer.push(formatted);
-    if (logBuffer.length > MAX_LOG_BUFFER) logBuffer.shift();
-    if (logScroll > 0) {
-      logScroll = Math.min(logScroll + 1, getMaxLogScroll());
-    }
-    appendLogToScreen(formatted);
-  }
-
-  let renderPending = false;
-  let renderTimer = null;
-  function scheduleRender() {
-    if (renderPending) return;
-    renderPending = true;
-    renderTimer = setTimeout(() => {
-      renderPending = false;
-      renderTimer = null;
-      renderDashboard();
-    }, 200);
-  }
-
-  function flushRender() {
-    if (renderTimer) {
-      clearTimeout(renderTimer);
-      renderTimer = null;
-    }
-    renderPending = false;
-    renderDashboard();
-    renderLogs(true);
-  }
-
-  function renderDashboard() {
-    if (!altScreenActive) return;
-
-    const lines = [];
-    const W = 62;
-
-    lines.push(`${C.dim}╔${'═'.repeat(W + 2)}╗${C.reset}`);
-
-    if (watchPhase === 'executing' && currentWorkerStates.length > 0) {
-      const activeCount = currentWorkerStates.filter(w => w.status === 'running').length;
-      lines.push(boxLine(`${SLEEPCODE_BADGE_WITH_VERSION}  ${C.cyan}⟳${C.reset} ${activeCount}/${currentWorkerStates.length} workers${notionLink(dbId)}`, W));
-      lines.push(`${C.dim}╠${'═'.repeat(W + 2)}╣${C.reset}`);
-
-      for (const ws of currentWorkerStates) {
-        const bar = progressBar(ws.done, ws.total, 15);
-        const statusIcon = ws.status === 'running' ? `${C.cyan}⟳${C.reset}`
-          : ws.status === 'done' ? `${C.green}✓${C.reset}`
-          : ws.status === 'budget_stop' ? `${C.yellow}■${C.reset}`
-          : `${C.red}✗${C.reset}`;
-        const wPct = ws.total > 0 ? Math.round(ws.done / ws.total * 100) : 0;
-        const wModel = ws.provider ? `${C.dim}[${providerLabelWithModel(ws.provider, ws.model)}]${C.reset} ` : '';
-        const wDiff = ws.difficultyLabel ? ` ${C.yellow}${ws.difficulty}${C.reset}` : '';
-        lines.push(boxLine(`${statusIcon} ${C.bold}${padEndVisual(ws.name, 18)}${C.reset} ${bar} ${String(ws.done).padStart(2)}/${String(ws.total).padEnd(2)} ${C.cyan}${String(wPct).padStart(3)}%${C.reset} ${wModel}${wDiff}`, W));
-        if (ws.currentTask && ws.status === 'running') {
-          const maxTaskW = W - 6;
-          let task = ws.currentTask;
-          if (visualWidth(task) > maxTaskW) {
-            let tw = 0, cut = 0;
-            for (const ch of task) {
-              const cw = visualWidth(ch);
-              if (tw + cw > maxTaskW - 3) break;
-              tw += cw;
-              cut += ch.length;
-            }
-            task = task.slice(0, cut) + '...';
-          }
-          lines.push(boxLine(`  ${C.dim}> ${task}${C.reset}`, W));
-        } else {
-          lines.push(boxLine('', W));
-        }
-      }
-
-      lines.push(`${C.dim}╠${'═'.repeat(W + 2)}╣${C.reset}`);
-
-      const totalCost = currentWorkerStates.reduce((s, w) => s + (w.cost || 0), 0);
-      const costStr = `$${totalCost.toFixed(4)}`;
-      const elapsed = execStartTime ? Math.floor((Date.now() - execStartTime) / 1000) : 0;
-      const elapsedStr = elapsed >= 3600
-        ? `${Math.floor(elapsed / 3600)}h ${Math.floor((elapsed % 3600) / 60)}m`
-        : elapsed >= 60
-          ? `${Math.floor(elapsed / 60)}m ${elapsed % 60}s`
-          : `${elapsed}s`;
-      const totalDone = currentWorkerStates.reduce((s, w) => s + w.done, 0);
-      const totalTasks = currentWorkerStates.reduce((s, w) => s + w.total, 0);
-      const totalPct = totalTasks > 0 ? Math.round(totalDone / totalTasks * 100) : 0;
-      const remaining = lastPollTime ? Math.max(0, pollIntervalSec - Math.floor((Date.now() - lastPollTime) / 1000)) : pollIntervalSec;
-      lines.push(boxLine(`${C.dim}비용${C.reset} ${C.yellow}${costStr}${C.reset} ${C.dim}·${C.reset} ${C.dim}경과${C.reset} ${C.cyan}${elapsedStr}${C.reset} ${C.dim}·${C.reset} ${C.cyan}${totalPct}%${C.reset} ${C.dim}·${C.reset} ${C.dim}폴링${C.reset} ${remaining}초`, W));
-    } else {
-      // Waiting mode
-      lines.push(boxLine(`${SLEEPCODE_BADGE_WITH_VERSION}  ${C.dim}◆${C.reset} 대기 중${notionLink(dbId)}`, W));
-      lines.push(`${C.dim}╠${'═'.repeat(W + 2)}╣${C.reset}`);
-      lines.push(boxLine(`${C.dim}전체${C.reset} ${pollInfo.total}  ${C.dim}·  대기${C.reset} ${C.cyan}${pollInfo.pending}${C.reset}`, W));
-      lines.push(`${C.dim}╠${'═'.repeat(W + 2)}╣${C.reset}`);
-      const remaining = lastPollTime ? Math.max(0, pollIntervalSec - Math.floor((Date.now() - lastPollTime) / 1000)) : pollIntervalSec;
-      lines.push(boxLine(`${C.dim}다음 폴링${C.reset} ${C.cyan}${remaining}초${C.reset}`, W));
-    }
-
-    // 테이블 닫기
-    lines.push(`${C.dim}╚${'═'.repeat(W + 2)}╝${C.reset}`);
-
-    // 메뉴 (테이블 밖)
-    if (gracefulShutdown) {
-      lines.push(`  ${C.yellow}⏳ 마무리 중... 현재 작업 완료 후 종료됩니다${C.reset}`);
-      menuState._menuLayout = null;
-    } else {
-      const menuRender = renderMenuLineWithLayout(menuState.menuIndex, W, menuState.confirmPending, menuState._menuItems);
-      lines.push(menuRender.line);
-      menuState._menuLayout = { row: lines.length, items: menuRender.items };
-    }
-    lines.push(`${C.dim} ══ ${C.reset}${C.cyan}logs${C.reset}${C.dim} ${'═'.repeat(W - 6)}${C.reset}`);
-
-    // Alternate Screen: 절대 좌표로 대시보드 렌더링
-    for (let i = 0; i < lines.length; i++) {
-      process.stdout.write(`\x1b[${i + 1};1H${lines[i]}\x1b[K`);
-    }
-    // 커서를 한 곳에 고정 (숨김 미지원 터미널 대비)
-    process.stdout.write('\x1b[1;1H');
-    if (logScroll > 0) renderLogs();
-  }
-
-  function setWatchPhase(newPhase) {
-    watchPhase = newPhase;
-    if (!altScreenActive) return;
-    currentDashboardHeight = getDashboardHeight();
-    const rows = process.stdout.rows || 24;
-    if (rows > currentDashboardHeight) {
-      process.stdout.write(`\x1b[${currentDashboardHeight + 1};${rows}r`);
-    }
-    process.stdout.write('\x1b[2J');
-    renderDashboard();
-    renderLogs(true);
-  }
-
-  // Alternate Screen 초기화
-  if (process.stdout.isTTY) {
-    process.stdout.write('\x1b[?1049h');
-    process.stdout.write('\x1b[H');
-    process.stdout.write('\x1b[2J');
-    process.stdout.write('\x1b[?25l');
-    cursorHidden = true;
-    currentDashboardHeight = getDashboardHeight();
-    const rows = process.stdout.rows || 24;
-    if (rows > currentDashboardHeight) {
-      process.stdout.write(`\x1b[${currentDashboardHeight + 1};${rows}r`);
-    }
-    altScreenActive = true;
-  }
-
-  function cleanupAltScreen() {
-    if (!altScreenActive) return;
-    altScreenActive = false;
-    process.stdout.write('\x1b[r');
-    process.stdout.write('\x1b[?1049l');
-    if (cursorHidden) {
-      process.stdout.write('\x1b[?25h');
-      cursorHidden = false;
-    }
-  }
-
-  process.stdout.on('resize', () => {
-    if (!altScreenActive) return;
-    currentDashboardHeight = getDashboardHeight();
-    const rows = process.stdout.rows || 24;
-    if (rows > currentDashboardHeight) {
-      process.stdout.write(`\x1b[${currentDashboardHeight + 1};${rows}r`);
-    }
-    process.stdout.write('\x1b[2J');
-    renderDashboard();
-    renderLogs(true);
-  });
-
-  renderDashboard();
-  renderLogs(true);
 
   // ─── Notion API 헬퍼 ───
 
@@ -655,7 +473,7 @@ function cmdWatch(cliProvider) {
     watchPushLog('SYSTEM', `${C.dim}폴링 재개...${C.reset}`);
 
     // 실행 완료 후 즉시 폴링 — 실행 중 추가된 태스크를 바로 감지
-    if (!gracefulShutdown) {
+    if (!dashboard.isGracefulShutdown()) {
       setTimeout(doPoll, 1000);
     }
   }
@@ -842,7 +660,7 @@ function cmdWatch(cliProvider) {
 
     // graceful_stop 체크
     if (fs.existsSync(gracefulStopPath)) {
-      cleanupAltScreen();
+      dashboard.dispose();
       console.log(`\n${C.yellow}graceful_stop 감지 — run 종료${C.reset}`);
       process.exit(0);
     }
@@ -910,11 +728,13 @@ function cmdWatch(cliProvider) {
     }
   }
 
+  dashboard.start();
+
   // 대시보드 갱신 타이머 (카운트다운을 위해 1초 간격)
-  const dashboardInterval = setInterval(renderDashboard, 1000);
+  dashboardInterval = setInterval(renderDashboard, 1000);
 
   // 5초마다 task_queue.md를 읽어 진행률 갱신 + 개별 태스크 Notion 상태 업데이트
-  const taskProgressInterval = setInterval(() => {
+  taskProgressInterval = setInterval(() => {
     if (watchPhase !== 'executing' || currentWorkerStates.length === 0) return;
     for (const ws of currentWorkerStates) {
       if (ws.status !== 'running') continue;
@@ -935,108 +755,7 @@ function cmdWatch(cliProvider) {
   doPoll();
 
   // 주기적 폴링
-  const pollTimer = setInterval(doPoll, pollIntervalMs);
-
-  // 메뉴 키 입력 핸들러
-  const pollNow = () => {
-    watchPushLog('SYSTEM', `${C.cyan}즉시 폴링 실행${C.reset}`);
-    doPoll();
-    renderDashboard();
-  };
-
-  const gracefulExit = () => {
-    if (gracefulShutdown) return;
-    gracefulShutdown = true;
-    watchPushLog('SYSTEM', `${C.yellow}마무리 후 종료 요청 — 현재 작업 완료 후 종료됩니다${C.reset}`);
-    clearInterval(pollTimer);
-    for (const ws of currentWorkerStates) {
-      if (ws.status === 'running' && ws._proc) {
-        try { ws._proc.kill('SIGINT'); } catch {}
-      }
-    }
-    renderDashboard();
-  };
-
-  const immediateExit = () => {
-    if (cleanupMenuInput) cleanupMenuInput();
-    clearInterval(pollTimer);
-    clearInterval(dashboardInterval);
-    clearInterval(taskProgressInterval);
-    for (const ws of currentWorkerStates) {
-      if (ws._proc) try { ws._proc.kill(); } catch {}
-    }
-    cleanupAltScreen();
-    console.log(`\n${C.yellow}즉시 종료됨${C.reset}`);
-    process.exit(0);
-  };
-
-  let cleanupMenuInput;
-  cleanupMenuInput = setupMenuInput(
-    menuState,
-    renderDashboard,
-    [
-      { label: '즉시 폴링', noConfirm: true, handler: pollNow },
-      { label: '즉시 종료', handler: immediateExit },
-      { label: '마무리 후 종료', handler: gracefulExit },
-    ],
-    immediateExit,
-    (action) => {
-      const logRows = getLogRows();
-      if (logRows <= 0) return false;
-      const maxScroll = getMaxLogScroll();
-      let next = logScroll;
-      const page = Math.max(1, logRows - 1);
-      switch (action) {
-        case 'lineUp':
-          next = Math.min(maxScroll, logScroll + 1);
-          break;
-        case 'lineDown':
-          next = Math.max(0, logScroll - 1);
-          break;
-        case 'pageUp':
-          next = Math.min(maxScroll, logScroll + page);
-          break;
-        case 'pageDown':
-          next = Math.max(0, logScroll - page);
-          break;
-        case 'top':
-          next = maxScroll;
-          break;
-        case 'bottom':
-          next = 0;
-          break;
-        case 'wheelUp':
-          next = Math.min(maxScroll, logScroll + 3);
-          break;
-        case 'wheelDown':
-          next = Math.max(0, logScroll - 3);
-          break;
-        default:
-          return false;
-      }
-      if (next === logScroll) return true;
-      logScroll = next;
-      renderLogs(true);
-      return true;
-    }
-  );
-
-  // 종료 핸들러
-  const sigintHandler = () => {
-    if (cleanupMenuInput) cleanupMenuInput();
-    clearInterval(pollTimer);
-    clearInterval(dashboardInterval);
-    clearInterval(taskProgressInterval);
-    // 실행 중인 워커 프로세스 종료
-    for (const ws of currentWorkerStates) {
-      if (ws._proc) try { ws._proc.kill(); } catch {}
-    }
-    cleanupAltScreen();
-    console.log(`\n${C.yellow}run 종료${C.reset}`);
-    process.exit(0);
-  };
-  process.on('SIGINT', sigintHandler);
-  process.on('exit', cleanupAltScreen);
+  pollTimer = setInterval(doPoll, pollIntervalMs);
 }
 
 module.exports = {

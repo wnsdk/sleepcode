@@ -28,6 +28,7 @@ claude --dangerously-skip-permissions
 
 `task_queue.md`는 backlog(읽기 전용)로 유지하고, 완료 기록은 `.sleepcode/task_done/<branch>.md`에 `- [x] ...` 형태로 append-only로 남기세요.
 sleepcode는 `.gitattributes`에 `task_queue/task_done`용 `merge=union` 규칙을 자동 추가합니다.
+태스크 완료 후 생성되는 자동 커밋 제목은 `prefix: message` 형식을 사용합니다.
 
 ### 3. 실행
 

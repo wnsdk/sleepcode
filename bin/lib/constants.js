@@ -44,8 +44,8 @@ const SLEEPCODE_VERSION = require('../../package.json').version;
 // sleepcode 뱃지 (pill 형태: 반블록 + 마젠타 배경 + 흰색 볼드)
 const SLEEPCODE_BADGE = `${C.magenta}▐${C.bgMagenta}${C.brightWhite}${C.bold} sleepcode ${C.reset}${C.magenta}▌${C.reset}`;
 
-// sleepcode 뱃지 + hover 시 버전 표시 (OSC 8 터미널 하이퍼링크)
-const SLEEPCODE_BADGE_HOVER = `\x1b]8;;sleepcode://v${SLEEPCODE_VERSION}\x07${SLEEPCODE_BADGE}\x1b]8;;\x07`;
+// 터미널에 출력할 때 badge 오른편에 버전을 표시
+const SLEEPCODE_BADGE_WITH_VERSION = `${SLEEPCODE_BADGE} ${C.dim}v${SLEEPCODE_VERSION}${C.reset}`;
 
 /** Notion DB 링크 (OSC 8 터미널 하이퍼링크) — DB ID가 없으면 빈 문자열 */
 function notionLink(dbId) {
@@ -108,7 +108,7 @@ module.exports = {
   BRANCH_COLORS,
   branchColor,
   SLEEPCODE_BADGE,
-  SLEEPCODE_BADGE_HOVER,
+  SLEEPCODE_BADGE_WITH_VERSION,
   SLEEPCODE_VERSION,
   notionLink,
   TEMPLATES_DIR,

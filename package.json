@@ -2,6 +2,9 @@
   "name": "sleepcode",
   "version": "2.1.1",
   "description": "AI codes while you sleep — Claude AI 야간 자동화 세팅 CLI",
+  "scripts": {
+    "test": "node --test"
+  },
   "bin": {
     "sleepcode": "./bin/index.js"
   },

@@ -50,6 +50,21 @@ function getWorkerTaskProgress(ws, targetDir = null, content = null) {
   };
 }
 
+function getPersistedTaskProgress(targetDir, tasksPath, doneFilePath = null, content = null) {
+  const resolvedTasksPath = tasksPath || path.join(targetDir, '.sleepcode', 'task_queue.md');
+  const resolvedContent = content != null
+    ? content
+    : (fs.existsSync(resolvedTasksPath) ? fs.readFileSync(resolvedTasksPath, 'utf-8') : '');
+  const doneState = readTaskDoneSet(targetDir, doneFilePath);
+  const counts = countTasks(resolvedContent, doneState.doneSet);
+  return {
+    tasksPath: resolvedTasksPath,
+    content: resolvedContent,
+    doneState,
+    counts,
+  };
+}
+
 function syncWorkerTaskProgress(ws, targetDir = null, content = null) {
   const progress = getWorkerTaskProgress(ws, targetDir, content);
   ws.done = progress.counts.done;
@@ -62,5 +77,6 @@ module.exports = {
   ensureWorkerDoneTracking,
   getWorkerDoneState,
   getWorkerTaskProgress,
+  getPersistedTaskProgress,
   syncWorkerTaskProgress,
 };

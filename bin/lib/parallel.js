@@ -13,7 +13,7 @@ const { resolveProviderPlan, providerLabel, buildExecutionPrompt, getProviderRun
 const { isOverBudget, recordCost } = require('./config');
 const { boxLine, renderMenuLineWithLayout, setupMenuInput } = require('./dashboard');
 const { spawnWorker } = require('./worker');
-const { getWorkerTaskProgress, syncWorkerTaskProgress } = require('./taskState');
+const { getPersistedTaskProgress, syncWorkerTaskProgress } = require('./taskState');
 const MAIN_WORKER_NAME = 'main';
 
 function normalizeStatusPathPart(value) {
@@ -279,10 +279,10 @@ function showParallelStatus(targetDir) {
     let done = 0;
     let total = 0;
     if (fs.existsSync(sourcePath)) {
-      const progress = getWorkerTaskProgress({
-        path: isMainWorker ? targetDir : wtPath,
-        tasksPath: sourcePath,
-      });
+      const progress = getPersistedTaskProgress(
+        isMainWorker ? targetDir : wtPath,
+        sourcePath
+      );
       done = progress.counts.done;
       total = progress.counts.total;
     } else {

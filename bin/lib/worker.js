@@ -945,4 +945,7 @@ module.exports = {
   buildTaskCommitMessage,
   processStreamEvent,
   spawnWorker,
+  _internals: {
+    commitTaskNow,
+  },
 };

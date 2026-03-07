@@ -28,6 +28,11 @@ const {
   syncNextPendingTaskStatus,
 } = require('./runNotionEvents');
 const {
+  isSingleMainWorkerMode,
+  startDynamicWorker,
+  trackDynamicTaskIds,
+} = require('./runDynamicTasks');
+const {
   buildExecutionPlan,
   createDynamicWorkerState,
   prepareParallelExecution,
@@ -421,9 +426,7 @@ function cmdWatch(cliProvider) {
   // ─── 실행 중 새 태스크 추가 (즉시 반영) ───
 
   function addTasksDuringExecution(newTasks, schema) {
-    for (const task of newTasks) {
-      executingTaskIds.add(task.id);
-    }
+    trackDynamicTaskIds(executingTaskIds, newTasks);
     const { existingGroups: tasksForExisting, newGroups: tasksForNew } = splitTasksByWorkerPresence(
       newTasks,
       currentWorkerStates.map((ws) => ws.name)
@@ -446,60 +449,37 @@ function cmdWatch(cliProvider) {
 
     // 2. 새로운 워커 그룹: worktree 생성 + 워커 스폰
     for (const [workerName, tasks] of Object.entries(tasksForNew)) {
-      const isParallel = currentWorkerStates.length > 1 || currentWorkerStates[0]?.name !== 'main';
-      const timestamp = createRunTimestamp();
+      const newWs = startDynamicWorker({
+        currentWorkerStates,
+        workerName,
+        tasks,
+        schema,
+        targetDir,
+        logDir,
+        createWorktrees,
+        createRunTimestamp,
+        createDynamicWorkerState,
+        applyRunTaskUpdates,
+        setWatchPhase,
+        pushLog: (message) => watchPushLog('SYSTEM', message),
+        spawnRunWorker,
+      });
 
-      if (!isParallel && currentWorkerStates.length === 1 && currentWorkerStates[0].name === 'main') {
-        // 단일 모드에서 main이 아닌 새 워커 → 병렬로 전환해야 하므로 worktree 생성
-        const newWs = createDynamicWorkerState({
-          targetDir,
-          workerName,
-          tasks,
-          timestamp,
-          logDir,
-          createWorktrees,
+      if (newWs) {
+        continue;
+      }
+
+      if (isSingleMainWorkerMode(currentWorkerStates)) {
+        const ws = currentWorkerStates[0];
+        const ok = appendTasksToWorkerQueue(ws, tasks, schema, {
+          errorPrefix: '',
+          successMessage: `${C.yellow}↷${C.reset} worktree 생성 실패 → main에 ${tasks.length}개 태스크 추가`,
         });
-        if (newWs) {
-          applyRunTaskUpdates(tasks, schema, new Set([tasks[0].id]), { trackTasks: true });
-          currentWorkerStates.push(newWs);
-          setWatchPhase('executing'); // 대시보드 높이 재계산
-
-          watchPushLog('SYSTEM', `${C.green}▶${C.reset} 새 워커 ${C.cyan}${workerName}${C.reset} 시작 (${tasks.length}개 태스크)`);
-
-          // 워커 스폰
-          spawnRunWorker(newWs);
-        } else {
-          // worktree 생성 실패 시 main에 태스크 추가
-          const ws = currentWorkerStates[0];
-          const ok = appendTasksToWorkerQueue(ws, tasks, schema, {
-            errorPrefix: '',
-            successMessage: `${C.yellow}↷${C.reset} worktree 생성 실패 → main에 ${tasks.length}개 태스크 추가`,
-          });
-          if (!ok) {
-            continue;
-          }
+        if (!ok) {
+          continue;
         }
       } else {
-        // 이미 병렬 모드 → 새 worktree 생성
-        const newWs = createDynamicWorkerState({
-          targetDir,
-          workerName,
-          tasks,
-          timestamp,
-          logDir,
-          createWorktrees,
-        });
-        if (newWs) {
-          applyRunTaskUpdates(tasks, schema, new Set([tasks[0].id]), { trackTasks: true });
-          currentWorkerStates.push(newWs);
-          setWatchPhase('executing');
-
-          watchPushLog('SYSTEM', `${C.green}▶${C.reset} 새 워커 ${C.cyan}${workerName}${C.reset} 시작 (${tasks.length}개 태스크)`);
-
-          spawnRunWorker(newWs);
-        } else {
-          watchPushLog('SYSTEM', `${C.red}워커 ${workerName} worktree 생성 실패${C.reset}`);
-        }
+        watchPushLog('SYSTEM', `${C.red}워커 ${workerName} worktree 생성 실패${C.reset}`);
       }
     }
 

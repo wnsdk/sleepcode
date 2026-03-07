@@ -18,7 +18,7 @@ ${SLEEPCODE_BADGE}  v${pkg.version}
 명령어:
   help             도움말 보기
   version          버전 정보 보기
-  run              1회 실행 (대시보드 모드)
+  run              Notion DB 폴링 모드 (태스크 대기 → 실행 → 대기 반복)
   parallel         @worker 섹션 기반 병렬 실행
   usage            주간 사용량 확인
   notion-update    기존 Notion DB 컬럼을 최신 버전으로 업데이트
@@ -43,6 +43,7 @@ ${SLEEPCODE_BADGE}  v${pkg.version}
   --threshold <pct>    사용량 임계값 (%, 기본 90)
   --provider <name>    AI provider (claude, codex, auto)
   --claude-ratio <pct> Claude 사용 비율 (0-100, 예: 30 → Claude 30% / Codex 70%)
+  --interval <sec>     폴링 간격 (초, 기본 30)
   -c, --continue       이전 세션 이어서 실행 (토큰 절약)
   -f, --force          기존 .sleepcode/ 덮어쓰기
   -v, --version        버전 정보
@@ -75,6 +76,7 @@ function parseArgs() {
     else if (args[i] === '--threshold' && args[i + 1]) parsed.threshold = args[++i];
     else if (args[i] === '--provider' && args[i + 1]) parsed.provider = args[++i];
     else if (args[i] === '--claude-ratio' && args[i + 1]) parsed.claudeRatio = args[++i];
+    else if (args[i] === '--interval' && args[i + 1]) parsed.interval = args[++i];
     else if (args[i] === '--continue' || args[i] === '-c') parsed.continue = true;
     else if (args[i] === '--force' || args[i] === '-f') parsed.force = true;
     else if (args[i] === '--help' || args[i] === '-h') {

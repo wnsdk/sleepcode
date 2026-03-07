@@ -38,8 +38,7 @@ async function main() {
     return;
   }
   if (firstArg === 'run') {
-    const cont = !!cliArgs.continue;
-    runWorker(cont, providerArg);
+    runWorker(providerArg);
     return;
   }
   if (firstArg === 'parallel') {

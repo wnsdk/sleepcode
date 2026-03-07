@@ -468,6 +468,92 @@ def update_page(api_key, page_id):
 # ─── APPEND-CONTENT: 페이지 본문에 보고 텍스트 추가 ───
 
 
+def parse_inline_rich_text(text):
+    """인라인 마크다운(**bold**)을 Notion rich_text 배열로 변환"""
+    rich_texts = []
+    pattern = re.compile(r'\*\*(.+?)\*\*')
+    last_end = 0
+    for match in pattern.finditer(text):
+        if match.start() > last_end:
+            before = text[last_end:match.start()]
+            rich_texts.append({"type": "text", "text": {"content": before}})
+        rich_texts.append({
+            "type": "text",
+            "text": {"content": match.group(1)},
+            "annotations": {"bold": True},
+        })
+        last_end = match.end()
+    if last_end < len(text):
+        rich_texts.append({"type": "text", "text": {"content": text[last_end:]}})
+    if not rich_texts:
+        rich_texts.append({"type": "text", "text": {"content": text}})
+    return rich_texts
+
+
+def md_line_to_block(line):
+    """마크다운 한 줄을 Notion 블록으로 변환"""
+    stripped = line.strip()
+
+    if stripped == "---":
+        return {"object": "block", "type": "divider", "divider": {}}
+
+    if stripped.startswith("### "):
+        content = stripped[4:].strip()
+        return {
+            "object": "block", "type": "heading_3",
+            "heading_3": {"rich_text": [{"type": "text", "text": {"content": content}}]},
+        }
+
+    if stripped.startswith("## "):
+        content = stripped[3:].strip()
+        return {
+            "object": "block", "type": "heading_2",
+            "heading_2": {"rich_text": [{"type": "text", "text": {"content": content}}]},
+        }
+
+    if stripped.startswith("# "):
+        content = stripped[2:].strip()
+        return {
+            "object": "block", "type": "heading_1",
+            "heading_1": {"rich_text": [{"type": "text", "text": {"content": content}}]},
+        }
+
+    if re.match(r'^[-*+] ', stripped):
+        content = stripped[2:].strip()
+        return {
+            "object": "block", "type": "bulleted_list_item",
+            "bulleted_list_item": {"rich_text": parse_inline_rich_text(content)},
+        }
+
+    if re.match(r'^\d+\. ', stripped):
+        content = re.sub(r'^\d+\. ', '', stripped)
+        return {
+            "object": "block", "type": "numbered_list_item",
+            "numbered_list_item": {"rich_text": parse_inline_rich_text(content)},
+        }
+
+    # 빈 줄
+    if not stripped:
+        return {"object": "block", "type": "paragraph", "paragraph": {"rich_text": []}}
+
+    return {
+        "object": "block", "type": "paragraph",
+        "paragraph": {"rich_text": parse_inline_rich_text(line)},
+    }
+
+
+def split_rich_text_chunks(rich_texts, max_len=2000):
+    """rich_text 배열의 총 텍스트가 2000자를 초과하면 분할"""
+    total = sum(len(rt.get("text", {}).get("content", "")) for rt in rich_texts)
+    if total <= max_len:
+        return [rich_texts]
+    full_text = "".join(rt.get("text", {}).get("content", "") for rt in rich_texts)
+    return [
+        [{"type": "text", "text": {"content": full_text[i:i + max_len]}}]
+        for i in range(0, len(full_text), max_len)
+    ]
+
+
 def append_content(api_key, page_id):
     """페이지 본문에 보고 텍스트 추가 — stdin에서 텍스트 읽기"""
     text = sys.stdin.read().strip()
@@ -485,50 +571,34 @@ def append_content(api_key, page_id):
     blocks.append({"object": "block", "type": "divider", "divider": {}})
 
     # 헤더
-    blocks.append(
-        {
-            "object": "block",
-            "type": "heading_2",
-            "heading_2": {
-                "rich_text": [
-                    {
-                        "type": "text",
-                        "text": {"content": f"AI Report ({timestamp})"},
-                    }
-                ]
-            },
-        }
-    )
+    blocks.append({
+        "object": "block",
+        "type": "heading_2",
+        "heading_2": {
+            "rich_text": [{"type": "text", "text": {"content": f"AI Report ({timestamp})"}}]
+        },
+    })
 
-    # 텍스트를 빈 줄 기준으로 문단 분리
-    paragraphs = text.split("\n")
-    current_para = []
+    # 줄 단위로 Notion 블록 변환
+    for line in text.split("\n"):
+        block = md_line_to_block(line)
+        btype = block.get("type")
 
-    def flush_para():
-        if not current_para:
-            return
-        para_text = "\n".join(current_para)
-        # 2000자 제한 처리
-        for i in range(0, len(para_text), 2000):
-            chunk = para_text[i : i + 2000]
-            blocks.append(
-                {
-                    "object": "block",
-                    "type": "paragraph",
-                    "paragraph": {
-                        "rich_text": [{"type": "text", "text": {"content": chunk}}]
-                    },
-                }
-            )
-
-    for line in paragraphs:
-        if not line.strip():
-            flush_para()
-            current_para = []
+        # rich_text 2000자 제한 처리
+        if btype in ("paragraph", "bulleted_list_item", "numbered_list_item"):
+            rich_texts = block.get(btype, {}).get("rich_text", [])
+            chunks = split_rich_text_chunks(rich_texts)
+            for i, chunk in enumerate(chunks):
+                if i == 0:
+                    block[btype]["rich_text"] = chunk
+                    blocks.append(block)
+                else:
+                    blocks.append({
+                        "object": "block", "type": btype,
+                        btype: {"rich_text": chunk},
+                    })
         else:
-            current_para.append(line)
-
-    flush_para()
+            blocks.append(block)
 
     if len(blocks) <= 2:  # 헤더+구분선만 있으면 스킵
         return
@@ -540,9 +610,7 @@ def append_content(api_key, page_id):
             "PATCH", f"/blocks/{page_id}/children", api_key, {"children": chunk}
         )
         if not result:
-            print(
-                f"[notion_sync] 페이지 콘텐츠 추가 실패: {page_id}", file=sys.stderr
-            )
+            print(f"[notion_sync] 페이지 콘텐츠 추가 실패: {page_id}", file=sys.stderr)
             return
 
     print(f"[notion_sync] 보고 내용 기록 완료: {page_id}")

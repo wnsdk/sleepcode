@@ -65,6 +65,8 @@ npx sleepcode run      # 실행
 - [ ] 장바구니 수량 버그 수정
 ```
 
+`@worker main`은 별도 `sleepcode/main` 브랜치를 만들지 않고 현재 체크아웃된 브랜치(보통 `main`)에서 실행됩니다.
+
 ```bash
 npx sleepcode parallel              # 병렬 실행
 npx sleepcode parallel --setup      # worktree만 생성 (실행 전 확인)

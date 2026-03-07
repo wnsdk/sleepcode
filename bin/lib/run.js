@@ -392,15 +392,18 @@ function cmdWatch(cliProvider) {
     scheduleRender();
   }
 
-  // task_queue.md에서 개별 태스크의 완료 상태를 파싱 (notion page ID 매칭)
-  function parseTaskStatuses(workerPaths) {
+  // task_queue.md(+worker 전용 task_queue.*.md)에서 개별 태스크의 완료 상태를 파싱 (notion page ID 매칭)
+  function parseTaskStatuses(workerRefs) {
     const statuses = {}; // { notionId: boolean (true=done) }
-    for (const wsPath of workerPaths) {
-      const tp = path.join(wsPath, '.sleepcode', 'task_queue.md');
+    for (const ref of workerRefs) {
+      const wsPath = typeof ref === 'string' ? ref : ref.path;
+      const tp = (typeof ref === 'string')
+        ? path.join(wsPath, '.sleepcode', 'task_queue.md')
+        : (ref.tasksPath || path.join(wsPath, '.sleepcode', 'task_queue.md'));
       if (!fs.existsSync(tp)) continue;
       try {
         const content = fs.readFileSync(tp, 'utf-8');
-        const doneState = readTaskDoneSet(wsPath);
+        const doneState = readTaskDoneSet(wsPath, typeof ref === 'string' ? null : ref.doneFilePath);
         const tasks = extractTaskItems(content);
         for (const task of tasks) {
           if (!task.notionId) continue;
@@ -530,7 +533,7 @@ function cmdWatch(cliProvider) {
       }));
 
       for (const ws of workerStates) {
-        const tp = path.join(ws.path, '.sleepcode', 'task_queue.md');
+        const tp = ws.tasksPath || path.join(ws.path, '.sleepcode', 'task_queue.md');
         if (fs.existsSync(tp)) {
           const content = fs.readFileSync(tp, 'utf-8');
           const doneState = readTaskDoneSet(ws.path, ws.doneFilePath);
@@ -570,6 +573,7 @@ function cmdWatch(cliProvider) {
       const ws = {
         name: 'main',
         path: targetDir,
+        tasksPath,
         targetDir,
         status: 'running',
         currentTask: '',
@@ -604,10 +608,10 @@ function cmdWatch(cliProvider) {
     watchPushLog('SYSTEM', `${C.bold}실행 완료 — Notion 업데이트${C.reset}`);
 
     // task_queue + task_done/<branch>.md에서 완료 상태 확인 (notion page ID 매칭)
-    const workerPaths = (workerStates && workerStates.length > 0)
-      ? workerStates.map(ws => ws.path)
-      : [targetDir];
-    const taskCompletion = parseTaskStatuses(workerPaths);
+    const workerRefs = (workerStates && workerStates.length > 0)
+      ? workerStates
+      : [{ path: targetDir }];
+    const taskCompletion = parseTaskStatuses(workerRefs);
 
     // 총 비용
     const totalCost = (workerStates && workerStates.length > 0)
@@ -755,7 +759,7 @@ function cmdWatch(cliProvider) {
       const ws = currentWorkerStates.find(w => w.name === workerName);
       if (!ws) continue;
 
-      const tp = path.join(ws.path, '.sleepcode', 'task_queue.md');
+      const tp = ws.tasksPath || path.join(ws.path, '.sleepcode', 'task_queue.md');
       try {
         let content = fs.existsSync(tp) ? fs.readFileSync(tp, 'utf-8') : '';
         for (const task of tasks) {
@@ -841,7 +845,7 @@ function cmdWatch(cliProvider) {
         } else {
           // worktree 생성 실패 시 main에 태스크 추가
           const ws = currentWorkerStates[0];
-          const tp = path.join(ws.path, '.sleepcode', 'task_queue.md');
+          const tp = ws.tasksPath || path.join(ws.path, '.sleepcode', 'task_queue.md');
           try {
             let content = fs.existsSync(tp) ? fs.readFileSync(tp, 'utf-8') : '';
             for (const task of tasks) {
@@ -1000,7 +1004,7 @@ function cmdWatch(cliProvider) {
     if (watchPhase !== 'executing' || currentWorkerStates.length === 0) return;
     for (const ws of currentWorkerStates) {
       if (ws.status !== 'running') continue;
-      const tp = path.join(ws.path, '.sleepcode', 'task_queue.md');
+      const tp = ws.tasksPath || path.join(ws.path, '.sleepcode', 'task_queue.md');
       try {
         if (fs.existsSync(tp)) {
           const content = fs.readFileSync(tp, 'utf-8');
@@ -1012,8 +1016,7 @@ function cmdWatch(cliProvider) {
       } catch {}
     }
     // 완료된 태스크 감지 → 다음 대기 태스크를 Running으로 업데이트
-    const workerPaths = currentWorkerStates.map(ws => ws.path);
-    updateNextTaskStatus(workerPaths);
+    updateNextTaskStatus(currentWorkerStates);
     scheduleRender();
   }, 5000);
 

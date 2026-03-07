@@ -9,6 +9,7 @@ const { isOverBudget, recordCost } = require('./config');
 const { syncClaudeMd } = require('./files');
 const { boxLine, renderMenuLineWithLayout, setupMenuInput } = require('./dashboard');
 const { spawnWorker } = require('./worker');
+const MAIN_WORKER_NAME = 'main';
 
 function parseParallelTasks(tasksPath) {
   if (!fs.existsSync(tasksPath)) return null;
@@ -77,9 +78,32 @@ function copySleepcodeDirToWorktree(srcDir, wtPath) {
 function createWorktrees(targetDir, workers) {
   const wtBase = path.join(targetDir, '.sleepcode', 'worktrees');
   fs.mkdirSync(wtBase, { recursive: true });
+  const mainTasksPath = path.join(targetDir, '.sleepcode', 'task_queue.main.md');
+  let currentBranch = 'main';
+  try {
+    currentBranch = execSync('git rev-parse --abbrev-ref HEAD', { cwd: targetDir, stdio: 'pipe' }).toString().trim() || 'main';
+  } catch {}
 
   const created = [];
   for (const worker of workers) {
+    if (worker.name === MAIN_WORKER_NAME) {
+      fs.mkdirSync(path.dirname(mainTasksPath), { recursive: true });
+      fs.writeFileSync(mainTasksPath, worker.tasks);
+      const legacyMainWorktreePath = path.join(wtBase, MAIN_WORKER_NAME);
+      if (fs.existsSync(legacyMainWorktreePath)) {
+        console.log(`  ${C.yellow}!${C.reset} legacy worktree '${MAIN_WORKER_NAME}' 감지 — ${C.cyan}npx sleepcode parallel --clean${C.reset} 권장`);
+      }
+      console.log(`  ${C.green}✓${C.reset} ${worker.name} ${C.dim}(${currentBranch})${C.reset} — ${worker.remaining}개 태스크 ${C.dim}[현재 브랜치]${C.reset}`);
+      created.push({
+        name: worker.name,
+        path: targetDir,
+        branch: currentBranch,
+        tasksPath: mainTasksPath,
+        usesMainBranch: true,
+      });
+      continue;
+    }
+
     const wtPath = path.join(wtBase, worker.name);
     const branch = `sleepcode/${worker.name}`;
 
@@ -94,7 +118,7 @@ function createWorktrees(targetDir, workers) {
       const wtTasksPath = path.join(wtPath, '.sleepcode', 'task_queue.md');
       fs.mkdirSync(path.dirname(wtTasksPath), { recursive: true });
       fs.writeFileSync(wtTasksPath, worker.tasks);
-      created.push({ name: worker.name, path: wtPath, branch });
+      created.push({ name: worker.name, path: wtPath, branch, tasksPath: wtTasksPath });
       continue;
     }
 
@@ -125,7 +149,7 @@ function createWorktrees(targetDir, workers) {
     fs.writeFileSync(wtTasksPath, worker.tasks);
 
     console.log(`  ${C.green}✓${C.reset} ${worker.name} ${C.dim}(${branch})${C.reset} — ${worker.remaining}개 태스크`);
-    created.push({ name: worker.name, path: wtPath, branch });
+    created.push({ name: worker.name, path: wtPath, branch, tasksPath: wtTasksPath });
   }
 
   return created;
@@ -133,10 +157,22 @@ function createWorktrees(targetDir, workers) {
 
 function cleanupWorktrees(targetDir, workers) {
   const wtBase = path.join(targetDir, '.sleepcode', 'worktrees');
+  const mainTasksPath = path.join(targetDir, '.sleepcode', 'task_queue.main.md');
 
   if (workers) {
     // 특정 워커들만 정리
     for (const worker of workers) {
+      if (worker.name === MAIN_WORKER_NAME) {
+        if (fs.existsSync(mainTasksPath)) {
+          try {
+            fs.unlinkSync(mainTasksPath);
+            console.log(`  ${C.green}✓${C.reset} ${worker.name} task 파일 제거`);
+          } catch (e) {
+            console.error(`  ${C.red}✗${C.reset} ${worker.name}: ${e.message}`);
+          }
+        }
+        continue;
+      }
       const wtPath = path.join(wtBase, worker.name);
       if (!fs.existsSync(wtPath)) continue;
       try {
@@ -149,19 +185,31 @@ function cleanupWorktrees(targetDir, workers) {
   } else {
     // 전체 정리: .sleepcode/worktrees/ 아래 모든 디렉토리
     if (!fs.existsSync(wtBase)) {
-      console.log(`${C.dim}정리할 worktree가 없습니다.${C.reset}`);
-      return;
+      if (!fs.existsSync(mainTasksPath)) {
+        console.log(`${C.dim}정리할 worktree가 없습니다.${C.reset}`);
+        return;
+      }
     }
-    const dirs = fs.readdirSync(wtBase).filter(d =>
-      fs.statSync(path.join(wtBase, d)).isDirectory()
-    );
-    for (const dir of dirs) {
-      const wtPath = path.join(wtBase, dir);
+    if (fs.existsSync(wtBase)) {
+      const dirs = fs.readdirSync(wtBase).filter(d =>
+        fs.statSync(path.join(wtBase, d)).isDirectory()
+      );
+      for (const dir of dirs) {
+        const wtPath = path.join(wtBase, dir);
+        try {
+          execSync(`git worktree remove "${wtPath}" --force`, { cwd: targetDir, stdio: 'pipe' });
+          console.log(`  ${C.green}✓${C.reset} ${dir} worktree 제거`);
+        } catch (e) {
+          console.error(`  ${C.red}✗${C.reset} ${dir}: ${e.message}`);
+        }
+      }
+    }
+    if (fs.existsSync(mainTasksPath)) {
       try {
-        execSync(`git worktree remove "${wtPath}" --force`, { cwd: targetDir, stdio: 'pipe' });
-        console.log(`  ${C.green}✓${C.reset} ${dir} worktree 제거`);
+        fs.unlinkSync(mainTasksPath);
+        console.log(`  ${C.green}✓${C.reset} main task 파일 제거`);
       } catch (e) {
-        console.error(`  ${C.red}✗${C.reset} ${dir}: ${e.message}`);
+        console.error(`  ${C.red}✗${C.reset} main task 파일 제거 실패: ${e.message}`);
       }
     }
   }
@@ -177,6 +225,7 @@ function cleanupWorktrees(targetDir, workers) {
 
 function showParallelStatus(targetDir) {
   const tasksPath = path.join(targetDir, '.sleepcode', 'task_queue.md');
+  const mainTasksPath = path.join(targetDir, '.sleepcode', 'task_queue.main.md');
   const workers = parseParallelTasks(tasksPath);
 
   if (!workers) {
@@ -189,29 +238,32 @@ function showParallelStatus(targetDir) {
 
   console.log(`\n${C.bold}워커 상태:${C.reset}\n`);
   for (const worker of workers) {
+    const isMainWorker = worker.name === MAIN_WORKER_NAME;
     const wtPath = path.join(wtBase, worker.name);
-    const exists = fs.existsSync(wtPath);
+    const exists = isMainWorker ? true : fs.existsSync(wtPath);
+    const sourcePath = isMainWorker
+      ? (fs.existsSync(mainTasksPath) ? mainTasksPath : '')
+      : path.join(wtPath, '.sleepcode', 'task_queue.md');
 
     // worktree가 있으면 그 안의 task_queue.md에서 진행률 확인
     let done = 0;
     let total = 0;
-    if (exists) {
-      const wtTasksPath = path.join(wtPath, '.sleepcode', 'task_queue.md');
-      if (fs.existsSync(wtTasksPath)) {
-        const wtContent = fs.readFileSync(wtTasksPath, 'utf-8');
-        const doneState = readTaskDoneSet(wtPath);
-        const tc = countTasks(wtContent, doneState.doneSet);
+    if (fs.existsSync(sourcePath)) {
+      const wtContent = fs.readFileSync(sourcePath, 'utf-8');
+      const doneState = readTaskDoneSet(isMainWorker ? targetDir : wtPath);
+      const tc = countTasks(wtContent, doneState.doneSet);
         done = tc.done;
         total = tc.total;
-      }
     } else {
       total = worker.remaining;
     }
 
     const bar = total > 0 ? progressBar(done, total, 20) : C.dim + '(태스크 없음)' + C.reset;
-    const status = exists
-      ? `${C.green}준비됨${C.reset}`
-      : `${C.dim}미생성${C.reset}`;
+    const status = isMainWorker
+      ? `${C.green}현재 브랜치${C.reset}`
+      : exists
+        ? `${C.green}준비됨${C.reset}`
+        : `${C.dim}미생성${C.reset}`;
 
     console.log(`  ${C.bold}${worker.name}${C.reset}  ${bar}  ${done}/${total}  ${status}`);
   }
@@ -367,6 +419,11 @@ function mergeWorktrees(targetDir) {
   const results = { merged: [], conflicted: [], skipped: [] };
 
   for (const worker of workers) {
+    if (worker.name === MAIN_WORKER_NAME) {
+      console.log(`  ${C.dim}-${C.reset} ${C.cyan}${currentBranch}${C.reset} ${C.dim}(현재 브랜치 워커, 머지 불필요)${C.reset}`);
+      results.skipped.push(worker.name);
+      continue;
+    }
     const branch = `sleepcode/${worker.name}`;
 
     // 브랜치 존재 확인
@@ -468,7 +525,11 @@ function autoMergeWorktrees(targetDir, workerStates) {
   const results = { merged: [], conflicted: [], skipped: [] };
 
   for (const ws of workerStates) {
-    const branch = `sleepcode/${ws.name}`;
+    const branch = ws.branch || `sleepcode/${ws.name}`;
+    if (ws.name === MAIN_WORKER_NAME || branch === currentBranch) {
+      results.skipped.push(ws.name);
+      continue;
+    }
 
     try {
       execSync(`git rev-parse --verify "${branch}"`, { cwd: targetDir, stdio: 'pipe' });
@@ -632,7 +693,7 @@ function runParallelWorkers(targetDir, workerInfos, cliProvider) {
 
   // 초기 태스크 수 계산
   for (const ws of workerStates) {
-    const tasksPath = path.join(ws.path, '.sleepcode', 'task_queue.md');
+    const tasksPath = ws.tasksPath || path.join(ws.path, '.sleepcode', 'task_queue.md');
     if (fs.existsSync(tasksPath)) {
       const content = fs.readFileSync(tasksPath, 'utf-8');
       const doneState = readTaskDoneSet(ws.path, ws.doneFilePath);
@@ -932,7 +993,7 @@ function runParallelWorkers(targetDir, workerInfos, cliProvider) {
   const taskProgressInterval = setInterval(() => {
     for (const ws of workerStates) {
       if (ws.status !== 'running') continue;
-      const tp = path.join(ws.path, '.sleepcode', 'task_queue.md');
+      const tp = ws.tasksPath || path.join(ws.path, '.sleepcode', 'task_queue.md');
       try {
         if (fs.existsSync(tp)) {
           const content = fs.readFileSync(tp, 'utf-8');

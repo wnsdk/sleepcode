@@ -56,6 +56,8 @@ npx sleepcode run
 - [ ] 장바구니 수량 버그 수정
 ```
 
+`@worker main`은 별도 `sleepcode/main` 브랜치를 만들지 않고 현재 체크아웃된 브랜치에서 실행됩니다.
+
 **실행:**
 
 ```bash

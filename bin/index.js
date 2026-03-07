@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 
 const { C } = require('./lib/constants');
-const { showUsage } = require('./lib/config');
+const { showUsage } = require('./lib/configBudget');
 const { showHelp, showVersion, parseArgs, parseCommand } = require('./lib/cli');
 const { runInit } = require('./lib/init');
 const { runNotionUpdate } = require('./lib/notionUpdate');

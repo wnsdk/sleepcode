@@ -3,7 +3,7 @@ const path = require('path');
 const { C } = require('./constants');
 const { detectPython } = require('./prerequisites');
 const { resolveProviderPlan } = require('./provider');
-const { isOverBudget } = require('./config');
+const { isOverBudget } = require('./configBudget');
 const { ensureRuntimeDirs } = require('./runtimePaths');
 const {
   getCompletionNextSteps,

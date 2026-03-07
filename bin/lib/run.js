@@ -1,4 +1,4 @@
-const { isOverBudget, recordCost } = require('./config');
+const { isOverBudget, recordCost } = require('./configBudget');
 const { syncClaudeMd } = require('./files');
 const { parseParallelTasks, createWorktrees, cleanupWorktrees, autoMergeWorktrees } = require('./parallel');
 const { getWorkerDoneState, syncWorkerTaskProgress } = require('./taskState');

@@ -2,7 +2,7 @@ const fs = require('fs');
 const path = require('path');
 
 const { C } = require('./constants');
-const { isOverBudget } = require('./config');
+const { isOverBudget } = require('./configBudget');
 const { syncWorkerTaskProgress } = require('./taskState');
 const { autoMergeWorktrees } = require('./parallelMerge');
 

@@ -1,5 +1,5 @@
 const { C } = require('./constants');
-const { recordCost } = require('./config');
+const { recordCost } = require('./configBudget');
 const { parseTaskStatuses } = require('./notionRun');
 const {
   finalizeParallelWorkers,

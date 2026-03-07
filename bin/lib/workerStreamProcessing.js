@@ -2,7 +2,7 @@ const fs = require('fs');
 const path = require('path');
 const { C } = require('./constants');
 const { visualWidth } = require('./utils');
-const { recordCost } = require('./config');
+const { recordCost } = require('./configBudget');
 const { syncWorkerTaskProgress } = require('./taskState');
 
 function trimByWidth(text, width) {

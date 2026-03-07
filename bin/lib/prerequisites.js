@@ -37,8 +37,19 @@ function getInstallHint(tool) {
     tmux: isMac
       ? 'brew install tmux'
       : 'sudo apt install tmux',
+    rg: isMac
+      ? 'brew install ripgrep'
+      : IS_WIN
+        ? 'winget install BurntSushi.ripgrep.MSVC'
+        : 'sudo apt install ripgrep',
   };
   return hints[tool] || '';
+}
+
+function checkRipgrep() {
+  const rgVer = checkCommand('rg --version');
+  if (!rgVer) return null;
+  return { version: rgVer };
 }
 
 async function checkPrerequisites(rl) {
@@ -87,6 +98,36 @@ async function checkPrerequisites(rl) {
   } else {
     console.log(`  ${C.dim}-${C.reset} codex not installed`);
     results.codex = false;
+  }
+
+  // rg (Windows + Codex 권장)
+  if (IS_WIN && results.codex) {
+    const rg = checkRipgrep();
+    if (rg) {
+      console.log(`  ${C.green}✓${C.reset} rg (${rg.version}) ${C.dim}[Codex 검색 최적화]${C.reset}`);
+    } else {
+      console.log(`  ${C.yellow}!${C.reset} Windows + Codex에서는 rg(ripgrep) 설치를 권장합니다.`);
+      console.log(`    ${C.dim}현재 rg 실행이 불가하여 검색 시 PowerShell fallback을 사용합니다.${C.reset}`);
+      console.log(`    ${C.dim}설치: ${getInstallHint('rg')}${C.reset}`);
+
+      if (rl) {
+        const answer = await ask(rl, `rg를 지금 설치할까요? (${getInstallHint('rg')}) [Y/n]`, 'Y');
+        if (answer.toLowerCase() !== 'n') {
+          console.log(`\n  ${C.dim}설치 중...${C.reset}`);
+          try {
+            execSync(getInstallHint('rg'), { stdio: 'inherit', timeout: 180000 });
+            const rgAfter = checkRipgrep();
+            if (rgAfter) {
+              console.log(`  ${C.green}✓${C.reset} rg 설치 완료 (${rgAfter.version})\n`);
+            } else {
+              console.log(`  ${C.yellow}!${C.reset} 설치는 완료됐지만 현재 셸에서 rg 확인이 안 됩니다. 새 터미널에서 다시 실행해주세요.\n`);
+            }
+          } catch {
+            console.log(`  ${C.red}✗${C.reset} rg 설치 실패 — 수동 설치: ${getInstallHint('rg')}\n`);
+          }
+        }
+      }
+    }
   }
 
   if (!(results.claude || results.codex)) {
@@ -151,6 +192,7 @@ async function checkPrerequisites(rl) {
 
 module.exports = {
   checkCommand,
+  checkRipgrep,
   detectPython,
   getInstallHint,
   checkPrerequisites,

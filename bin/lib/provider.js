@@ -7,6 +7,8 @@ const { parseEnvFile } = require('./utils');
 const { checkCommand } = require('./prerequisites');
 const { loadConfig } = require('./config');
 
+let warnedRgForWindowsCodex = false;
+
 function normalizeProvider(value, defaultValue = '') {
   const raw = (value || '').toString().trim().toLowerCase();
   if (!raw) return defaultValue;
@@ -85,6 +87,17 @@ function resolveProviderPlan(targetDir, requestedProvider) {
 
   const fallback = [PROVIDERS.CLAUDE, PROVIDERS.CODEX]
     .find((p) => p !== selected && available[p]) || null;
+
+  if (!warnedRgForWindowsCodex && process.platform === 'win32' && selected === PROVIDERS.CODEX) {
+    const rgVer = checkCommand('rg --version');
+    if (!rgVer) {
+      warnedRgForWindowsCodex = true;
+      console.log('[권장] Windows + Codex 환경에서는 rg(ripgrep) 설치를 권장합니다.');
+      console.log('       rg 실행이 불가하면 검색 시 PowerShell fallback으로 동작합니다.');
+      console.log('       설치: winget install BurntSushi.ripgrep.MSVC');
+    }
+  }
+
   return {
     preferred,
     selected,

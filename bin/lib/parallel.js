@@ -647,12 +647,43 @@ function runParallelWorkers(targetDir, workerInfos, cliProvider) {
   const logBuffer = [];
   let altScreenActive = false;
   let cursorHidden = false;
+  let logScroll = 0;
+
+  function getLogRows(dashboardHeight) {
+    const rows = process.stdout.rows || 24;
+    return Math.max(0, rows - dashboardHeight);
+  }
+
+  function getMaxLogScroll(dashboardHeight) {
+    const logRows = getLogRows(dashboardHeight);
+    return Math.max(0, logBuffer.length - logRows);
+  }
 
   function appendLogToScreen(line) {
     if (!altScreenActive) return;
+    if (logScroll > 0) return;
     const rows = process.stdout.rows || 24;
     process.stdout.write(`\x1b[${rows};1H`);
     process.stdout.write(`\n  ${line}\x1b[K`);
+  }
+
+  function renderLogs(dashboardHeight, force = false) {
+    if (!altScreenActive) return;
+    const logRows = getLogRows(dashboardHeight);
+    if (logRows <= 0) return;
+
+    const maxScroll = getMaxLogScroll(dashboardHeight);
+    if (logScroll > maxScroll) logScroll = maxScroll;
+    if (!force && logScroll === 0) return;
+
+    const start = Math.max(0, logBuffer.length - logRows - logScroll);
+    const slice = logBuffer.slice(start, start + logRows);
+    for (let i = 0; i < logRows; i++) {
+      const line = slice[i] || '';
+      process.stdout.write(`\x1b[${dashboardHeight + 1 + i};1H`);
+      process.stdout.write(`  ${line}\x1b[K`);
+    }
+    process.stdout.write('\x1b[1;1H');
   }
 
   function pushLog(workerName, msg) {
@@ -661,6 +692,9 @@ function runParallelWorkers(targetDir, workerInfos, cliProvider) {
     const fullMsg = `${tag} ${msg}`;
     logBuffer.push(fullMsg);
     if (logBuffer.length > MAX_LOG_BUFFER) logBuffer.shift();
+    if (logScroll > 0) {
+      logScroll = Math.min(logScroll + 1, getMaxLogScroll(dashboardHeight));
+    }
     appendLogToScreen(fullMsg);
   }
 
@@ -753,6 +787,7 @@ function runParallelWorkers(targetDir, workerInfos, cliProvider) {
     }
     // 커서를 한 곳에 고정 (숨김 미지원 터미널 대비)
     process.stdout.write('\x1b[1;1H');
+    if (logScroll > 0) renderLogs(dashboardHeight);
   }
 
   /** 이벤트 기반 렌더 요청을 200ms 디바운스로 처리 (깜빡임 방지) */
@@ -799,11 +834,7 @@ function runParallelWorkers(targetDir, workerInfos, cliProvider) {
     }
     process.stdout.write('\x1b[2J');
     renderDashboard();
-    const logRows = rows - dashboardHeight;
-    const recentLogs = logBuffer.slice(-Math.max(0, logRows));
-    for (const line of recentLogs) {
-      appendLogToScreen(line);
-    }
+    renderLogs(dashboardHeight, true);
   });
 
   const sigintHandler = () => {
@@ -849,10 +880,50 @@ function runParallelWorkers(targetDir, workerInfos, cliProvider) {
       { label: '마무리 후 종료', handler: gracefulExit },
       { label: '즉시 종료', handler: immediateExit },
     ],
-    immediateExit
+    immediateExit,
+    (action) => {
+      const logRows = getLogRows(dashboardHeight);
+      if (logRows <= 0) return false;
+      const maxScroll = getMaxLogScroll(dashboardHeight);
+      let next = logScroll;
+      const page = Math.max(1, logRows - 1);
+      switch (action) {
+        case 'lineUp':
+          next = Math.min(maxScroll, logScroll + 1);
+          break;
+        case 'lineDown':
+          next = Math.max(0, logScroll - 1);
+          break;
+        case 'pageUp':
+          next = Math.min(maxScroll, logScroll + page);
+          break;
+        case 'pageDown':
+          next = Math.max(0, logScroll - page);
+          break;
+        case 'top':
+          next = maxScroll;
+          break;
+        case 'bottom':
+          next = 0;
+          break;
+        case 'wheelUp':
+          next = Math.min(maxScroll, logScroll + 3);
+          break;
+        case 'wheelDown':
+          next = Math.max(0, logScroll - 3);
+          break;
+        default:
+          return false;
+      }
+      if (next === logScroll) return true;
+      logScroll = next;
+      renderLogs(dashboardHeight, true);
+      return true;
+    }
   );
 
   renderDashboard();
+  renderLogs(dashboardHeight, true);
 
   // 대시보드 갱신 타이머
   const dashboardInterval = setInterval(renderDashboard, 3000);

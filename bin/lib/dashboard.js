@@ -47,7 +47,7 @@ function renderMenuLine(selectedIndex, innerWidth, confirmPending, menuItems) {
 }
 
 /** 대시보드 메뉴 키 입력 핸들러 설정 */
-function setupMenuInput(state, onRender, menuEntries, onImmediate) {
+function setupMenuInput(state, onRender, menuEntries, onImmediate, onScroll) {
   if (!process.stdin.isTTY) return null;
   process.stdin.setRawMode(true);
   process.stdin.resume();
@@ -80,6 +80,12 @@ function setupMenuInput(state, onRender, menuEntries, onImmediate) {
         const type = match[4];
         const isPress = type === 'M';
         const isLeft = (btn & 3) === 0 && btn < 64;
+        const isWheelUp = btn === 64;
+        const isWheelDown = btn === 65;
+        if (isPress && (isWheelUp || isWheelDown) && typeof onScroll === 'function') {
+          onScroll(isWheelUp ? 'wheelUp' : 'wheelDown');
+          continue;
+        }
         if (isPress && isLeft) {
           const layout = state._menuLayout;
           if (!layout || layout.row !== y) continue;
@@ -111,6 +117,28 @@ function setupMenuInput(state, onRender, menuEntries, onImmediate) {
     }
 
     const key = input;
+
+    // 로그 스크롤
+    if (typeof onScroll === 'function') {
+      if (key === '\x1b[A') {
+        if (onScroll('lineUp')) return;
+      }
+      if (key === '\x1b[B') {
+        if (onScroll('lineDown')) return;
+      }
+      if (key === '\x1b[5~') {
+        if (onScroll('pageUp')) return;
+      }
+      if (key === '\x1b[6~') {
+        if (onScroll('pageDown')) return;
+      }
+      if (key === '\x1b[H') {
+        if (onScroll('top')) return;
+      }
+      if (key === '\x1b[F') {
+        if (onScroll('bottom')) return;
+      }
+    }
 
     // Ctrl+C → 즉시 종료
     if (key === '\x03') {

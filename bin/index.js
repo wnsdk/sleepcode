@@ -12,7 +12,7 @@ const { validateNotionDbId, createNotionDb, syncNotionDbSchema } = require('./li
 const { generateFiles, printResult } = require('./lib/files');
 const { saveConfig } = require('./lib/config');
 const { showUsage } = require('./lib/config');
-const { showHelp, showVersion, parseArgs } = require('./lib/cli');
+const { showHelp, showVersion, parseArgs, parseCommand } = require('./lib/cli');
 const { runWorker } = require('./lib/run');
 const { runParallel } = require('./lib/parallel');
 
@@ -28,7 +28,7 @@ async function main() {
   }
 
   // 서브커맨드 처리
-  const firstArg = process.argv[2];
+  const firstArg = parseCommand();
   if (firstArg === 'help') {
     showHelp();
     return;
@@ -99,6 +99,7 @@ async function main() {
     }
     return;
   }
+  // init 또는 명령어 없이 실행한 경우 초기화 흐름으로 진입합니다.
 
   console.log(`
     ${SLEEPCODE_BADGE}

@@ -20,11 +20,11 @@ npx sleepcode parallel
 
 ```bash
 cd my-project
-npx sleepcode          # 초기화 (최초 1회)
+npx sleepcode init     # 초기화 (최초 1회)
 npx sleepcode run      # 실행
 ```
 
-1. 프로젝트 루트에서 `npx sleepcode` → 인터랙티브 초기화
+1. 프로젝트 루트에서 `npx sleepcode init` → 인터랙티브 초기화
 2. `.sleepcode/task_queue.md`에 작업 목록 작성 (또는 Notion DB에서 관리)
 3. `npx sleepcode run` → AI가 태스크를 순서대로 수행
 
@@ -103,8 +103,8 @@ npx sleepcode parallel --status     # 워커 상태 확인
 API 비용을 추적하고 주간 한도를 설정합니다.
 
 ```bash
-# 예산 설정
-npx sleepcode --budget 50 --threshold 90
+# 초기화 시 예산 설정
+npx sleepcode init --budget 50 --threshold 90
 
 # 사용량 확인
 npx sleepcode usage
@@ -135,12 +135,15 @@ npm install -g sleepcode
 또는 npx로 바로 실행:
 
 ```bash
+npx sleepcode init
+
+# 기존 별칭도 계속 동작
 npx sleepcode
 ```
 
 ### 사전 준비
 
-`npx sleepcode` 실행 시 자동으로 필수 도구를 체크합니다.
+`npx sleepcode init` 실행 시 자동으로 필수 도구를 체크합니다.
 
 | 도구 | 용도 | 필수 |
 |------|------|------|
@@ -174,7 +177,8 @@ claude --dangerously-skip-permissions
 
 | 명령어 | 설명 |
 |--------|------|
-| `npx sleepcode` | 인터랙티브 초기화 |
+| `npx sleepcode init` | 인터랙티브 초기화 |
+| `npx sleepcode` | `init`의 별칭 |
 | `npx sleepcode run` | 1회 실행 |
 | `npx sleepcode parallel` | 병렬 실행 (워커별 동시 개발) |
 | `npx sleepcode parallel --setup` | worktree만 생성 (실행 전 확인) |
@@ -187,7 +191,7 @@ claude --dangerously-skip-permissions
 ## CLI 옵션
 
 ```bash
-npx sleepcode --type react-native --name my-app --role "쇼핑몰 앱 개발"
+npx sleepcode init --type react-native --name my-app --role "쇼핑몰 앱 개발"
 ```
 
 | 옵션 | 설명 |

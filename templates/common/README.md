@@ -2,6 +2,8 @@
 
 AI codes while you sleep — 밤새 개발 작업을 자동화하는 시스템입니다.
 
+이 문서는 `npx sleepcode init` 완료 후 생성되는 프로젝트를 기준으로 설명합니다.
+
 ---
 
 ## 사용법
@@ -117,13 +119,9 @@ npx sleepcode usage
 
 ## 주간 예산 관리
 
-API 비용을 추적하고 주간 한도를 설정합니다.
+API 비용을 추적하고 주간 한도를 설정합니다. 초기화 시 `npx sleepcode init --budget 50 --threshold 90`로 지정하거나, 이후 `.sleepcode/config.json`에서 직접 수정할 수 있습니다.
 
 ```bash
-# 예산 설정
-npx sleepcode --budget 50 --threshold 90
-
-# 사용량 확인
 npx sleepcode usage
 ```
 

@@ -1,5 +1,6 @@
 const path = require('path');
 const { C, SLEEPCODE_BADGE } = require('./constants');
+const COMMANDS = new Set(['init', 'help', 'version', 'run', 'parallel', 'usage', 'notion-update']);
 
 // ─── 도움말 / 버전 ───
 function showHelp() {
@@ -7,15 +8,17 @@ function showHelp() {
   console.log(`
 ${SLEEPCODE_BADGE}  v${pkg.version}
 
-사용법: sleepcode [옵션]
+사용법: sleepcode init [옵션]
+       sleepcode [옵션]
        sleepcode run [--continue]
        sleepcode parallel [--setup|--clean|--merge|--status]
        sleepcode usage
        sleepcode notion-update [--notion-key <key>] [--notion-db <id|url>]
 
-옵션 없이 실행하면 인터랙티브 모드로 동작합니다.
+옵션 없이 실행하면 인터랙티브 init 모드로 동작합니다.
 
 명령어:
+  init             프로젝트 초기화
   help             도움말 보기
   version          버전 정보 보기
   run              Notion DB 폴링 모드 (태스크 대기 → 실행 → 대기 반복)
@@ -57,8 +60,14 @@ function showVersion() {
 }
 
 // ─── CLI 인자 파싱 ───
-function parseArgs() {
-  const args = process.argv.slice(2);
+function parseCommand(argv = process.argv) {
+  const firstArg = argv[2];
+  return COMMANDS.has(firstArg) ? firstArg : '';
+}
+
+function parseArgs(argv = process.argv) {
+  const command = parseCommand(argv);
+  const args = argv.slice(command ? 3 : 2);
   const parsed = {};
   for (let i = 0; i < args.length; i++) {
     if (args[i] === '--type' && args[i + 1]) parsed.type = args[++i];
@@ -94,5 +103,6 @@ function parseArgs() {
 module.exports = {
   showHelp,
   showVersion,
+  parseCommand,
   parseArgs,
 };

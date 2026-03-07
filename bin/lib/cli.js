@@ -13,6 +13,7 @@ ${SLEEPCODE_BADGE}  v${pkg.version}
        sleepcode sources
        sleepcode parallel [--setup|--clean|--merge|--status]
        sleepcode usage
+       sleepcode notion-update [--notion-key <key>] [--notion-db <id|url>]
 
 옵션 없이 실행하면 인터랙티브 모드로 동작합니다.
 
@@ -25,6 +26,7 @@ ${SLEEPCODE_BADGE}  v${pkg.version}
   sources          참고자료 URL 관리 (sources.json)
   parallel         @worker 섹션 기반 병렬 실행
   usage            주간 사용량 확인
+  notion-update    기존 Notion DB 컬럼을 최신 버전으로 업데이트
   parallel --setup worktree 생성만 (실행하지 않음)
   parallel --status 워커 상태 확인
   parallel --merge 완료된 브랜치 자동 머지

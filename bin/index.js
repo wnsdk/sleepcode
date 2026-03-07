@@ -65,6 +65,48 @@ async function main() {
     cmdWatch(providerArg);
     return;
   }
+  if (firstArg === 'notion-update') {
+    const { parseNotionDbId } = require('./lib/utils');
+    const { validateNotionDbId, syncNotionDbSchema } = require('./lib/notion');
+    const dotenv = require('path').join(targetDir, '.sleepcode', '.env');
+    let notionKey = cliArgs.notionKey || '';
+    let notionDbRaw = cliArgs.notionDb || '';
+    if (!notionKey || !notionDbRaw) {
+      if (fs.existsSync(dotenv)) {
+        const lines = fs.readFileSync(dotenv, 'utf-8').split('\n');
+        for (const line of lines) {
+          const m = line.match(/^([^=]+)=(.*)$/);
+          if (!m) continue;
+          const [, k, v] = m;
+          if (!notionKey && k.trim() === 'NOTION_API_KEY') notionKey = v.trim();
+          if (!notionDbRaw && k.trim() === 'NOTION_DB_ID') notionDbRaw = v.trim();
+        }
+      }
+    }
+    if (!notionKey) {
+      console.error(`${C.red}Notion API Key가 필요합니다. --notion-key 옵션 또는 .sleepcode/.env의 NOTION_API_KEY를 설정해주세요.${C.reset}`);
+      process.exit(1);
+    }
+    if (!notionDbRaw) {
+      console.error(`${C.red}Notion DB ID/URL이 필요합니다. --notion-db 옵션 또는 .sleepcode/.env의 NOTION_DB_ID를 설정해주세요.${C.reset}`);
+      process.exit(1);
+    }
+    const rawId = parseNotionDbId(notionDbRaw) || notionDbRaw;
+    console.log(`${C.dim}Notion DB 스키마 업데이트 중...${C.reset}`);
+    try {
+      const notionDbId = await validateNotionDbId(notionKey, rawId);
+      const addedCols = await syncNotionDbSchema(notionKey, notionDbId);
+      if (addedCols.length > 0) {
+        console.log(`${C.green}✓${C.reset} 누락된 컬럼 추가 완료: ${addedCols.join(', ')}`);
+      } else {
+        console.log(`${C.green}✓${C.reset} Notion DB 스키마가 이미 최신 버전입니다.`);
+      }
+    } catch (e) {
+      console.error(`${C.red}${e.message}${C.reset}`);
+      process.exit(1);
+    }
+    return;
+  }
 
   console.log(`
     ${SLEEPCODE_BADGE}

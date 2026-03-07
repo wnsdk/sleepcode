@@ -6,7 +6,7 @@ const {
   summarizeExecutionResults,
 } = require('../bin/lib/runCompletion');
 
-test('summarizeExecutionResults builds task outcomes, costs, and reports', () => {
+test('summarizeExecutionResults builds task outcomes, costs, tokens, and reports', () => {
   const summary = summarizeExecutionResults({
     notionTasks: [
       { id: 'a', title: '첫 번째' },
@@ -15,32 +15,36 @@ test('summarizeExecutionResults builds task outcomes, costs, and reports', () =>
     schema: {
       status_prop: 'Status',
       status_type: 'status',
-      cost_prop: 'Tokens',
+      cost_prop: 'Cost',
+      tokens_prop: 'Tokens',
       log_prop: 'Log',
       completed_at_prop: 'Completed At',
     },
     workerStates: [
-      { name: 'main', cost: 1.5, merged: true, reportLines: ['main report'] },
-      { name: 'feature', cost: 0.5, merged: false, reportLines: ['feature report'] },
+      { name: 'main', cost: 1.5, inputTokens: 600, outputTokens: 200, merged: true, reportLines: ['main report'] },
+      { name: 'feature', cost: 0.5, inputTokens: 400, outputTokens: 100, merged: false, reportLines: ['feature report'] },
     ],
     notionCompletedIds: new Set(['a']),
     getTaskCompletion: () => ({ a: true, b: false }),
   });
 
   assert.equal(summary.totalCost, 2);
+  assert.equal(summary.totalInputTokens, 1000);
+  assert.equal(summary.totalOutputTokens, 300);
   assert.equal(summary.reportText.includes('main report'), true);
   assert.equal(summary.reportText.includes('feature report'), true);
+  assert.equal(summary.reportText.includes('토큰 사용량'), true);
   assert.deepEqual(summary.pendingMergeWorkers.map((worker) => worker.name), ['feature']);
   assert.deepEqual(
     summary.taskResults.map((result) => ({
       id: result.task.id,
       status: result.newStatus,
       hasStatusProp: Boolean(result.props.Status),
-      cost: result.props.Tokens.number,
+      tokens: result.props.Tokens.number,
     })),
     [
-      { id: 'a', status: 'Success', hasStatusProp: false, cost: 1 },
-      { id: 'b', status: 'Failed', hasStatusProp: true, cost: 1 },
+      { id: 'a', status: 'Success', hasStatusProp: false, tokens: 650 },
+      { id: 'b', status: 'Failed', hasStatusProp: true, tokens: 650 },
     ]
   );
 });

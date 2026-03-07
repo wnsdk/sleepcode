@@ -70,17 +70,19 @@ test('buildFinalTaskProps and buildExecutionReportText summarize results', () =>
       status_prop: 'Status',
       status_type: 'status',
       completed_at_prop: 'Completed At',
-      cost_prop: 'Tokens',
+      tokens_prop: 'Tokens',
       log_prop: 'Log',
     },
     isDone: true,
     totalCost: 1.23456,
     totalTasks: 2,
+    totalInputTokens: 800,
+    totalOutputTokens: 200,
     alreadyCompleted: false,
   });
 
   assert.deepEqual(props.Status, { status: { name: 'Success' } });
-  assert.equal(props.Tokens.number, 0.6173);
+  assert.equal(props.Tokens.number, 500);
   assert.match(props.Log.rich_text[0].text.content, /^완료 \(\$0\.6173\)$/);
   assert.match(
     buildExecutionReportText([
@@ -90,4 +92,20 @@ test('buildFinalTaskProps and buildExecutionReportText summarize results', () =>
     ]),
     /첫 번째 줄[\s\S]*---[\s\S]*세 번째 줄/
   );
+});
+
+test('buildExecutionReportText includes token summary when tokenInfo provided', () => {
+  const report = buildExecutionReportText(
+    [{ reportLines: ['작업 완료'] }],
+    {
+      totalInputTokens: 1000,
+      totalOutputTokens: 500,
+      tokensByProvider: { claude: { input: 1000, output: 500 } },
+    }
+  );
+
+  assert.match(report, /토큰 사용량/);
+  assert.match(report, /입력 토큰/);
+  assert.match(report, /출력 토큰/);
+  assert.match(report, /총 토큰/);
 });

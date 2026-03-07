@@ -120,7 +120,7 @@ function updateFirstPendingStatuses({ schema, tasks, taskStatuses, notionInProgr
   }
 }
 
-function buildFinalTaskProps({ schema, isDone, totalCost, totalTasks, alreadyCompleted }) {
+function buildFinalTaskProps({ schema, isDone, totalCost, totalTasks, totalInputTokens, totalOutputTokens, alreadyCompleted }) {
   const props = {};
 
   if (!alreadyCompleted) {
@@ -138,6 +138,14 @@ function buildFinalTaskProps({ schema, isDone, totalCost, totalTasks, alreadyCom
     props[schema.cost_prop] = { number: Math.round(perTaskCost * 10000) / 10000 };
   }
 
+  if (schema.tokens_prop) {
+    const totalTokens = (totalInputTokens || 0) + (totalOutputTokens || 0);
+    if (totalTokens > 0) {
+      const perTaskTokens = totalTasks > 0 ? Math.round(totalTokens / totalTasks) : totalTokens;
+      props[schema.tokens_prop] = { number: perTaskTokens };
+    }
+  }
+
   if (schema.log_prop) {
     const perTaskCost = totalTasks > 0 ? totalCost / totalTasks : 0;
     props[schema.log_prop] = {
@@ -150,11 +158,36 @@ function buildFinalTaskProps({ schema, isDone, totalCost, totalTasks, alreadyCom
   return props;
 }
 
-function buildExecutionReportText(workerStates) {
-  return (workerStates || [])
+function buildExecutionReportText(workerStates, tokenInfo) {
+  const parts = (workerStates || [])
     .map((worker) => (worker.reportLines || []).join('\n'))
-    .filter((text) => text.trim())
-    .join('\n\n---\n\n');
+    .filter((text) => text.trim());
+
+  if (tokenInfo) {
+    const totalInput = tokenInfo.totalInputTokens || 0;
+    const totalOutput = tokenInfo.totalOutputTokens || 0;
+    const totalTokens = totalInput + totalOutput;
+    if (totalTokens > 0) {
+      const lines = ['## 토큰 사용량', ''];
+      lines.push(`- 입력 토큰: ${totalInput.toLocaleString()}`);
+      lines.push(`- 출력 토큰: ${totalOutput.toLocaleString()}`);
+      lines.push(`- **총 토큰: ${totalTokens.toLocaleString()}**`);
+
+      const entries = Object.entries(tokenInfo.tokensByProvider || {});
+      if (entries.length > 1) {
+        lines.push('');
+        lines.push('### 프로바이더별 토큰');
+        for (const [provider, tokens] of entries) {
+          const provTotal = (tokens.input || 0) + (tokens.output || 0);
+          lines.push(`- ${provider}: 입력 ${(tokens.input || 0).toLocaleString()} + 출력 ${(tokens.output || 0).toLocaleString()} = ${provTotal.toLocaleString()}`);
+        }
+      }
+
+      parts.push(lines.join('\n'));
+    }
+  }
+
+  return parts.join('\n\n---\n\n');
 }
 
 module.exports = {

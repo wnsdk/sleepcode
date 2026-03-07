@@ -64,10 +64,34 @@ function processStreamEvent(ws, obj, onUpdate, pushLog) {
         onUpdate();
       }
     }
+
+    // Claude stream-json: 각 assistant 메시지의 message.usage에서 실시간 토큰 집계
+    const msgUsage = obj.message && obj.message.usage;
+    if (msgUsage) {
+      const input = msgUsage.input_tokens || 0;
+      const output = msgUsage.output_tokens || 0;
+      if (input > 0 || output > 0) {
+        ws.inputTokens = (ws.inputTokens || 0) + input;
+        ws.outputTokens = (ws.outputTokens || 0) + output;
+        onUpdate();
+      }
+    }
+
     return;
   }
 
   if (msgType === 'result') {
+    // Claude stream-json: result 이벤트의 usage로 최종 토큰 수 확정
+    const finalUsage = obj.usage;
+    if (finalUsage) {
+      const input = finalUsage.input_tokens || 0;
+      const output = finalUsage.output_tokens || 0;
+      if (input > 0 || output > 0) {
+        ws.inputTokens = input;
+        ws.outputTokens = output;
+      }
+    }
+
     const cost = obj.cost_usd;
     if (cost != null) {
       ws.cost = cost;

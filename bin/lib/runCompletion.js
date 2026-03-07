@@ -30,7 +30,7 @@ function summarizeExecutionResults({
   }
 
   return {
-    reportText: buildExecutionReportText(workers),
+    reportText: buildExecutionReportText(workers, { totalInputTokens, totalOutputTokens, tokensByProvider }),
     pendingMergeWorkers: workers.filter((worker) => !worker.merged),
     taskResults: tasks.map((task) => {
       const isDone = Boolean(taskCompletion[task.id]);
@@ -42,6 +42,8 @@ function summarizeExecutionResults({
           isDone,
           totalCost,
           totalTasks: tasks.length,
+          totalInputTokens,
+          totalOutputTokens,
           alreadyCompleted: completedIds.has(task.id),
         }),
         task,

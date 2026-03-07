@@ -88,6 +88,23 @@ function countTasks(content) {
   return { done, total: done + pending };
 }
 
+/** tasks.md에서 첫 번째 미완료 태스크의 텍스트를 반환. 없으면 null */
+function getNextPendingTask(content) {
+  const lines = content.split('\n');
+  let inCodeBlock = false;
+  for (const line of lines) {
+    if (line.trimStart().startsWith('```')) {
+      inCodeBlock = !inCodeBlock;
+      continue;
+    }
+    if (inCodeBlock) continue;
+    if (/^- \[ \]/.test(line.trimStart())) {
+      return line.trimStart().replace(/^- \[ \]\s*/, '');
+    }
+  }
+  return null;
+}
+
 /** ANSI 이스케이프 코드를 제거한 문자열 반환 */
 function stripAnsi(str) {
   return str.replace(/\x1b\[[0-9;]*m/g, '').replace(/\x1b\]8;;[^\x07]*\x07/g, '');
@@ -146,6 +163,7 @@ module.exports = {
   loadEnvFileToProcessEnv,
   writeFile,
   countTasks,
+  getNextPendingTask,
   stripAnsi,
   visualWidth,
   padEndVisual,

@@ -4,7 +4,7 @@ const { execSync } = require('child_process');
 const { C, SLEEPCODE_BADGE, notionLink, branchColor } = require('./constants');
 const { countTasks, progressBar, visualWidth, padEndVisual } = require('./utils');
 const { detectPython } = require('./prerequisites');
-const { resolveProviderPlan, providerLabel, providerLabelWithModel } = require('./provider');
+const { resolveProviderPlan } = require('./provider');
 const { isOverBudget, recordCost } = require('./config');
 const { syncClaudeMd } = require('./files');
 const { boxLine, renderMenuLine, setupMenuInput } = require('./dashboard');
@@ -602,15 +602,12 @@ function runParallelWorkers(targetDir, workerInfos, cliProvider) {
 
   console.log(`\n${C.bold}병렬 실행 시작${C.reset} — ${workerInfos.length}개 워커\n`);
 
-  let providerPlan;
+  // provider 가용성만 검증 (실제 선택은 워커가 태스크마다 ratio에 따라 수행)
   try {
-    providerPlan = resolveProviderPlan(targetDir, cliProvider);
+    resolveProviderPlan(targetDir, cliProvider);
   } catch (e) {
     console.error(`${C.red}${e.message}${C.reset}`);
     process.exit(1);
-  }
-  if (providerPlan.requestedUnavailable) {
-    console.log(`${C.yellow}requested provider unavailable, switched to ${providerLabel(providerPlan.selected)}.${C.reset}`);
   }
 
   const workerStates = workerInfos.map(w => ({
@@ -621,8 +618,8 @@ function runParallelWorkers(targetDir, workerInfos, cliProvider) {
     done: 0,
     total: 0,
     cost: 0,
-    provider: providerPlan.selected,
-    fallbackProvider: providerPlan.fallback,
+    provider: null,
+    fallbackProvider: null,
     _proc: null,
     logFile: path.join(logDir, `parallel_${w.name}_${timestamp}.log`),
   }));

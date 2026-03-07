@@ -3,16 +3,14 @@ const path = require('path');
 const { execSync } = require('child_process');
 
 const { C } = require('./constants');
-const { countTasks, progressBar } = require('./utils');
-const { getPersistedTaskProgress } = require('./taskState');
+const { MAIN_WORKER_NAME, parseParallelTasks } = require('./parallelTasks');
+const { showParallelStatus } = require('./parallelStatus');
 const {
   ensureRuntimeDirs,
   getRuntimeMainTaskQueuePath,
   getRuntimeTaskQueuePath,
   getRuntimeWorktreesDir,
 } = require('./runtimePaths');
-
-const MAIN_WORKER_NAME = 'main';
 
 function normalizeStatusPathPart(value) {
   return String(value || '').trim().replace(/^"|"$/g, '').replace(/\\/g, '/');
@@ -37,37 +35,6 @@ function getMergeBlockingStatus(targetDir) {
   } catch {
     return '';
   }
-}
-
-function parseParallelTasks(tasksPath) {
-  if (!fs.existsSync(tasksPath)) return null;
-  const content = fs.readFileSync(tasksPath, 'utf-8');
-  const lines = content.split('\n');
-
-  const workers = [];
-  let current = null;
-
-  for (const line of lines) {
-    const match = line.match(/^## @worker\s+(\S+)/);
-    if (match) {
-      current = { name: match[1], lines: [line] };
-      workers.push(current);
-    } else if (current) {
-      current.lines.push(line);
-    }
-  }
-
-  if (workers.length === 0) return null;
-
-  return workers.map((worker) => {
-    const joined = worker.lines.join('\n');
-    const counts = countTasks(joined);
-    return {
-      name: worker.name,
-      tasks: `# 작업 목록\n\n${joined}`,
-      remaining: counts.total - counts.done,
-    };
-  });
 }
 
 function copySleepcodeDirToWorktree(srcDir, wtPath) {
@@ -233,53 +200,6 @@ function cleanupWorktrees(targetDir, workers) {
       fs.rmdirSync(wtBase);
     }
   }
-}
-
-function showParallelStatus(targetDir) {
-  const tasksPath = path.join(targetDir, '.sleepcode', 'task_queue.md');
-  const mainTasksPath = getRuntimeMainTaskQueuePath(targetDir);
-  const workers = parseParallelTasks(tasksPath);
-
-  if (!workers) {
-    console.log(`${C.yellow}task_queue.md에 @worker 섹션이 없습니다.${C.reset}`);
-    console.log(`${C.dim}병렬 실행을 위해 task_queue.md에 ## @worker <name> 섹션을 추가하세요.${C.reset}`);
-    return;
-  }
-
-  const wtBase = getRuntimeWorktreesDir(targetDir);
-
-  console.log(`\n${C.bold}워커 상태:${C.reset}\n`);
-  for (const worker of workers) {
-    const isMainWorker = worker.name === MAIN_WORKER_NAME;
-    const wtPath = path.join(wtBase, worker.name);
-    const exists = isMainWorker ? true : fs.existsSync(wtPath);
-    const sourcePath = isMainWorker
-      ? (fs.existsSync(mainTasksPath) ? mainTasksPath : '')
-      : getRuntimeTaskQueuePath(wtPath);
-
-    let done = 0;
-    let total = 0;
-    if (fs.existsSync(sourcePath)) {
-      const progress = getPersistedTaskProgress(
-        isMainWorker ? targetDir : wtPath,
-        sourcePath
-      );
-      done = progress.counts.done;
-      total = progress.counts.total;
-    } else {
-      total = worker.remaining;
-    }
-
-    const bar = total > 0 ? progressBar(done, total, 20) : C.dim + '(태스크 없음)' + C.reset;
-    const status = isMainWorker
-      ? `${C.green}현재 브랜치${C.reset}`
-      : exists
-        ? `${C.green}준비됨${C.reset}`
-        : `${C.dim}미생성${C.reset}`;
-
-    console.log(`  ${C.bold}${worker.name}${C.reset}  ${bar}  ${done}/${total}  ${status}`);
-  }
-  console.log('');
 }
 
 module.exports = {

@@ -976,7 +976,7 @@ function runParallelWorkers(targetDir, workerInfos, cliProvider) {
   }
 
   for (const ws of workerStates) {
-    spawnWorker(ws, py, () => onWorkerDone(ws), scheduleRender, pushLog, cliProvider);
+    spawnWorker(ws, py, () => onWorkerDone(ws), scheduleRender, pushLog, cliProvider, null);
   }
 }
 

@@ -1,7 +1,6 @@
 # 작업 목록
 
-아래 태스크를 순서대로 진행하세요.
+task_queue.md는 backlog(읽기 전용)로 유지하세요.
 
----
-
-- [x] 슬립코드 run 터미널 UI에서 메뉴 순서를 ‘즉시 폴링’, ‘즉시 종료’, ‘마무리 후 종료’ 순서로 나열되게 해줘 <!-- notion:31cad790-3b5d-8088-a96c-ec470c1a5cf5 -->
+## @worker feat-cmd
+- [ ] task 하나를 완료하면 1. 즉시 git commit을 한다. 2. NotionDB의 Task 노션페이지(필요시), Status, Completed At를 한 번에 수정한다. 3. 터미널 대시보드 UI에 반영한다. ⇒ 이 순서대로 진행되게 해줘. <!-- notion:31cad790-3b5d-80c3-9f38-fe9ca1cfd50a -->

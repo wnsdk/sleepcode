@@ -30,6 +30,11 @@ const {
   syncNextPendingTaskStatus,
 } = require('./runNotionEvents');
 const {
+  createActiveRunState,
+  createIdleRunState,
+  createRunTimestamp,
+} = require('./runSession');
+const {
   areAllWorkersSettled,
   mergeCompletedWorkerNow,
 } = require('./runWorkerCompletion');
@@ -301,12 +306,13 @@ function cmdWatch(cliProvider) {
   // ─── 태스크 실행 ───
 
   function executeNotionTasks(tasks, schema) {
-    isExecuting = true;
-    execStartTime = Date.now();
-    currentSchema = schema;
-    currentNotionTasks = [...tasks];
-    executingTaskIds = new Set(tasks.map(t => t.id));
-    const timestamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
+    const runState = createActiveRunState(tasks, schema);
+    isExecuting = runState.isExecuting;
+    execStartTime = runState.execStartTime;
+    currentSchema = runState.currentSchema;
+    currentNotionTasks = runState.currentNotionTasks;
+    executingTaskIds = runState.executingTaskIds;
+    const timestamp = createRunTimestamp();
 
     // 워커 그룹핑
     const workerGroups = groupTasksByWorker(tasks);
@@ -437,13 +443,14 @@ function cmdWatch(cliProvider) {
       pushLog: (message) => watchPushLog('SYSTEM', message),
     });
 
-    isExecuting = false;
-    executingTaskIds = new Set();
-    currentSchema = null;
-    currentNotionTasks = [];
-    notionCompletedIds = new Set();
-    currentWorkerStates = [];
-    execStartTime = null;
+    const idleState = createIdleRunState();
+    isExecuting = idleState.isExecuting;
+    executingTaskIds = idleState.executingTaskIds;
+    currentSchema = idleState.currentSchema;
+    currentNotionTasks = idleState.currentNotionTasks;
+    notionCompletedIds = idleState.notionCompletedIds;
+    currentWorkerStates = idleState.currentWorkerStates;
+    execStartTime = idleState.execStartTime;
     setWatchPhase('waiting');
     watchPushLog('SYSTEM', `${C.dim}폴링 재개...${C.reset}`);
 
@@ -482,7 +489,7 @@ function cmdWatch(cliProvider) {
     // 2. 새로운 워커 그룹: worktree 생성 + 워커 스폰
     for (const [workerName, tasks] of Object.entries(tasksForNew)) {
       const isParallel = currentWorkerStates.length > 1 || currentWorkerStates[0]?.name !== 'main';
-      const timestamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
+      const timestamp = createRunTimestamp();
 
       if (!isParallel && currentWorkerStates.length === 1 && currentWorkerStates[0].name === 'main') {
         // 단일 모드에서 main이 아닌 새 워커 → 병렬로 전환해야 하므로 worktree 생성

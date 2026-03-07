@@ -226,6 +226,8 @@ def get_watch_schema(api_key, db_id):
         "run_prop": None,
         "priority_prop": None,
         "log_prop": None,
+        "model_prop": None,
+        "model_type": None,
         "cost_prop": None,
         "completed_at_prop": None,
     }
@@ -246,6 +248,9 @@ def get_watch_schema(api_key, db_id):
             schema["priority_prop"] = name
         elif ptype == "rich_text" and lname in ("log", "로그"):
             schema["log_prop"] = name
+        elif ptype in ("rich_text", "select") and lname in ("model", "모델") and not schema["model_prop"]:
+            schema["model_prop"] = name
+            schema["model_type"] = ptype
         elif ptype == "number" and lname in ("cost", "비용"):
             schema["cost_prop"] = name
         elif ptype == "date" and lname in ("completed at", "completed_at", "완료일", "완료 시각"):

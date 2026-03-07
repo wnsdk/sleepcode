@@ -359,6 +359,14 @@ function cmdWatch(cliProvider) {
     return { [schema.completed_at_prop]: { date: { start: isoStr } } };
   }
 
+  function buildModelProp(schema, modelName) {
+    if (!schema || !schema.model_prop || !modelName) return null;
+    if (schema.model_type === 'select') {
+      return { [schema.model_prop]: { select: { name: modelName } } };
+    }
+    return { [schema.model_prop]: { rich_text: [{ text: { content: modelName } }] } };
+  }
+
   function updateNotionCompletion(taskEntry) {
     if (!taskEntry || !taskEntry.notionId) return false;
     if (!currentSchema) return false;
@@ -390,6 +398,20 @@ function cmdWatch(cliProvider) {
       }
     }
     scheduleRender();
+  }
+
+  function handleTaskStarted(payload) {
+    const taskEntry = payload && payload.taskEntry ? payload.taskEntry : null;
+    if (!taskEntry || !taskEntry.notionId || !currentSchema) return;
+    const model = payload && payload.model ? payload.model : '';
+    const mp = buildModelProp(currentSchema, model);
+    if (!mp) return;
+    const ok = notionUpdatePage(taskEntry.notionId, mp);
+    if (ok) {
+      watchPushLog('SYSTEM', `${C.dim}Model 업데이트: ${taskEntry.title} → ${model}${C.reset}`);
+    } else {
+      watchPushLog('SYSTEM', `${C.yellow}⚠${C.reset} ${taskEntry.title} → Model 업데이트 실패`);
+    }
   }
 
   // task_queue.md에서 개별 태스크의 완료 상태를 파싱 (notion page ID 매칭)
@@ -553,7 +575,7 @@ function cmdWatch(cliProvider) {
       }
 
       for (const ws of workerStates) {
-        spawnWorker(ws, py, onWorkerDone, scheduleRender, watchPushLog, cliProvider, handleTaskCompleted);
+        spawnWorker(ws, py, onWorkerDone, scheduleRender, watchPushLog, cliProvider, handleTaskCompleted, handleTaskStarted);
       }
     } else {
       // 단일 모드
@@ -596,7 +618,7 @@ function cmdWatch(cliProvider) {
         if (allDone) {
           finishExecution(currentNotionTasks, currentSchema, currentWorkerStates);
         }
-      }, scheduleRender, watchPushLog, cliProvider, handleTaskCompleted);
+      }, scheduleRender, watchPushLog, cliProvider, handleTaskCompleted, handleTaskStarted);
     }
   }
 
@@ -837,7 +859,7 @@ function cmdWatch(cliProvider) {
             if (allDone) {
               finishExecution(currentNotionTasks, currentSchema, currentWorkerStates);
             }
-          }, scheduleRender, watchPushLog, cliProvider, handleTaskCompleted);
+          }, scheduleRender, watchPushLog, cliProvider, handleTaskCompleted, handleTaskStarted);
         } else {
           // worktree 생성 실패 시 main에 태스크 추가
           const ws = currentWorkerStates[0];
@@ -907,7 +929,7 @@ function cmdWatch(cliProvider) {
             if (allDone) {
               finishExecution(currentNotionTasks, currentSchema, currentWorkerStates);
             }
-          }, scheduleRender, watchPushLog, cliProvider, handleTaskCompleted);
+          }, scheduleRender, watchPushLog, cliProvider, handleTaskCompleted, handleTaskStarted);
         } else {
           watchPushLog('SYSTEM', `${C.red}워커 ${workerName} worktree 생성 실패${C.reset}`);
         }

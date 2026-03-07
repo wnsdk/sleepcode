@@ -1,8 +1,2 @@
-﻿- [x] 터미널 UI에서 Logs가 스크롤 가능하게 해줘 <!-- notion:31cad790-3b5d-80aa-9184-ef7730577abc -->
-- [x] templates > rules 에 NestJS를 추가해줘 <!-- notion:31cad790-3b5d-8027-a0bb-c74265e75c88 -->
-- [x] templates > rules 에 Nuxt 3를 추가해줘 <!-- notion:31cad790-3b5d-8027-a0bb-c74265e75c88 -->
-- [x] templates > rules 에 Electron 를 추가해줘 <!-- notion:31cad790-3b5d-8027-a0bb-c74265e75c88 -->
-- [x] templates > rules 에 Laravel 를 추가해줘 <!-- notion:31cad790-3b5d-8027-a0bb-c74265e75c88 -->
-- [x] templates > rules 에 Unity 를 추가해줘 <!-- notion:31cad790-3b5d-8027-a0bb-c74265e75c88 -->
-- [x] 기존 노션 DB의 컬럼 구성을 Sleepcode용 노션 DB 최신 버전 컬럼 구성에 맞게끔 업데이트하는 명령어 만들어줘 <!-- notion:31cad790-3b5d-8033-9645-fb9b155155f7 -->
-- [x] 최신 sleepcode 스키마에서 Model은 select 타입으로 변경하고, Model의 속성값은 claude와 codex의 ai 모델명으로 하고, claude는 claude끼리 codex는 codex 끼리 같은 색상을 갖게 해
+# 완료 기록
+

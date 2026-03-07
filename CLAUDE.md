@@ -13,8 +13,6 @@
 
 - `.sleepcode/docs/` 디렉토리에 업로드된 파일 참고 (피그마 스크린샷, 기획서, 참고 이미지 등)
 
-{{FIGMA_SECTION}}
-
 ## Notion
 
 - **기획/문서**: Notion MCP 도구로 직접 조회 가능 (API Key는 .sleepcode/.env 참조)
@@ -41,6 +39,9 @@
 ## Git 작업 규칙
 
 - task_queue backlog의 항목 1개 완료 = git commit 1개. 이 규칙을 반드시 지킨다.
+- `task_queue.md`가 스테이징되면 커밋 전 제외한다.
+  - `git restore --staged .sleepcode/task_queue.md`
+  - `git restore .sleepcode/task_queue.md`
 - 작업 중간에는 commit 하지 않는다.
 - 기능이 정상 동작한다고 판단되면 commit 한다.
 - commit message 는 변경 내용을 구체적으로 설명한다.

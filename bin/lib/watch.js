@@ -534,6 +534,28 @@ function cmdWatch(cliProvider) {
       }
     }
 
+    // git 커밋 기록에서 [x] 완료된 태스크 확인
+    // tasks.md가 실행 후 수정되거나 notion 주석이 유실된 경우에도 Success로 처리
+    if (execStartTime) {
+      const sinceISO = new Date(execStartTime - 5000).toISOString();
+      for (const wsPath of workerPaths) {
+        try {
+          const gitLog = execSync(
+            `git log --format= -p --since="${sinceISO}" -- ".sleepcode/tasks.md"`,
+            { cwd: wsPath, stdio: 'pipe', timeout: 15000 }
+          ).toString();
+          for (const line of gitLog.split('\n')) {
+            if (line.startsWith('+') && !line.startsWith('+++') && line.includes('[x]')) {
+              const m = line.match(/notion:([a-f0-9-]+)/);
+              if (m && !taskCompletion[m[1]]) {
+                taskCompletion[m[1]] = true;
+              }
+            }
+          }
+        } catch {}
+      }
+    }
+
     // 총 비용
     const totalCost = (workerStates && workerStates.length > 0)
       ? workerStates.reduce((s, ws) => s + (ws.cost || 0), 0)

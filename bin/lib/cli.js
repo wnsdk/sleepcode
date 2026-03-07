@@ -8,7 +8,6 @@ function showHelp() {
 ${SLEEPCODE_BADGE}  v${pkg.version}
 
 사용법: sleepcode [옵션]
-       sleepcode run [--loop] [--continue] [--provider <claude|codex|auto>]
        sleepcode watch [--notion-db <id|url>] [--notion-key <key>]
        sleepcode generate
        sleepcode sources
@@ -20,11 +19,8 @@ ${SLEEPCODE_BADGE}  v${pkg.version}
 명령어:
   help             도움말 보기
   version          버전 정보 보기
-  run              1회 실행 (대시보드 + 실시간 로그)
-  run --continue   이전 세션 이어서 실행 (컨텍스트 유지)
-  run --loop       무한 루프 실행 (run_forever 스크립트)
-  run --loop --continue  루프 실행 시 세션 연속 (2회차부터 --continue)
   watch            Notion DB 감시 (제어판 모드, 자동 실행)
+  run              watch의 별칭 (sleepcode watch와 동일)
   generate         참고자료 기반으로 태스크 자동 생성
   sources          참고자료 URL 관리 (sources.json)
   parallel         @worker 섹션 기반 병렬 실행

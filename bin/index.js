@@ -41,9 +41,7 @@ async function main() {
     return;
   }
   if (firstArg === 'run') {
-    const loop = process.argv.includes('--loop');
-    const cont = process.argv.includes('--continue') || process.argv.includes('-c');
-    runWorker(loop, cont, providerArg);
+    cmdWatch(providerArg);
     return;
   }
   if (firstArg === 'generate') {

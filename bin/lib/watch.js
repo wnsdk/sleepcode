@@ -88,7 +88,6 @@ function cmdWatch(cliProvider) {
 
   function getDashboardHeight() {
     if (watchPhase !== 'executing' || currentWorkerStates.length === 0) return 12;
-    if (currentWorkerStates.length === 1) return 12;
     return 9 + currentWorkerStates.length * 2;
   }
 
@@ -129,57 +128,22 @@ function cmdWatch(cliProvider) {
     lines.push(`${C.dim}╔${'═'.repeat(W + 2)}╗${C.reset}`);
 
     if (watchPhase === 'executing' && currentWorkerStates.length > 0) {
-      const useParallel = currentWorkerStates.length > 1;
+      const activeCount = currentWorkerStates.filter(w => w.status === 'running').length;
+      lines.push(boxLine(`${SLEEPCODE_BADGE_HOVER}  watch  ${C.cyan}⟳${C.reset} ${activeCount}/${currentWorkerStates.length} workers${notionLink(dbId)}`, W));
+      lines.push(`${C.dim}╠${'═'.repeat(W + 2)}╣${C.reset}`);
 
-      if (useParallel) {
-        const activeCount = currentWorkerStates.filter(w => w.status === 'running').length;
-        lines.push(boxLine(`${SLEEPCODE_BADGE_HOVER}  watch  ${C.cyan}⟳${C.reset} ${activeCount}/${currentWorkerStates.length} workers${notionLink(dbId)}`, W));
-        lines.push(`${C.dim}╠${'═'.repeat(W + 2)}╣${C.reset}`);
-
-        for (const ws of currentWorkerStates) {
-          const bar = progressBar(ws.done, ws.total, 15);
-          const statusIcon = ws.status === 'running' ? `${C.cyan}⟳${C.reset}`
-            : ws.status === 'done' ? `${C.green}✓${C.reset}`
-            : ws.status === 'budget_stop' ? `${C.yellow}■${C.reset}`
-            : `${C.red}✗${C.reset}`;
-          const wPct = ws.total > 0 ? Math.round(ws.done / ws.total * 100) : 0;
-          const wModel = ws.provider ? `${C.dim}[${providerLabelWithModel(ws.provider, ws.model)}]${C.reset} ` : '';
-          const wDiff = ws.difficultyLabel ? ` ${C.yellow}${ws.difficulty}${C.reset}` : '';
-          lines.push(boxLine(`${statusIcon} ${C.bold}${padEndVisual(ws.name, 18)}${C.reset} ${wModel}${bar} ${String(ws.done).padStart(2)}/${String(ws.total).padEnd(2)} ${C.cyan}${String(wPct).padStart(3)}%${C.reset}${wDiff}`, W));
-          if (ws.currentTask && ws.status === 'running') {
-            const maxTaskW = W - 6;
-            let task = ws.currentTask;
-            if (visualWidth(task) > maxTaskW) {
-              let tw = 0, cut = 0;
-              for (const ch of task) {
-                const cw = visualWidth(ch);
-                if (tw + cw > maxTaskW - 3) break;
-                tw += cw;
-                cut += ch.length;
-              }
-              task = task.slice(0, cut) + '...';
-            }
-            lines.push(boxLine(`  ${C.dim}> ${task}${C.reset}`, W));
-          } else {
-            lines.push(boxLine('', W));
-          }
-        }
-      } else {
-        const ws = currentWorkerStates[0];
+      for (const ws of currentWorkerStates) {
+        const bar = progressBar(ws.done, ws.total, 15);
         const statusIcon = ws.status === 'running' ? `${C.cyan}⟳${C.reset}`
           : ws.status === 'done' ? `${C.green}✓${C.reset}`
+          : ws.status === 'budget_stop' ? `${C.yellow}■${C.reset}`
           : `${C.red}✗${C.reset}`;
-        const statusText = ws.status === 'running' ? '실행 중' : ws.status === 'done' ? '완료' : '실패';
-        const modelTag = ws.provider ? ` ${C.dim}[${providerLabelWithModel(ws.provider, ws.model)}]${C.reset}` : '';
-        const diffInfo = ws.difficultyLabel ? `  ${C.yellow}${ws.difficultyLabel}${C.reset}` : '';
-        lines.push(boxLine(`${SLEEPCODE_BADGE_HOVER}  watch  ${statusIcon} ${statusText}${modelTag}${diffInfo}${notionLink(dbId)}`, W));
-        lines.push(`${C.dim}╠${'═'.repeat(W + 2)}╣${C.reset}`);
-
-        const bar = progressBar(ws.done, ws.total, 20);
-        const pct = ws.total > 0 ? Math.round(ws.done / ws.total * 100) : 0;
-        lines.push(boxLine(`${bar}  ${String(ws.done).padStart(2)}/${String(ws.total).padEnd(2)} tasks  ${C.cyan}${pct}%${C.reset}`, W));
+        const wPct = ws.total > 0 ? Math.round(ws.done / ws.total * 100) : 0;
+        const wModel = ws.provider ? `${C.dim}[${providerLabelWithModel(ws.provider, ws.model)}]${C.reset} ` : '';
+        const wDiff = ws.difficultyLabel ? ` ${C.yellow}${ws.difficulty}${C.reset}` : '';
+        lines.push(boxLine(`${statusIcon} ${C.bold}${padEndVisual(ws.name, 18)}${C.reset} ${wModel}${bar} ${String(ws.done).padStart(2)}/${String(ws.total).padEnd(2)} ${C.cyan}${String(wPct).padStart(3)}%${C.reset}${wDiff}`, W));
         if (ws.currentTask && ws.status === 'running') {
-          const maxTaskW = W - 4;
+          const maxTaskW = W - 6;
           let task = ws.currentTask;
           if (visualWidth(task) > maxTaskW) {
             let tw = 0, cut = 0;
@@ -191,7 +155,7 @@ function cmdWatch(cliProvider) {
             }
             task = task.slice(0, cut) + '...';
           }
-          lines.push(boxLine(`${C.dim}> ${task}${C.reset}`, W));
+          lines.push(boxLine(`  ${C.dim}> ${task}${C.reset}`, W));
         } else {
           lines.push(boxLine('', W));
         }

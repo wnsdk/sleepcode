@@ -16,8 +16,6 @@ const {
   createNotionSyncClient,
 } = require('./notionSync');
 const {
-  buildExecutionReportText,
-  buildFinalTaskProps,
   buildRuntimeTaskQueueContent,
   groupTasksByWorker,
   parseTaskStatuses,
@@ -25,6 +23,10 @@ const {
   updateTaskCompletion,
   updateTaskModel,
 } = require('./notionRun');
+const {
+  finalizeParallelWorkers,
+  summarizeExecutionResults,
+} = require('./runCompletion');
 const {
   buildPollInfo,
   filterNewTasks,
@@ -438,88 +440,46 @@ function cmdWatch(cliProvider) {
   function finishExecution(notionTasks, schema, workerStates) {
     watchPushLog('SYSTEM', `${C.bold}실행 완료 — Notion 업데이트${C.reset}`);
 
-    // task_queue + task_done/<branch>.md에서 완료 상태 확인 (notion page ID 매칭)
-    const workerRefs = (workerStates && workerStates.length > 0)
-      ? workerStates
-      : [];
-    const taskCompletion = parseTaskStatuses(workerRefs, getWorkerDoneState);
-
-    // 총 비용
-    const totalCost = (workerStates && workerStates.length > 0)
-      ? workerStates.reduce((s, ws) => s + (ws.cost || 0), 0)
-      : 0;
+    const completion = summarizeExecutionResults({
+      notionTasks,
+      schema,
+      workerStates,
+      notionCompletedIds,
+      getTaskCompletion: (workerRefs) => parseTaskStatuses(workerRefs, getWorkerDoneState),
+    });
 
     // Notion 업데이트
-    for (const task of notionTasks) {
-      const isDone = taskCompletion[task.id] || false;
-      const newStatus = isDone ? 'Success' : 'Failed';
-      const props = buildFinalTaskProps({
-        schema,
-        isDone,
-        totalCost,
-        totalTasks: notionTasks.length,
-        alreadyCompleted: notionCompletedIds.has(task.id),
-      });
-
-      if (Object.keys(props).length > 0) {
-        notionUpdatePage(task.id, props);
+    for (const result of completion.taskResults) {
+      if (Object.keys(result.props).length > 0) {
+        notionUpdatePage(result.task.id, result.props);
       }
 
-      const icon = isDone ? `${C.green}✓${C.reset}` : `${C.red}✗${C.reset}`;
-      watchPushLog('SYSTEM', `${icon} ${task.title} → ${newStatus}`);
+      const icon = result.isDone ? `${C.green}✓${C.reset}` : `${C.red}✗${C.reset}`;
+      watchPushLog('SYSTEM', `${icon} ${result.task.title} → ${result.newStatus}`);
     }
 
     // AI 보고 내용을 Notion 페이지 본문에 기록
-    const reportText = buildExecutionReportText(workerStates);
-
-    if (reportText.trim()) {
+    if (completion.reportText.trim()) {
       for (const task of notionTasks) {
-        notionAppendContent(task.id, reportText);
+        notionAppendContent(task.id, completion.reportText);
       }
       watchPushLog('SYSTEM', `${C.dim}Notion 페이지에 보고 기록 완료${C.reset}`);
     }
 
     // 비용 기록
-    if (totalCost > 0) {
-      recordCost(targetDir, totalCost, 'run');
+    if (completion.totalCost > 0) {
+      recordCost(targetDir, completion.totalCost, 'run');
     }
 
     // 병렬 실행 후 남은 브랜치 자동 머지 및 워크트리 정리
-    if (workerStates && workerStates.length > 1) {
-      const pendingMergeWorkers = workerStates.filter(ws => !ws.merged);
-      let hasConflicts = false;
-      if (pendingMergeWorkers.length > 0) {
-        watchPushLog('SYSTEM', `${C.bold}남은 브랜치 자동 머지 시작${C.reset}`);
-        try {
-          const mergeResults = autoMergeWorktrees(targetDir, pendingMergeWorkers, cliProvider);
-          if (mergeResults.merged.length > 0) {
-            watchPushLog('SYSTEM', `${C.green}머지 성공: ${mergeResults.merged.join(', ')}${C.reset}`);
-          }
-          if (mergeResults.conflicted.length > 0) {
-            hasConflicts = true;
-            watchPushLog('SYSTEM', `${C.red}머지 충돌: ${mergeResults.conflicted.join(', ')} (수동 머지 필요)${C.reset}`);
-          }
-          if (mergeResults.skipped.length > 0) {
-            watchPushLog('SYSTEM', `${C.dim}머지 스킵: ${mergeResults.skipped.join(', ')}${C.reset}`);
-          }
-        } catch (e) {
-          hasConflicts = true;
-          watchPushLog('SYSTEM', `${C.red}자동 머지 실패: ${e.message}${C.reset}`);
-        }
-      }
-
-      if (hasConflicts) {
-        watchPushLog('SYSTEM', `${C.yellow}머지 충돌이 남아있어 워크트리를 유지합니다. 수동 해결 후 'npx sleepcode parallel --clean'으로 정리하세요.${C.reset}`);
-      } else {
-        watchPushLog('SYSTEM', `${C.bold}워크트리 정리${C.reset}`);
-        try {
-          cleanupWorktrees(targetDir, null);
-          watchPushLog('SYSTEM', `${C.green}워크트리 정리 완료${C.reset}`);
-        } catch (e) {
-          watchPushLog('SYSTEM', `${C.red}워크트리 정리 실패: ${e.message}${C.reset}`);
-        }
-      }
-    }
+    finalizeParallelWorkers({
+      targetDir,
+      workerStates,
+      cliProvider,
+      autoMergeWorktrees,
+      cleanupWorktrees,
+      pushLog: (message) => watchPushLog('SYSTEM', message),
+    });
 
     isExecuting = false;
     executingTaskIds = new Set();

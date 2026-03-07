@@ -167,6 +167,7 @@ function runSingleWithDashboard(targetDir, cont, cliProvider) {
 
   // 대시보드 렌더링
   const startTime = Date.now();
+  let lastProgressCheckTime = null;
   let renderPending = false;
   const menuState = { menuIndex: 0 };
   let gracefulShutdown = false;
@@ -187,44 +188,24 @@ function runSingleWithDashboard(targetDir, cont, cliProvider) {
       : `${C.red}✗${C.reset}`;
     const bar = progressBar(ws.done, ws.total, 15);
     const costStr = `$${ws.cost.toFixed(4)}`;
-
     const pct = ws.total > 0 ? Math.round(ws.done / ws.total * 100) : 0;
 
+    // 헤더: sleepcode ⟳ activeCount/1 workers [Notion]
+    const activeCount = ws.status === 'running' ? 1 : 0;
     lines.push(`${C.dim}╔${'═'.repeat(W + 2)}╗${C.reset}`);
-    lines.push(boxLine(`${SLEEPCODE_BADGE} run${notionLink(process.env.NOTION_DB_ID)}`, W));
+    lines.push(boxLine(`${SLEEPCODE_BADGE} ${C.cyan}⟳${C.reset} ${activeCount}/1 workers${notionLink(process.env.NOTION_DB_ID)}`, W));
     lines.push(`${C.dim}╠${'═'.repeat(W + 2)}╣${C.reset}`);
-    const diffTag = ws.difficultyLabel ? ` ${C.yellow}${ws.difficulty}${C.reset}` : '';
+
+    // 진행 행: statusIcon name bar done/total pct% [provider] ⭐difficulty
     const providerStr = providerLabelWithModel(ws.provider, ws.model);
-    lines.push(boxLine(`${statusIcon} ${C.bold}${padEndVisual(providerStr, 18)}${C.reset} ${bar} ${String(ws.done).padStart(2)}/${String(ws.total).padEnd(2)} ${C.cyan}${String(pct).padStart(3)}%${C.reset}${diffTag}`, W));
-    if (ws.currentTask && ws.status === 'running') {
-      const maxTaskW = W - 6;
-      let task = ws.currentTask;
-      if (visualWidth(task) > maxTaskW) {
-        let tw = 0;
-        let cut = 0;
-        for (const ch of task) {
-          const cw = visualWidth(ch);
-          if (tw + cw > maxTaskW - 3) break;
-          tw += cw;
-          cut += ch.length;
-        }
-        task = task.slice(0, cut) + '...';
-      }
-      lines.push(boxLine(`  ${C.dim}> ${task}${C.reset}`, W));
-    } else {
-      lines.push(boxLine('', W));
-    }
+    const wModel = `${C.dim}[${providerStr}]${C.reset}`;
+    const wDiff = ws.difficultyLabel ? ` ${C.yellow}⭐${ws.difficulty}${C.reset}` : '';
+    lines.push(boxLine(`${statusIcon} ${C.bold}${ws.name}${C.reset} ${bar} ${String(ws.done).padStart(2)}/${String(ws.total).padEnd(2)} ${C.cyan}${String(pct).padStart(3)}%${C.reset} ${wModel}${wDiff}`, W));
     lines.push(`${C.dim}╠${'═'.repeat(W + 2)}╣${C.reset}`);
-    lines.push(boxLine(`${C.dim}비용${C.reset} ${C.yellow}${costStr}${C.reset}  ${C.dim}·  경과${C.reset} ${C.cyan}${elapsedStr}${C.reset}  ${C.dim}·  진행${C.reset} ${ws.done}/${ws.total} ${C.cyan}${pct}%${C.reset}`, W));
-    const budgetInfo = isOverBudget(targetDir);
-    if (budgetInfo) {
-      const pct = Math.min(100, (budgetInfo.total / budgetInfo.budget * 100)).toFixed(0);
-      const budgetBar = progressBar(Math.min(budgetInfo.total, budgetInfo.budget), budgetInfo.budget, 10);
-      const warn = budgetInfo.over ? ` ${C.red}한도 도달!${C.reset}` : '';
-      lines.push(boxLine(`${C.dim}주간${C.reset} ${C.yellow}$${budgetInfo.total.toFixed(2)}${C.reset}/${C.dim}$${budgetInfo.budget}${C.reset} (${pct}%) ${budgetBar}${warn}`, W));
-    } else {
-      lines.push(boxLine('', W));
-    }
+
+    // 푸터: 비용 · 경과 · pct% · 플링 Xs
+    const remaining = lastProgressCheckTime ? Math.max(0, 5 - Math.floor((Date.now() - lastProgressCheckTime) / 1000)) : 5;
+    lines.push(boxLine(`${C.dim}비용${C.reset} ${C.yellow}${costStr}${C.reset} ${C.dim}·${C.reset} ${C.dim}경과${C.reset} ${C.cyan}${elapsedStr}${C.reset} ${C.dim}·${C.reset} ${C.cyan}${pct}%${C.reset} ${C.dim}·${C.reset} ${C.dim}플링${C.reset} ${remaining}초`, W));
 
     // 테이블 닫기
     lines.push(`${C.dim}╚${'═'.repeat(W + 2)}╝${C.reset}`);
@@ -257,7 +238,7 @@ function runSingleWithDashboard(targetDir, cont, cliProvider) {
   console.log(`${C.cyan}${modeLabel}${C.reset}`);
 
   // Alternate Screen 초기화
-  const dashboardHeight = 13;
+  const dashboardHeight = 9;
   if (process.stdout.isTTY) {
     process.stdout.write('\x1b[?1049h');
     process.stdout.write('\x1b[H');
@@ -329,6 +310,7 @@ function runSingleWithDashboard(targetDir, cont, cliProvider) {
 
   // 5초마다 tasks.md를 읽어 진행률 갱신
   const taskProgressInterval = setInterval(() => {
+    lastProgressCheckTime = Date.now();
     if (ws.status !== 'running') return;
     try {
       if (fs.existsSync(tasksPath)) {

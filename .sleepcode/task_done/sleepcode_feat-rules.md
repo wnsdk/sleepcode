@@ -1,0 +1,1 @@
+- [x] templates > rules 에 FastAPI 추가해줘 <!-- notion:31cad790-3b5d-804b-a61e-e7e2f5e013bb -->

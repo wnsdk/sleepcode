@@ -6,7 +6,7 @@
     "test": "node --test"
   },
   "bin": {
-    "sleepcode": "./bin/index.js"
+    "sleepcode": "bin/index.js"
   },
   "keywords": [
     "claude",

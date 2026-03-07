@@ -13,7 +13,16 @@
       "Bash(find:*)",
       "Bash(grep:*)",
       "Bash(cat:*)",
-      "Bash(chmod:*)"
+      "Bash(chmod:*)",
+      "Bash(npm publish)",
+      "WebFetch(domain:developers.openai.com)",
+      "WebFetch(domain:openai.com)",
+      "WebFetch(domain:pricepertoken.com)",
+      "Bash(xxd)",
+      "Bash(python -c \":*)",
+      "Bash(node -c bin/lib/run.js)",
+      "Bash(node -e \"require\\(''./bin/lib/run''\\)\")",
+      "Bash(node -e \"require\\(''./bin/index''\\)\")"
     ]
   }
 }

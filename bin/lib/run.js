@@ -16,8 +16,6 @@ const {
   createNotionSyncClient,
 } = require('./notionSync');
 const {
-  buildRuntimeTaskQueueContent,
-  groupTasksByWorker,
   parseTaskStatuses,
 } = require('./notionRun');
 const {
@@ -29,6 +27,12 @@ const {
   handleTaskStartedEvent,
   syncNextPendingTaskStatus,
 } = require('./runNotionEvents');
+const {
+  buildExecutionPlan,
+  createDynamicWorkerState,
+  prepareParallelExecution,
+  prepareSingleExecution,
+} = require('./runExecution');
 const {
   createActiveRunState,
   createIdleRunState,
@@ -45,9 +49,7 @@ const {
 } = require('./runPoll');
 const {
   appendTasksToQueueContent,
-  buildRunWorkerState,
   buildTaskRunUpdates,
-  buildWorkerTaskQueueContent,
   getFirstTaskIdsByWorker,
   splitTasksByWorkerPresence,
 } = require('./runWorkers');
@@ -286,23 +288,6 @@ function cmdWatch(cliProvider) {
     }
   }
 
-  function createDynamicWorkerState(workerName, tasks, timestamp) {
-    const created = createWorktrees(targetDir, [{
-      name: workerName,
-      tasks: buildWorkerTaskQueueContent(workerName, tasks),
-      remaining: tasks.length,
-    }]);
-    if (created.length === 0) return null;
-    return buildRunWorkerState({
-      workerInfo: created[0],
-      targetDir,
-      logDir,
-      timestamp,
-      total: tasks.length,
-      merged: false,
-    });
-  }
-
   // ─── 태스크 실행 ───
 
   function executeNotionTasks(tasks, schema) {
@@ -313,13 +298,8 @@ function cmdWatch(cliProvider) {
     currentNotionTasks = runState.currentNotionTasks;
     executingTaskIds = runState.executingTaskIds;
     const timestamp = createRunTimestamp();
-
-    // 워커 그룹핑
-    const workerGroups = groupTasksByWorker(tasks);
-
-    const workerNames = Object.keys(workerGroups);
-    const useParallel = workerNames.length > 1 ||
-      (workerNames.length === 1 && workerNames[0] !== 'main');
+    const executionPlan = buildExecutionPlan(tasks);
+    const { workerGroups, workerNames, useParallel } = executionPlan;
 
     watchPushLog('SYSTEM', `${C.bold}▶ ${tasks.length}개 태스크 실행 시작${C.reset}`);
 
@@ -332,32 +312,20 @@ function cmdWatch(cliProvider) {
 
     if (useParallel) {
       watchPushLog('SYSTEM', `${C.cyan}병렬 모드${C.reset}: ${workerNames.join(', ')}`);
-      fs.writeFileSync(tasksPath, buildRuntimeTaskQueueContent(workerGroups, { parallel: true }));
-
-      syncClaudeMd(targetDir);
-      const workers = parseParallelTasks(tasksPath);
-      if (!workers || workers.length === 0) {
-        finishExecution(tasks, schema, []);
-        return;
-      }
-      const created = createWorktrees(targetDir, workers);
-      if (created.length === 0) {
-        finishExecution(tasks, schema, []);
-        return;
-      }
-
-      // 워커 상태 생성
-      const workerStates = created.map((workerInfo) => buildRunWorkerState({
-        workerInfo,
+      const workerStates = prepareParallelExecution({
         targetDir,
-        logDir,
+        runtimeTasksPath: tasksPath,
+        workerGroups,
         timestamp,
-        total: 0,
-        merged: false,
-      }));
-
-      for (const ws of workerStates) {
-        syncWorkerTaskProgress(ws);
+        logDir,
+        syncClaudeMd,
+        parseParallelTasks,
+        createWorktrees,
+        syncWorkerTaskProgress,
+      });
+      if (workerStates.length === 0) {
+        finishExecution(tasks, schema, []);
+        return;
       }
 
       // 대시보드를 실행 모드로 전환
@@ -371,25 +339,15 @@ function cmdWatch(cliProvider) {
       // 단일 모드
       const allTasks = Object.values(workerGroups).flat();
       watchPushLog('SYSTEM', `${C.cyan}단일 모드${C.reset}: ${allTasks.length}개 태스크`);
-      fs.writeFileSync(tasksPath, buildRuntimeTaskQueueContent(workerGroups, { parallel: false }));
-
-      syncClaudeMd(targetDir);
-
-      const ws = buildRunWorkerState({
-        workerInfo: {
-          name: 'main',
-          path: targetDir,
-          tasksPath,
-        },
+      const ws = prepareSingleExecution({
         targetDir,
+        runtimeTasksPath: tasksPath,
+        workerGroups,
         logDir,
         timestamp,
-        total: 0,
-        merged: true,
+        syncClaudeMd,
+        syncWorkerTaskProgress,
       });
-
-      const singleContent = fs.readFileSync(tasksPath, 'utf-8');
-      syncWorkerTaskProgress(ws, null, singleContent);
 
       // 대시보드를 실행 모드로 전환
       currentWorkerStates = [ws];
@@ -493,7 +451,14 @@ function cmdWatch(cliProvider) {
 
       if (!isParallel && currentWorkerStates.length === 1 && currentWorkerStates[0].name === 'main') {
         // 단일 모드에서 main이 아닌 새 워커 → 병렬로 전환해야 하므로 worktree 생성
-        const newWs = createDynamicWorkerState(workerName, tasks, timestamp);
+        const newWs = createDynamicWorkerState({
+          targetDir,
+          workerName,
+          tasks,
+          timestamp,
+          logDir,
+          createWorktrees,
+        });
         if (newWs) {
           applyRunTaskUpdates(tasks, schema, new Set([tasks[0].id]), { trackTasks: true });
           currentWorkerStates.push(newWs);
@@ -516,7 +481,14 @@ function cmdWatch(cliProvider) {
         }
       } else {
         // 이미 병렬 모드 → 새 worktree 생성
-        const newWs = createDynamicWorkerState(workerName, tasks, timestamp);
+        const newWs = createDynamicWorkerState({
+          targetDir,
+          workerName,
+          tasks,
+          timestamp,
+          logDir,
+          createWorktrees,
+        });
         if (newWs) {
           applyRunTaskUpdates(tasks, schema, new Set([tasks[0].id]), { trackTasks: true });
           currentWorkerStates.push(newWs);

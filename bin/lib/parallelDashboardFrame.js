@@ -1,7 +1,8 @@
 const { C, SLEEPCODE_BADGE, notionLink } = require('./constants');
 const { progressBar, padEndVisual } = require('./utils');
 const { boxLine, renderMenuLineWithLayout } = require('./dashboard');
-const { clipVisualText, formatElapsedSeconds } = require('./dashboardUtils');
+const { clipVisualText, formatElapsedSeconds, formatProviderTokens } = require('./dashboardUtils');
+const { providerLabel } = require('./provider');
 
 function getParallelDashboardHeight(workerStates) {
   return 11 + workerStates.length * 2;
@@ -22,7 +23,7 @@ function buildParallelDashboardFrame({
   const totalTasks = workerStates.reduce((sum, worker) => sum + worker.total, 0);
   const totalDone = workerStates.reduce((sum, worker) => sum + worker.done, 0);
   const activeCount = workerStates.filter((worker) => worker.status === 'running').length;
-  const totalCost = workerStates.reduce((sum, worker) => sum + worker.cost, 0);
+  const tokenLabel = formatProviderTokens(workerStates, providerLabel);
 
   lines.push(`${C.dim}╔${'═'.repeat(width + 2)}╗${C.reset}`);
   lines.push(boxLine(`${SLEEPCODE_BADGE} parallel  ${C.dim}${activeCount}/${workerStates.length} workers${C.reset}${notionLink(notionDbId)}`, width));
@@ -50,7 +51,7 @@ function buildParallelDashboardFrame({
   lines.push(`${C.dim}╠${'═'.repeat(width + 2)}╣${C.reset}`);
   const totalPct = totalTasks > 0 ? Math.round(totalDone / totalTasks * 100) : 0;
   const elapsed = Math.floor((now() - startTime) / 1000);
-  lines.push(boxLine(`${C.dim}비용${C.reset} ${C.yellow}$${totalCost.toFixed(4)}${C.reset}  ${C.dim}·  경과${C.reset} ${C.cyan}${formatElapsedSeconds(elapsed)}${C.reset}  ${C.dim}·  진행${C.reset} ${totalDone}/${totalTasks} ${C.cyan}${totalPct}%${C.reset}`, width));
+  lines.push(boxLine(`${C.dim}${tokenLabel}${C.reset}  ${C.dim}·  경과${C.reset} ${C.cyan}${formatElapsedSeconds(elapsed)}${C.reset}  ${C.dim}·  진행${C.reset} ${totalDone}/${totalTasks} ${C.cyan}${totalPct}%${C.reset}`, width));
 
   if (budgetInfo) {
     const pct = Math.min(100, (budgetInfo.total / budgetInfo.budget * 100)).toFixed(0);

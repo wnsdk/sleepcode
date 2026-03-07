@@ -1,8 +1,8 @@
 const { C, SLEEPCODE_BADGE_WITH_VERSION, notionLink } = require('./constants');
 const { progressBar, padEndVisual } = require('./utils');
-const { providerLabelWithModel } = require('./provider');
+const { providerLabelWithModel, providerLabel } = require('./provider');
 const { boxLine, renderMenuLineWithLayout } = require('./dashboard');
-const { clipVisualText, formatElapsedSeconds } = require('./dashboardUtils');
+const { clipVisualText, formatElapsedSeconds, formatProviderTokens } = require('./dashboardUtils');
 
 function getRunDashboardHeight(phase, workerStates) {
   if (phase !== 'executing' || !Array.isArray(workerStates) || workerStates.length === 0) {
@@ -58,7 +58,6 @@ function buildRunDashboardFrame({
 
     lines.push(`${C.dim}╠${'═'.repeat(width + 2)}╣${C.reset}`);
 
-    const totalCost = workerStates.reduce((sum, worker) => sum + (worker.cost || 0), 0);
     const totalDone = workerStates.reduce((sum, worker) => sum + worker.done, 0);
     const totalTasks = workerStates.reduce((sum, worker) => sum + worker.total, 0);
     const totalPct = totalTasks > 0 ? Math.round(totalDone / totalTasks * 100) : 0;
@@ -66,7 +65,8 @@ function buildRunDashboardFrame({
     const remaining = lastPollTime
       ? Math.max(0, pollIntervalSec - Math.floor((Date.now() - lastPollTime) / 1000))
       : pollIntervalSec;
-    lines.push(boxLine(`${C.dim}비용${C.reset} ${C.yellow}$${totalCost.toFixed(4)}${C.reset} ${C.dim}·${C.reset} ${C.dim}경과${C.reset} ${C.cyan}${formatElapsedSeconds(elapsed)}${C.reset} ${C.dim}·${C.reset} ${C.cyan}${totalPct}%${C.reset} ${C.dim}·${C.reset} ${C.dim}폴링${C.reset} ${remaining}초`, width));
+    const tokenLabel = formatProviderTokens(workerStates, providerLabel);
+    lines.push(boxLine(`${C.dim}${tokenLabel}${C.reset} ${C.dim}·${C.reset} ${C.dim}경과${C.reset} ${C.cyan}${formatElapsedSeconds(elapsed)}${C.reset} ${C.dim}·${C.reset} ${C.cyan}${totalPct}%${C.reset} ${C.dim}·${C.reset} ${C.dim}폴링${C.reset} ${remaining}초`, width));
   } else {
     const remaining = lastPollTime
       ? Math.max(0, pollIntervalSec - Math.floor((Date.now() - lastPollTime) / 1000))

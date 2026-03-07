@@ -26,7 +26,42 @@ function formatElapsedSeconds(elapsedSeconds) {
   return `${elapsed}s`;
 }
 
+function formatTokens(n) {
+  const num = Math.floor(n || 0);
+  if (num >= 1000000) return `${(num / 1000000).toFixed(1)}M`;
+  if (num >= 1000) return `${(num / 1000).toFixed(1)}k`;
+  return String(num);
+}
+
+function getTokensByProvider(workerStates) {
+  const byProvider = {};
+  for (const worker of workerStates || []) {
+    const provider = worker.provider || 'unknown';
+    if (!byProvider[provider]) byProvider[provider] = { input: 0, output: 0 };
+    byProvider[provider].input += worker.inputTokens || 0;
+    byProvider[provider].output += worker.outputTokens || 0;
+  }
+  return byProvider;
+}
+
+function formatProviderTokens(workerStates, providerLabelFn) {
+  const byProvider = getTokensByProvider(workerStates);
+  const entries = Object.entries(byProvider);
+  if (entries.length === 0) return '토큰 0';
+
+  return '토큰 ' + entries
+    .map(([provider, tokens]) => {
+      const label = typeof providerLabelFn === 'function' ? providerLabelFn(provider) : provider;
+      const total = tokens.input + tokens.output;
+      return `${label} ${formatTokens(total)}`;
+    })
+    .join('  ');
+}
+
 module.exports = {
   clipVisualText,
   formatElapsedSeconds,
+  formatTokens,
+  getTokensByProvider,
+  formatProviderTokens,
 };

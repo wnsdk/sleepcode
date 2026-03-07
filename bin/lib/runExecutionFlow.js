@@ -161,7 +161,30 @@ function finishExecution({
   }
 
   if (completion.totalCost > 0) {
-    recordCostFn(targetDir, completion.totalCost, 'run');
+    // 프로바이더별로 나눠서 기록
+    const byProvider = completion.tokensByProvider || {};
+    const providers = Object.keys(byProvider);
+    if (providers.length > 1) {
+      const totalTok = (completion.totalInputTokens || 0) + (completion.totalOutputTokens || 0);
+      for (const [prov, tokens] of Object.entries(byProvider)) {
+        const ratio = totalTok > 0 ? (tokens.input + tokens.output) / totalTok : 1 / providers.length;
+        recordCostFn(targetDir, completion.totalCost * ratio, 'run', null, {
+          provider: prov,
+          inputTokens: tokens.input,
+          outputTokens: tokens.output,
+        });
+      }
+    } else if (providers.length === 1) {
+      const prov = providers[0];
+      const tokens = byProvider[prov];
+      recordCostFn(targetDir, completion.totalCost, 'run', null, {
+        provider: prov,
+        inputTokens: tokens.input,
+        outputTokens: tokens.output,
+      });
+    } else {
+      recordCostFn(targetDir, completion.totalCost, 'run');
+    }
   }
 
   finalizeParallelWorkersFn({

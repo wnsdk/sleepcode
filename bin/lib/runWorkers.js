@@ -56,6 +56,8 @@ function buildRunWorkerState({ workerInfo, targetDir, logDir, timestamp, total =
     done: 0,
     total,
     cost: 0,
+    inputTokens: 0,
+    outputTokens: 0,
     merged,
     reportLines: [],
     _proc: null,

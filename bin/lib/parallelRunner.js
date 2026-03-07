@@ -20,6 +20,8 @@ function createWorkerStates(targetDir, workerInfos, logsDir, timestamp) {
     done: 0,
     total: 0,
     cost: 0,
+    inputTokens: 0,
+    outputTokens: 0,
     provider: null,
     fallbackProvider: null,
     _proc: null,

@@ -71,7 +71,13 @@ function processStreamEvent(ws, obj, onUpdate, pushLog) {
     const cost = obj.cost_usd;
     if (cost != null) {
       ws.cost = cost;
-      if (ws.targetDir) recordCost(ws.targetDir, cost, 'parallel', ws.name);
+      if (ws.targetDir) {
+        recordCost(ws.targetDir, cost, 'parallel', ws.name, {
+          provider: ws.provider,
+          inputTokens: ws.inputTokens || 0,
+          outputTokens: ws.outputTokens || 0,
+        });
+      }
     }
 
     const tasksPath2 = ws.tasksPath || path.join(ws.path, '.sleepcode', 'task_queue.md');
@@ -116,6 +122,8 @@ function processStreamEvent(ws, obj, onUpdate, pushLog) {
     const outputTokens = usage.output_tokens || usage.completion_tokens || 0;
     const totalTokens = usage.total_tokens || (inputTokens + outputTokens);
     if (totalTokens > 0) {
+      ws.inputTokens = (ws.inputTokens || 0) + inputTokens;
+      ws.outputTokens = (ws.outputTokens || 0) + outputTokens;
       pushLog(ws.name, `${C.dim}[TOKENS] in:${inputTokens} out:${outputTokens} total:${totalTokens}${C.reset}`);
       onUpdate();
     }

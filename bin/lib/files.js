@@ -217,7 +217,9 @@ function printResult(notionDbId) {
 
   console.log(`\n${C.bold}파일 생성 완료:${C.reset}\n`);
   console.log(`  ${C.green}✓${C.reset} .sleepcode/rules.md          ${C.dim}← 수정하세요${C.reset}`);
-  console.log(`  ${C.green}✓${C.reset} .sleepcode/scripts/notion_sync.py`);
+  if (notionDbId) {
+    console.log(`  ${C.green}✓${C.reset} .sleepcode/scripts/notion_sync.py`);
+  }
   console.log(`  ${C.green}✓${C.reset} .sleepcode/docs/             ${C.dim}← 참고자료 파일 추가${C.reset}`);
   console.log(`  ${C.green}✓${C.reset} .sleepcode/scripts/base_rules.md`);
   console.log(`  ${C.green}✓${C.reset} .sleepcode/scripts/${workerScript}`);

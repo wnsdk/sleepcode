@@ -169,6 +169,7 @@ claude --dangerously-skip-permissions
 | `react-native` | React Native (TypeScript) — tsc 타입체크 |
 | `nextjs` | Next.js (TypeScript) — npm build/test/lint |
 | `godot` | Godot 4 (GDScript) — 게임 개발 |
+| `sveltekit` | SvelteKit (TypeScript) — npm build/test/lint |
 | `custom` | 직접 설정 — 빌드/테스트/린트 명령어 수동 입력 |
 
 ---
@@ -214,29 +215,41 @@ npx sleepcode init --type react-native --name my-app --role "쇼핑몰 앱 개�
 
 ## 생성되는 파일
 
+### init 시 생성
+
 ```
 .sleepcode/
   rules.md               # ✏️ AI 역할 + 작업 규칙 (수정하세요)
-  task_queue.md          # ✏️ 작업 backlog (읽기 전용)
+  .env                   # ⚙️ API 키 (Notion, Figma 등)
+  config.json            # ⚙️ 주간 예산 설정 (budget 설정 시)
   task_done/             # ✏️ 완료 로그 (append-only, 브랜치별 파일)
     main.md
   docs/                  # ✏️ 참고 자료 (피그마 스크린샷, 기획서 등)
-  config.json            # ⚙️ 주간 예산 설정 (budget 설정 시)
-  usage.json             # ⚙️ 사용량 추적 (자동 생성, gitignored)
   scripts/               # ⚙️ 시스템 (수정하지 마세요)
     base_rules.md        #    공통 작업 규칙
     ai_worker.sh/.ps1    #    1회 실행 스크립트 (OS별)
     log_filter.py        #    실시간 로그 필터
-    notion_sync.py       #    Notion 동기화 (Notion DB 모드만)
-  runtime/               # ⚙️ 실행 산출물 (자동 생성, gitignored)
-    logs/                #    실행 로그
-    worktrees/           #    병렬 실행용 git worktree
-    task_queue.md        #    Notion 실행용 런타임 태스크
-    task_queue.main.md   #    main 워커 런타임 태스크
+    notion_sync.py       #    Notion 동기화 (Notion DB 연결 시만)
   README.md              # 사용 가이드
 
 .claude/
   settings.local.json    # Claude 권한 설정
+
+CLAUDE.md                # 프롬프트 캐싱 (자동 생성)
+```
+
+### 런타임 산출물 (자동 생성, gitignored)
+
+```
+.sleepcode/
+  task_queue.md          # 작업 backlog (Notion 동기화 또는 수동 작성)
+  usage.json             # 사용량 추적
+  runtime/
+    logs/                #    실행 로그
+    worktrees/           #    병렬 실행용 git worktree
+    task_queue.md        #    Notion 실행용 런타임 태스크
+    task_queue.main.md   #    main 워커 런타임 태스크
+    graceful_stop        #    정상 종료 신호 파일
 ```
 
 ---

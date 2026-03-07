@@ -41,9 +41,6 @@
 ## Git 작업 규칙
 
 - task_queue backlog의 항목 1개 완료 = git commit 1개. 이 규칙을 반드시 지킨다.
-- `task_queue.md`가 스테이징되면 커밋 전 제외한다.
-  - `git restore --staged .sleepcode/task_queue.md`
-  - `git restore .sleepcode/task_queue.md`
 - 작업 중간에는 commit 하지 않는다.
 - 기능이 정상 동작한다고 판단되면 commit 한다.
 - commit message 는 변경 내용을 구체적으로 설명한다.

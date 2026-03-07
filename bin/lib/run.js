@@ -39,6 +39,7 @@ const {
 const { addTasksDuringExecution: expandRunTasksDuringExecution } = require('./runTaskExpansion');
 const { createRunNotionBindings } = require('./runNotionBindings');
 const { createRunSetup } = require('./runSetup');
+const { createRunStateStore } = require('./runStateStore');
 const {
   handleGracefulStopDetected,
   handleWorkerDone: handleRunWorkerDone,
@@ -72,46 +73,36 @@ function cmdWatch(cliProvider) {
     targetDir,
   } = setup;
 
-  let isExecuting = false;
-  let executingTaskIds = new Set(); // 현재 실행 중인 Notion task ID들
-  let currentSchema = null; // 현재 실행에서 사용 중인 schema
-  let currentNotionTasks = []; // 현재 실행 중인 Notion task 목록 (finishExecution에서 참조)
-  let notionCompletedIds = new Set(); // 완료 즉시 Notion 업데이트된 task ID들
-
-  // ─── 대시보드 상태 ───
-  let watchPhase = 'waiting'; // 'waiting' | 'executing'
-  let pollInfo = { total: 0, pending: 0 };
-  let lastPollTime = null;
-  let currentWorkerStates = [];
-  let execStartTime = null;
-  let pollingController = null;
+  const runState = createRunStateStore();
 
   const dashboard = createRunDashboard({
     dbId,
     pollIntervalSec,
-    getWatchPhase: () => watchPhase,
-    getPollInfo: () => pollInfo,
-    getLastPollTime: () => lastPollTime,
-    getWorkerStates: () => currentWorkerStates,
-    getExecStartTime: () => execStartTime,
+    getWatchPhase: () => runState.getWatchPhase(),
+    getPollInfo: () => runState.getPollInfo(),
+    getLastPollTime: () => runState.getLastPollTime(),
+    getWorkerStates: () => runState.getCurrentWorkerStates(),
+    getExecStartTime: () => runState.getExecStartTime(),
     onPollNow: () => {
+      const pollingController = runState.getPollingController();
       if (pollingController) {
         pollingController.pollNow();
       }
     },
     onGracefulExit: () => {
+      const pollingController = runState.getPollingController();
       if (pollingController) {
         pollingController.stopPolling();
       }
-      stopWorkerProcesses(currentWorkerStates, 'SIGINT', true);
+      stopWorkerProcesses(runState.getCurrentWorkerStates(), 'SIGINT', true);
     },
     onImmediateExit: () => {
-      stopWatchTimers(pollingController);
-      stopWorkerProcesses(currentWorkerStates);
+      stopWatchTimers(runState.getPollingController());
+      stopWorkerProcesses(runState.getCurrentWorkerStates());
     },
     onInterrupt: () => {
-      stopWatchTimers(pollingController);
-      stopWorkerProcesses(currentWorkerStates);
+      stopWatchTimers(runState.getPollingController());
+      stopWorkerProcesses(runState.getCurrentWorkerStates());
     },
   });
 
@@ -119,13 +110,12 @@ function cmdWatch(cliProvider) {
   const scheduleRender = () => dashboard.scheduleRender();
   const flushRender = () => dashboard.flushRender();
   const renderDashboard = () => dashboard.renderDashboard();
-  const notionInProgressIds = new Set(); // 이미 Running으로 설정된 태스크 ID 추적
   const notionBindings = createRunNotionBindings({
     notionSync,
-    getCurrentSchema: () => currentSchema,
-    getCurrentNotionTasks: () => currentNotionTasks,
-    getNotionCompletedIds: () => notionCompletedIds,
-    notionInProgressIds,
+    getCurrentSchema: () => runState.getCurrentSchema(),
+    getCurrentNotionTasks: () => runState.getCurrentNotionTasks(),
+    getNotionCompletedIds: () => runState.getNotionCompletedIds(),
+    notionInProgressIds: runState.getNotionInProgressIds(),
     getWorkerDoneState,
     flushRender,
     pushLog: (message) => watchPushLog('SYSTEM', message),
@@ -141,7 +131,7 @@ function cmdWatch(cliProvider) {
   } = notionBindings;
 
   function setWatchPhase(newPhase) {
-    watchPhase = newPhase;
+    runState.setWatchPhase(newPhase);
     dashboard.setWatchPhase();
   }
 
@@ -151,15 +141,15 @@ function cmdWatch(cliProvider) {
       py,
       onDone: () => handleRunWorkerDone({
         completedWorker: ws,
-        currentWorkerStates,
+        currentWorkerStates: runState.getCurrentWorkerStates(),
         targetDir,
         cliProvider,
         autoMergeWorktrees,
         pushLog: (message) => watchPushLog('SYSTEM', message),
         scheduleRender,
         finishExecution,
-        currentNotionTasks,
-        currentSchema,
+        currentNotionTasks: runState.getCurrentNotionTasks(),
+        currentSchema: runState.getCurrentSchema(),
       }),
       scheduleRender,
       pushLog: watchPushLog,
@@ -168,24 +158,6 @@ function cmdWatch(cliProvider) {
       handleTaskStarted,
       handleTaskUiUpdated
     });
-  }
-
-  function applyRunState(nextState) {
-    isExecuting = nextState.isExecuting;
-    execStartTime = nextState.execStartTime;
-    currentSchema = nextState.currentSchema;
-    currentNotionTasks = nextState.currentNotionTasks;
-    executingTaskIds = nextState.executingTaskIds;
-  }
-
-  function applyIdleState(idleState) {
-    isExecuting = idleState.isExecuting;
-    executingTaskIds = idleState.executingTaskIds;
-    currentSchema = idleState.currentSchema;
-    currentNotionTasks = idleState.currentNotionTasks;
-    notionCompletedIds = idleState.notionCompletedIds;
-    currentWorkerStates = idleState.currentWorkerStates;
-    execStartTime = idleState.execStartTime;
   }
 
   // ─── 태스크 실행 ───
@@ -197,14 +169,12 @@ function cmdWatch(cliProvider) {
       targetDir,
       runtimeTasksPath,
       logDir,
-      notionInProgressIds,
+      notionInProgressIds: runState.getNotionInProgressIds(),
       updatePage: notionUpdatePage,
       pushLog: watchPushLog,
       setWatchPhase,
-      setRunState: applyRunState,
-      setWorkerStates: (workerStates) => {
-        currentWorkerStates = workerStates;
-      },
+      setRunState: (nextState) => runState.applyRunState(nextState),
+      setWorkerStates: (workerStates) => runState.setCurrentWorkerStates(workerStates),
       spawnRunWorker,
       finishExecution,
       syncClaudeMd,
@@ -224,7 +194,7 @@ function cmdWatch(cliProvider) {
       notionTasks,
       schema,
       workerStates,
-      notionCompletedIds,
+      notionCompletedIds: runState.getNotionCompletedIds(),
       targetDir,
       cliProvider,
       autoMergeWorktrees,
@@ -232,11 +202,11 @@ function cmdWatch(cliProvider) {
       updatePage: notionUpdatePage,
       appendContent: notionAppendContent,
       pushLog: watchPushLog,
-      applyIdleState,
+      applyIdleState: (idleState) => runState.applyIdleState(idleState),
       setWatchPhase,
       getWorkerDoneState,
       dashboard,
-      pollingController,
+      pollingController: runState.getPollingController(),
       summarizeExecutionResultsFn: summarizeExecutionResults,
       parseTaskStatusesFn: parseTaskStatuses,
       recordCostFn: recordCost,
@@ -251,10 +221,10 @@ function cmdWatch(cliProvider) {
     expandRunTasksDuringExecution({
       newTasks,
       schema,
-      executingTaskIds,
-      currentWorkerStates,
-      currentNotionTasks,
-      notionInProgressIds,
+      executingTaskIds: runState.getExecutingTaskIds(),
+      currentWorkerStates: runState.getCurrentWorkerStates(),
+      currentNotionTasks: runState.getCurrentNotionTasks(),
+      notionInProgressIds: runState.getNotionInProgressIds(),
       updatePage: notionUpdatePage,
       syncWorkerTaskProgress,
       targetDir,
@@ -270,7 +240,7 @@ function cmdWatch(cliProvider) {
     });
   }
 
-  pollingController = createRunPollingController({
+  runState.setPollingController(createRunPollingController({
     targetDir,
     gracefulStopPath,
     pollIntervalMs,
@@ -279,15 +249,15 @@ function cmdWatch(cliProvider) {
     buildPollInfo,
     selectTasksToRun,
     filterNewTasks,
-    getIsExecuting: () => isExecuting,
-    getExecutingTaskIds: () => executingTaskIds,
-    getWatchPhase: () => watchPhase,
-    getCurrentWorkerStates: () => currentWorkerStates,
+    getIsExecuting: () => runState.getIsExecuting(),
+    getExecutingTaskIds: () => runState.getExecutingTaskIds(),
+    getWatchPhase: () => runState.getWatchPhase(),
+    getCurrentWorkerStates: () => runState.getCurrentWorkerStates(),
     setLastPollTime: (value) => {
-      lastPollTime = value;
+      runState.setLastPollTime(value);
     },
     setPollInfo: (value) => {
-      pollInfo = value;
+      runState.setPollInfo(value);
     },
     addTasksDuringExecution,
     executeNotionTasks,
@@ -300,9 +270,9 @@ function cmdWatch(cliProvider) {
     onGracefulStopDetected: () => {
       handleGracefulStopDetected({ dashboard });
     },
-  });
+  }));
 
-  pollingController.start();
+  runState.getPollingController().start();
 }
 
 module.exports = {

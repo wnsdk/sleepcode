@@ -141,6 +141,48 @@ const DIFFICULTY_MODELS_CODEX = {
   5: ['gpt-5.1-codex-max', 'gpt-5.3-codex', 'gpt-5.4'],
 };
 
+const DEFAULT_PROVIDER_MODELS = {
+  [PROVIDERS.CLAUDE]: 'claude-sonnet-4-6',
+  [PROVIDERS.CODEX]: 'o3',
+};
+
+const NOTION_MODEL_OPTION_COLORS = {
+  [PROVIDERS.CLAUDE]: 'purple',
+  [PROVIDERS.CODEX]: 'blue',
+};
+
+function collectUniqueModels(items) {
+  const seen = new Set();
+  const models = [];
+
+  for (const item of items || []) {
+    const values = Array.isArray(item) ? item : [item];
+    for (const value of values) {
+      const model = String(value || '').trim();
+      if (!model || seen.has(model)) continue;
+      seen.add(model);
+      models.push(model);
+    }
+  }
+
+  return models;
+}
+
+function buildNotionModelOptions() {
+  const claudeModels = collectUniqueModels(Object.values(DIFFICULTY_MODELS));
+  const codexModels = collectUniqueModels([
+    DEFAULT_PROVIDER_MODELS[PROVIDERS.CODEX],
+    ...Object.values(DIFFICULTY_MODELS_CODEX),
+  ]);
+
+  return [
+    ...claudeModels.map((name) => ({ name, color: NOTION_MODEL_OPTION_COLORS[PROVIDERS.CLAUDE] })),
+    ...codexModels.map((name) => ({ name, color: NOTION_MODEL_OPTION_COLORS[PROVIDERS.CODEX] })),
+  ];
+}
+
+const NOTION_MODEL_OPTIONS = buildNotionModelOptions();
+
 let _codexModelsCache = null;
 
 function loadAvailableCodexModels() {
@@ -329,4 +371,6 @@ module.exports = {
   DIFFICULTY_MODELS,
   DIFFICULTY_MODELS_CODEX,
   DIFFICULTY_LABELS,
+  DEFAULT_PROVIDER_MODELS,
+  NOTION_MODEL_OPTIONS,
 };

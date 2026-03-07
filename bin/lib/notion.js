@@ -1,4 +1,13 @@
 const { C } = require('./constants');
+const { NOTION_MODEL_OPTIONS } = require('./provider');
+
+function buildModelSelectProperty() {
+  return {
+    select: {
+      options: NOTION_MODEL_OPTIONS.map((option) => ({ ...option })),
+    },
+  };
+}
 
 function notionApiRequest(method, endpoint, apiKey, body) {
   const https = require('https');
@@ -128,7 +137,7 @@ async function createNotionDb(apiKey, parentPageId, dbTitle) {
       'Worker': { select: { options: [] } },
       'Priority': { number: { format: 'number' } },
       'Log': { rich_text: {} },
-      'Model': { rich_text: {} },
+      'Model': buildModelSelectProperty(),
       'Cost': { number: { format: 'number' } },
       'Completed At': { date: {} },
     },
@@ -155,7 +164,7 @@ const EXPECTED_DB_PROPERTIES = {
   'Worker': { select: { options: [] } },
   'Priority': { number: { format: 'number' } },
   'Log': { rich_text: {} },
-  'Model': { rich_text: {} },
+  'Model': buildModelSelectProperty(),
   'Cost': { number: { format: 'number' } },
   'Completed At': { date: {} },
 };
@@ -263,11 +272,6 @@ async function syncNotionDbSchema(apiKey, dbId) {
           }
         }
       }
-      continue;
-    }
-
-    if (name === 'Model' && existingType === 'select' && expectedType === 'rich_text') {
-      skipped.push(`${name}(select)`);
       continue;
     }
 

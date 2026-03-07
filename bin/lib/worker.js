@@ -12,7 +12,14 @@ const {
   appendTaskDone,
   visualWidth,
 } = require('./utils');
-const { resolveProviderPlan, providerLabel, getProviderRunCommand, buildExecutionPrompt, assessTaskDifficulty } = require('./provider');
+const {
+  resolveProviderPlan,
+  providerLabel,
+  getProviderRunCommand,
+  buildExecutionPrompt,
+  assessTaskDifficulty,
+  DEFAULT_PROVIDER_MODELS,
+} = require('./provider');
 const { recordCost } = require('./config');
 const { buildClaudeMdContent, syncClaudeMd } = require('./files');
 
@@ -445,7 +452,7 @@ function spawnWorker(ws, py, onDone, onUpdate, pushLog, cliProvider, onTaskCompl
     } catch {
       ws.difficulty = 3;
       ws.difficultyLabel = '★★★☆☆';
-      ws.model = ws.provider === PROVIDERS.CODEX ? 'o3' : 'claude-sonnet-4-6';
+      ws.model = DEFAULT_PROVIDER_MODELS[ws.provider] || DEFAULT_PROVIDER_MODELS[PROVIDERS.CLAUDE];
     }
     onUpdate();
 

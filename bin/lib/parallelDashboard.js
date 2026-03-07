@@ -1,4 +1,4 @@
-const { C, branchColor } = require('./constants');
+const { C } = require('./constants');
 const { setupMenuInput } = require('./dashboard');
 const {
   buildParallelDashboardFrame,
@@ -6,6 +6,7 @@ const {
   formatElapsedSeconds,
   getParallelDashboardHeight,
 } = require('./parallelDashboardFrame');
+const { createParallelDashboardLogs } = require('./parallelDashboardLogs');
 
 function summarizeWorkerOutcomes(workerStates) {
   const failed = workerStates.filter((worker) => worker.status === 'failed');
@@ -50,65 +51,21 @@ function createParallelDashboard({
   onInterrupt,
 }) {
   const MAX_LOG_BUFFER = 200;
-  const logBuffer = [];
   const menuState = { menuIndex: 0 };
   const dashboardHeight = getParallelDashboardHeight(workerStates);
   const startTime = Date.now();
 
   let altScreenActive = false;
   let cursorHidden = false;
-  let logScroll = 0;
   let renderPending = false;
   let renderTimer = null;
   let cleanupMenuInput = null;
   let gracefulShutdown = false;
-
-  function getLogRows() {
-    const rows = process.stdout.rows || 24;
-    return Math.max(0, rows - dashboardHeight);
-  }
-
-  function getMaxLogScroll() {
-    const logRows = getLogRows();
-    return Math.max(0, logBuffer.length - logRows);
-  }
-
-  function appendLogToScreen(line) {
-    if (!altScreenActive || logScroll > 0) return;
-    const rows = process.stdout.rows || 24;
-    process.stdout.write(`\x1b[${rows};1H`);
-    process.stdout.write(`\n  ${line}\x1b[K`);
-  }
-
-  function renderLogs(force = false) {
-    if (!altScreenActive) return;
-    const logRows = getLogRows();
-    if (logRows <= 0) return;
-
-    const maxScroll = getMaxLogScroll();
-    if (logScroll > maxScroll) logScroll = maxScroll;
-    if (!force && logScroll === 0) return;
-
-    const start = Math.max(0, logBuffer.length - logRows - logScroll);
-    const slice = logBuffer.slice(start, start + logRows);
-    for (let i = 0; i < logRows; i++) {
-      const line = slice[i] || '';
-      process.stdout.write(`\x1b[${dashboardHeight + 1 + i};1H`);
-      process.stdout.write(`  ${line}\x1b[K`);
-    }
-    process.stdout.write('\x1b[1;1H');
-  }
-
-  function pushLog(workerName, message) {
-    const tag = `${branchColor(workerName)}[${workerName}]${C.reset}`;
-    const fullMessage = `${tag} ${message}`;
-    logBuffer.push(fullMessage);
-    if (logBuffer.length > MAX_LOG_BUFFER) logBuffer.shift();
-    if (logScroll > 0) {
-      logScroll = Math.min(logScroll + 1, getMaxLogScroll());
-    }
-    appendLogToScreen(fullMessage);
-  }
+  const logs = createParallelDashboardLogs({
+    getDashboardHeight: () => dashboardHeight,
+    isAltScreenActive: () => altScreenActive,
+    maxBuffer: MAX_LOG_BUFFER,
+  });
 
   function renderDashboard() {
     if (!altScreenActive) return;
@@ -126,7 +83,7 @@ function createParallelDashboard({
       process.stdout.write(`\x1b[${i + 1};1H${lines[i]}\x1b[K`);
     }
     process.stdout.write('\x1b[1;1H');
-    if (logScroll > 0) renderLogs();
+    if (logs.getLogScroll() > 0) logs.renderLogs();
   }
 
   function scheduleRender() {
@@ -146,7 +103,7 @@ function createParallelDashboard({
     }
     renderPending = false;
     renderDashboard();
-    renderLogs(true);
+    logs.renderLogs(true);
   }
 
   function cleanupAltScreen() {
@@ -168,7 +125,7 @@ function createParallelDashboard({
     }
     process.stdout.write('\x1b[2J');
     renderDashboard();
-    renderLogs(true);
+    logs.renderLogs(true);
   }
 
   function sigintHandler() {
@@ -181,7 +138,7 @@ function createParallelDashboard({
   function gracefulExit() {
     if (gracefulShutdown) return;
     gracefulShutdown = true;
-    pushLog('SYSTEM', `${C.yellow}마무리 후 종료 요청 — 현재 작업 완료 후 종료됩니다${C.reset}`);
+    logs.pushLog('SYSTEM', `${C.yellow}마무리 후 종료 요청 — 현재 작업 완료 후 종료됩니다${C.reset}`);
     if (typeof onGracefulExit === 'function') onGracefulExit();
     renderDashboard();
   }
@@ -191,48 +148,6 @@ function createParallelDashboard({
     dispose();
     console.log(`\n${C.yellow}즉시 종료됨${C.reset}`);
     process.exit(0);
-  }
-
-  function handleScroll(action) {
-    const logRows = getLogRows();
-    if (logRows <= 0) return false;
-    const maxScroll = getMaxLogScroll();
-    let next = logScroll;
-    const page = Math.max(1, logRows - 1);
-
-    switch (action) {
-      case 'lineUp':
-        next = Math.min(maxScroll, logScroll + 1);
-        break;
-      case 'lineDown':
-        next = Math.max(0, logScroll - 1);
-        break;
-      case 'pageUp':
-        next = Math.min(maxScroll, logScroll + page);
-        break;
-      case 'pageDown':
-        next = Math.max(0, logScroll - page);
-        break;
-      case 'top':
-        next = maxScroll;
-        break;
-      case 'bottom':
-        next = 0;
-        break;
-      case 'wheelUp':
-        next = Math.min(maxScroll, logScroll + 3);
-        break;
-      case 'wheelDown':
-        next = Math.max(0, logScroll - 3);
-        break;
-      default:
-        return false;
-    }
-
-    if (next === logScroll) return true;
-    logScroll = next;
-    renderLogs(true);
-    return true;
   }
 
   function start() {
@@ -261,11 +176,11 @@ function createParallelDashboard({
         { label: '즉시 종료', handler: immediateExit },
       ],
       immediateExit,
-      handleScroll
+      logs.handleScroll
     );
 
     renderDashboard();
-    renderLogs(true);
+    logs.renderLogs(true);
   }
 
   function dispose() {
@@ -288,7 +203,7 @@ function createParallelDashboard({
     dispose,
     flushRender,
     getDashboardHeight: () => dashboardHeight,
-    pushLog,
+    pushLog: logs.pushLog,
     renderDashboard,
     scheduleRender,
     start,
@@ -297,6 +212,7 @@ function createParallelDashboard({
 
 module.exports = {
   buildParallelDashboardFrame,
+  createParallelDashboardLogs,
   clipVisualText,
   formatElapsedSeconds,
   createParallelDashboard,

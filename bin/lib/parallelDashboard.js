@@ -7,6 +7,7 @@ const {
   getParallelDashboardHeight,
 } = require('./parallelDashboardFrame');
 const { createParallelDashboardLogs } = require('./parallelDashboardLogs');
+const { createParallelDashboardTerminal } = require('./parallelDashboardTerminal');
 
 function summarizeWorkerOutcomes(workerStates) {
   const failed = workerStates.filter((worker) => worker.status === 'failed');
@@ -55,20 +56,26 @@ function createParallelDashboard({
   const dashboardHeight = getParallelDashboardHeight(workerStates);
   const startTime = Date.now();
 
-  let altScreenActive = false;
-  let cursorHidden = false;
   let renderPending = false;
   let renderTimer = null;
   let cleanupMenuInput = null;
   let gracefulShutdown = false;
+  let terminal = null;
   const logs = createParallelDashboardLogs({
     getDashboardHeight: () => dashboardHeight,
-    isAltScreenActive: () => altScreenActive,
+    isAltScreenActive: () => (terminal ? terminal.isActive() : false),
     maxBuffer: MAX_LOG_BUFFER,
+  });
+  terminal = createParallelDashboardTerminal({
+    getDashboardHeight: () => dashboardHeight,
+    onResize: () => {
+      renderDashboard();
+      logs.renderLogs(true);
+    },
   });
 
   function renderDashboard() {
-    if (!altScreenActive) return;
+    if (!terminal.isActive()) return;
 
     const { lines, menuLayout } = buildParallelDashboardFrame({
       workerStates,
@@ -106,28 +113,6 @@ function createParallelDashboard({
     logs.renderLogs(true);
   }
 
-  function cleanupAltScreen() {
-    if (!altScreenActive) return;
-    altScreenActive = false;
-    process.stdout.write('\x1b[r');
-    process.stdout.write('\x1b[?1049l');
-    if (cursorHidden) {
-      process.stdout.write('\x1b[?25h');
-      cursorHidden = false;
-    }
-  }
-
-  function resizeHandler() {
-    if (!altScreenActive) return;
-    const rows = process.stdout.rows || 24;
-    if (rows > dashboardHeight) {
-      process.stdout.write(`\x1b[${dashboardHeight + 1};${rows}r`);
-    }
-    process.stdout.write('\x1b[2J');
-    renderDashboard();
-    logs.renderLogs(true);
-  }
-
   function sigintHandler() {
     if (typeof onInterrupt === 'function') onInterrupt();
     dispose();
@@ -151,22 +136,8 @@ function createParallelDashboard({
   }
 
   function start() {
-    if (process.stdout.isTTY) {
-      process.stdout.write('\x1b[?1049h');
-      process.stdout.write('\x1b[H');
-      process.stdout.write('\x1b[2J');
-      process.stdout.write('\x1b[?25l');
-      cursorHidden = true;
-      const rows = process.stdout.rows || 24;
-      if (rows > dashboardHeight) {
-        process.stdout.write(`\x1b[${dashboardHeight + 1};${rows}r`);
-      }
-      altScreenActive = true;
-    }
-
-    process.stdout.on('resize', resizeHandler);
+    terminal.start();
     process.on('SIGINT', sigintHandler);
-    process.on('exit', cleanupAltScreen);
 
     cleanupMenuInput = setupMenuInput(
       menuState,
@@ -193,10 +164,8 @@ function createParallelDashboard({
       cleanupMenuInput();
       cleanupMenuInput = null;
     }
-    process.stdout.removeListener('resize', resizeHandler);
     process.removeListener('SIGINT', sigintHandler);
-    process.removeListener('exit', cleanupAltScreen);
-    cleanupAltScreen();
+    terminal.dispose();
   }
 
   return {
@@ -213,6 +182,7 @@ function createParallelDashboard({
 module.exports = {
   buildParallelDashboardFrame,
   createParallelDashboardLogs,
+  createParallelDashboardTerminal,
   clipVisualText,
   formatElapsedSeconds,
   createParallelDashboard,

@@ -1,7 +1,6 @@
 const { C } = require('./constants');
 const { isOverBudget, recordCost } = require('./config');
 const { syncClaudeMd } = require('./files');
-const { createRunDashboard } = require('./runDashboard');
 const { parseParallelTasks, createWorktrees, cleanupWorktrees, autoMergeWorktrees } = require('./parallel');
 const { getWorkerDoneState, syncWorkerTaskProgress } = require('./taskState');
 const {
@@ -11,9 +10,6 @@ const {
   finalizeParallelWorkers,
   summarizeExecutionResults,
 } = require('./runCompletion');
-const {
-  createRunPollingController,
-} = require('./runPolling');
 const {
   buildExecutionPlan,
   createDynamicWorkerState,
@@ -40,6 +36,7 @@ const { addTasksDuringExecution: expandRunTasksDuringExecution } = require('./ru
 const { createRunNotionBindings } = require('./runNotionBindings');
 const { createRunSetup } = require('./runSetup');
 const { createRunStateStore } = require('./runStateStore');
+const { createRunWatchRuntime } = require('./runWatchRuntime');
 const {
   handleGracefulStopDetected,
   handleWorkerDone: handleRunWorkerDone,
@@ -74,42 +71,34 @@ function cmdWatch(cliProvider) {
   } = setup;
 
   const runState = createRunStateStore();
-
-  const dashboard = createRunDashboard({
+  const watchRuntime = createRunWatchRuntime({
     dbId,
     pollIntervalSec,
-    getWatchPhase: () => runState.getWatchPhase(),
-    getPollInfo: () => runState.getPollInfo(),
-    getLastPollTime: () => runState.getLastPollTime(),
-    getWorkerStates: () => runState.getCurrentWorkerStates(),
-    getExecStartTime: () => runState.getExecStartTime(),
-    onPollNow: () => {
-      const pollingController = runState.getPollingController();
-      if (pollingController) {
-        pollingController.pollNow();
-      }
-    },
-    onGracefulExit: () => {
-      const pollingController = runState.getPollingController();
-      if (pollingController) {
-        pollingController.stopPolling();
-      }
-      stopWorkerProcesses(runState.getCurrentWorkerStates(), 'SIGINT', true);
-    },
-    onImmediateExit: () => {
-      stopWatchTimers(runState.getPollingController());
-      stopWorkerProcesses(runState.getCurrentWorkerStates());
-    },
-    onInterrupt: () => {
-      stopWatchTimers(runState.getPollingController());
-      stopWorkerProcesses(runState.getCurrentWorkerStates());
-    },
+    targetDir,
+    gracefulStopPath,
+    pollIntervalMs,
+    notionPoll: () => notionBindings.poll(),
+    isOverBudget,
+    buildPollInfo,
+    selectTasksToRun,
+    filterNewTasks,
+    runState,
+    addTasksDuringExecution,
+    executeNotionTasks,
+    updateNextTaskStatus: (workerPaths) => notionBindings.updateNextTaskStatus(workerPaths),
+    syncWorkerTaskProgress,
+    handleGracefulStopDetected,
+    stopWatchTimers,
+    stopWorkerProcesses,
   });
-
-  const watchPushLog = (...args) => dashboard.pushLog(...args);
-  const scheduleRender = () => dashboard.scheduleRender();
-  const flushRender = () => dashboard.flushRender();
-  const renderDashboard = () => dashboard.renderDashboard();
+  const {
+    dashboard,
+    flushRender,
+    pushLog: watchPushLog,
+    renderDashboard,
+    scheduleRender,
+    setWatchPhase,
+  } = watchRuntime;
   const notionBindings = createRunNotionBindings({
     notionSync,
     getCurrentSchema: () => runState.getCurrentSchema(),
@@ -125,15 +114,8 @@ function cmdWatch(cliProvider) {
     handleTaskCompleted,
     handleTaskStarted,
     handleTaskUiUpdated,
-    poll: notionPoll,
-    updateNextTaskStatus,
     updatePage: notionUpdatePage,
   } = notionBindings;
-
-  function setWatchPhase(newPhase) {
-    runState.setWatchPhase(newPhase);
-    dashboard.setWatchPhase();
-  }
 
   function spawnRunWorker(ws) {
     spawnManagedRunWorker({
@@ -239,40 +221,7 @@ function cmdWatch(cliProvider) {
       applyTaskRunUpdatesFn: applyTaskRunUpdates,
     });
   }
-
-  runState.setPollingController(createRunPollingController({
-    targetDir,
-    gracefulStopPath,
-    pollIntervalMs,
-    notionPoll,
-    isOverBudget,
-    buildPollInfo,
-    selectTasksToRun,
-    filterNewTasks,
-    getIsExecuting: () => runState.getIsExecuting(),
-    getExecutingTaskIds: () => runState.getExecutingTaskIds(),
-    getWatchPhase: () => runState.getWatchPhase(),
-    getCurrentWorkerStates: () => runState.getCurrentWorkerStates(),
-    setLastPollTime: (value) => {
-      runState.setLastPollTime(value);
-    },
-    setPollInfo: (value) => {
-      runState.setPollInfo(value);
-    },
-    addTasksDuringExecution,
-    executeNotionTasks,
-    renderDashboard,
-    scheduleRender,
-    updateNextTaskStatus,
-    syncWorkerTaskProgress,
-    dashboard,
-    pushLog: watchPushLog,
-    onGracefulStopDetected: () => {
-      handleGracefulStopDetected({ dashboard });
-    },
-  }));
-
-  runState.getPollingController().start();
+  watchRuntime.pollingController.start();
 }
 
 module.exports = {

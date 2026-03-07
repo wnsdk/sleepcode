@@ -2,6 +2,7 @@ const fs = require('fs');
 const path = require('path');
 const { C, TEMPLATES_DIR, IS_WIN, PROVIDERS } = require('./constants');
 const { writeFile } = require('./utils');
+const { ensureRuntimeDirs } = require('./runtimePaths');
 
 function buildClaudeMdContent(targetDir) {
   const scDir = path.join(targetDir, '.sleepcode');
@@ -39,9 +40,9 @@ function generateFiles(targetDir, { typeKey, projectName, role, buildCmd, testCm
   const claudeDir = path.join(targetDir, '.claude');
   fs.mkdirSync(path.join(scDir, 'docs'), { recursive: true });
   fs.mkdirSync(path.join(scDir, 'scripts'), { recursive: true });
-  fs.mkdirSync(path.join(scDir, 'logs'), { recursive: true });
   fs.mkdirSync(path.join(scDir, 'task_done'), { recursive: true });
   fs.mkdirSync(claudeDir, { recursive: true });
+  ensureRuntimeDirs(targetDir);
 
   // 스크립트 파일 → scripts/ 하위로 복사 (OS별 분기)
   const scriptFiles = IS_WIN
@@ -195,6 +196,7 @@ function printResult(notionDbId) {
   }
   console.log(`  ${C.green}✓${C.reset} .sleepcode/scripts/log_filter.py`);
   console.log(`  ${C.green}✓${C.reset} .sleepcode/task_done/main.md   ${C.dim}← 완료 로그(append-only)${C.reset}`);
+  console.log(`  ${C.green}✓${C.reset} .sleepcode/runtime/           ${C.dim}← 실행 산출물 (logs, worktrees 등)${C.reset}`);
   console.log(`  ${C.green}✓${C.reset} .sleepcode/README.md`);
   console.log(`  ${C.green}✓${C.reset} .claude/settings.local.json`);
   console.log(`  ${C.green}✓${C.reset} CLAUDE.md                    ${C.dim}← 프롬프트 캐싱 (자동 생성)${C.reset}`);

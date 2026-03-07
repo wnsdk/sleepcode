@@ -1,7 +1,6 @@
 const fs = require('fs');
 const path = require('path');
-const { execSync } = require('child_process');
-const { C, SLEEPCODE_BADGE_WITH_VERSION, IS_WIN, TEMPLATES_DIR, branchColor, notionLink } = require('./constants');
+const { C, SLEEPCODE_BADGE_WITH_VERSION, branchColor, notionLink } = require('./constants');
 const {
   extractTaskItems,
   progressBar,
@@ -18,6 +17,17 @@ const { boxLine, renderMenuLineWithLayout, setupMenuInput } = require('./dashboa
 const { spawnWorker } = require('./worker');
 const { parseParallelTasks, createWorktrees, cleanupWorktrees, autoMergeWorktrees } = require('./parallel');
 const { getWorkerDoneState, syncWorkerTaskProgress } = require('./taskState');
+const {
+  buildCompletedAtProp,
+  buildModelProp,
+  buildStatusProps,
+  createNotionSyncClient,
+} = require('./notionSync');
+const {
+  ensureRuntimeDirs,
+  getRuntimeGracefulStopPath,
+  getRuntimeTaskQueuePath,
+} = require('./runtimePaths');
 
 function cmdWatch(cliProvider) {
   const targetDir = process.cwd();
@@ -55,24 +65,23 @@ function cmdWatch(cliProvider) {
     process.exit(1);
   }
 
-  // notion_sync.py 확인 (없으면 templates에서 복사)
-  const syncScript = path.join(scDir, 'scripts', 'notion_sync.py');
-  if (!fs.existsSync(syncScript)) {
-    const src = path.join(TEMPLATES_DIR, 'common', 'notion_sync.py');
-    if (fs.existsSync(src)) {
-      fs.mkdirSync(path.dirname(syncScript), { recursive: true });
-      fs.writeFileSync(syncScript, fs.readFileSync(src, 'utf-8').replace(/\r\n/g, '\n'));
-      if (!IS_WIN) fs.chmodSync(syncScript, 0o755);
-    } else {
-      console.error(`${C.red}notion_sync.py를 찾을 수 없습니다.${C.reset}`);
-      process.exit(1);
-    }
+  let notionSync;
+  try {
+    notionSync = createNotionSyncClient({
+      targetDir,
+      pythonCommand: py.cmd,
+      env: process.env,
+    });
+  } catch (e) {
+    console.error(`${C.red}${e.message}${C.reset}`);
+    process.exit(1);
   }
 
   const pollIntervalSec = parseInt(cliArgs.interval || '30', 10);
   const pollIntervalMs = pollIntervalSec * 1000;
-  const logDir = path.join(scDir, 'logs');
-  fs.mkdirSync(logDir, { recursive: true });
+  const { logsDir: logDir } = ensureRuntimeDirs(targetDir);
+  const runtimeTasksPath = getRuntimeTaskQueuePath(targetDir);
+  const gracefulStopPath = getRuntimeGracefulStopPath(targetDir);
 
   let isExecuting = false;
   let executingTaskIds = new Set(); // 현재 실행 중인 Notion task ID들
@@ -360,62 +369,9 @@ function cmdWatch(cliProvider) {
 
   // ─── Notion API 헬퍼 ───
 
-  function notionPoll() {
-    try {
-      const result = execSync(`${py.cmd} "${syncScript}" poll`, {
-        cwd: targetDir,
-        stdio: ['pipe', 'pipe', 'pipe'],
-        timeout: 30000,
-        env: process.env,
-      }).toString().trim();
-      return JSON.parse(result);
-    } catch (e) {
-      const stderr = e.stderr ? e.stderr.toString().trim() : '';
-      return { error: 'poll_failed', message: stderr || e.message || 'unknown error' };
-    }
-  }
-
-  function notionUpdatePage(pageId, props) {
-    try {
-      execSync(`${py.cmd} "${syncScript}" update-page "${pageId}"`, {
-        input: JSON.stringify(props),
-        cwd: targetDir,
-        stdio: ['pipe', 'pipe', 'pipe'],
-        timeout: 15000,
-        env: process.env,
-      });
-      return true;
-    } catch {
-      return false;
-    }
-  }
-
-  function buildStatusProps(schema, statusValue) {
-    if (!schema.status_prop) return null;
-    if (schema.status_type === 'status') {
-      return { [schema.status_prop]: { status: { name: statusValue } } };
-    } else if (schema.status_type === 'select') {
-      return { [schema.status_prop]: { select: { name: statusValue } } };
-    }
-    return null;
-  }
-
-  function buildCompletedAtProp(schema) {
-    if (!schema.completed_at_prop) return null;
-    const now = new Date();
-    const kstOffset = 9 * 60 * 60 * 1000;
-    const kst = new Date(now.getTime() + kstOffset);
-    const isoStr = kst.toISOString().replace('Z', '+09:00');
-    return { [schema.completed_at_prop]: { date: { start: isoStr } } };
-  }
-
-  function buildModelProp(schema, modelName) {
-    if (!schema || !schema.model_prop || !modelName) return null;
-    if (schema.model_type === 'select') {
-      return { [schema.model_prop]: { select: { name: modelName } } };
-    }
-    return { [schema.model_prop]: { rich_text: [{ text: { content: modelName } }] } };
-  }
+  const notionPoll = () => notionSync.poll();
+  const notionUpdatePage = (pageId, props) => notionSync.updatePage(pageId, props);
+  const notionAppendContent = (pageId, text) => notionSync.appendContent(pageId, text);
 
   function updateNotionCompletion(taskEntry) {
     if (!taskEntry || !taskEntry.notionId) return false;
@@ -427,7 +383,7 @@ function cmdWatch(cliProvider) {
     const props = {};
     const sp = buildStatusProps(currentSchema, 'Success');
     if (sp) Object.assign(props, sp);
-    const cap = buildCompletedAtProp(currentSchema);
+          const cap = buildCompletedAtProp(currentSchema);
     if (cap) Object.assign(props, cap);
 
     if (Object.keys(props).length === 0) return false;
@@ -576,7 +532,7 @@ function cmdWatch(cliProvider) {
     }
 
     // task_queue.md 생성
-    const tasksPath = path.join(scDir, 'task_queue.md');
+    const tasksPath = runtimeTasksPath;
 
     if (useParallel) {
       watchPushLog('SYSTEM', `${C.cyan}병렬 모드${C.reset}: ${workerNames.join(', ')}`);
@@ -725,15 +681,7 @@ function cmdWatch(cliProvider) {
 
     if (reportText.trim()) {
       for (const task of notionTasks) {
-        try {
-          execSync(`${py.cmd} "${syncScript}" append-content "${task.id}"`, {
-            input: reportText,
-            cwd: targetDir,
-            stdio: ['pipe', 'pipe', 'pipe'],
-            timeout: 60000,
-            env: process.env,
-          });
-        } catch {}
+        notionAppendContent(task.id, reportText);
       }
       watchPushLog('SYSTEM', `${C.dim}Notion 페이지에 보고 기록 완료${C.reset}`);
     }
@@ -977,7 +925,7 @@ function cmdWatch(cliProvider) {
     lastPollTime = Date.now();
 
     // graceful_stop 체크
-    if (fs.existsSync(path.join(scDir, 'graceful_stop'))) {
+    if (fs.existsSync(gracefulStopPath)) {
       cleanupAltScreen();
       console.log(`\n${C.yellow}graceful_stop 감지 — run 종료${C.reset}`);
       process.exit(0);

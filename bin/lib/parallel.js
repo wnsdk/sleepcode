@@ -14,6 +14,12 @@ const { isOverBudget, recordCost } = require('./config');
 const { boxLine, renderMenuLineWithLayout, setupMenuInput } = require('./dashboard');
 const { spawnWorker } = require('./worker');
 const { getPersistedTaskProgress, syncWorkerTaskProgress } = require('./taskState');
+const {
+  ensureRuntimeDirs,
+  getRuntimeMainTaskQueuePath,
+  getRuntimeTaskQueuePath,
+  getRuntimeWorktreesDir,
+} = require('./runtimePaths');
 const MAIN_WORKER_NAME = 'main';
 
 function normalizeStatusPathPart(value) {
@@ -25,7 +31,7 @@ function isRuntimeOnlyStatusLine(line) {
   if (!payload) return false;
   const paths = payload.split(' -> ').map(normalizeStatusPathPart).filter(Boolean);
   if (paths.length === 0) return false;
-  return paths.every((part) => part.startsWith('.sleepcode/'));
+  return paths.every((part) => part.startsWith('.sleepcode/runtime/'));
 }
 
 function getMergeBlockingStatus(targetDir) {
@@ -75,7 +81,7 @@ function parseParallelTasks(tasksPath) {
 }
 
 /**
- * .sleepcode/ 디렉토리를 worktree로 복사 (worktrees/, logs/ 제외)
+ * .sleepcode/ 디렉토리를 worktree로 복사 (runtime/, task_done 제외)
  */
 function copySleepcodeDirToWorktree(srcDir, wtPath) {
   const sleepcodeDir = path.join(srcDir, '.sleepcode');
@@ -84,7 +90,7 @@ function copySleepcodeDirToWorktree(srcDir, wtPath) {
   if (!fs.existsSync(sleepcodeDir)) return;
 
   // 복사에서 제외할 디렉토리 (재귀 방지 + 불필요한 파일)
-  const EXCLUDE_DIRS = new Set(['worktrees', 'logs', 'task_done']);
+  const EXCLUDE_DIRS = new Set(['runtime', 'worktrees', 'logs', 'task_done']);
 
   function copyDirRecursive(src, dest) {
     fs.mkdirSync(dest, { recursive: true });
@@ -106,9 +112,8 @@ function copySleepcodeDirToWorktree(srcDir, wtPath) {
 }
 
 function createWorktrees(targetDir, workers) {
-  const wtBase = path.join(targetDir, '.sleepcode', 'worktrees');
-  fs.mkdirSync(wtBase, { recursive: true });
-  const mainTasksPath = path.join(targetDir, '.sleepcode', 'task_queue.main.md');
+  const { worktreesDir: wtBase } = ensureRuntimeDirs(targetDir);
+  const mainTasksPath = getRuntimeMainTaskQueuePath(targetDir);
   let currentBranch = 'main';
   try {
     currentBranch = execSync('git rev-parse --abbrev-ref HEAD', { cwd: targetDir, stdio: 'pipe' }).toString().trim() || 'main';
@@ -145,7 +150,7 @@ function createWorktrees(targetDir, workers) {
         copySleepcodeDirToWorktree(targetDir, wtPath);
       }
       // 태스크 파일 갱신
-      const wtTasksPath = path.join(wtPath, '.sleepcode', 'task_queue.md');
+      const wtTasksPath = getRuntimeTaskQueuePath(wtPath);
       fs.mkdirSync(path.dirname(wtTasksPath), { recursive: true });
       fs.writeFileSync(wtTasksPath, worker.tasks);
       created.push({ name: worker.name, path: wtPath, branch, tasksPath: wtTasksPath });
@@ -174,7 +179,7 @@ function createWorktrees(targetDir, workers) {
     copySleepcodeDirToWorktree(targetDir, wtPath);
 
     // worktree 안의 task_queue.md를 해당 워커 태스크만으로 덮어쓰기
-    const wtTasksPath = path.join(wtPath, '.sleepcode', 'task_queue.md');
+    const wtTasksPath = getRuntimeTaskQueuePath(wtPath);
     fs.mkdirSync(path.dirname(wtTasksPath), { recursive: true });
     fs.writeFileSync(wtTasksPath, worker.tasks);
 
@@ -186,8 +191,8 @@ function createWorktrees(targetDir, workers) {
 }
 
 function cleanupWorktrees(targetDir, workers) {
-  const wtBase = path.join(targetDir, '.sleepcode', 'worktrees');
-  const mainTasksPath = path.join(targetDir, '.sleepcode', 'task_queue.main.md');
+  const wtBase = getRuntimeWorktreesDir(targetDir);
+  const mainTasksPath = getRuntimeMainTaskQueuePath(targetDir);
 
   if (workers) {
     // 특정 워커들만 정리
@@ -213,7 +218,7 @@ function cleanupWorktrees(targetDir, workers) {
       }
     }
   } else {
-    // 전체 정리: .sleepcode/worktrees/ 아래 모든 디렉토리
+    // 전체 정리: .sleepcode/runtime/worktrees/ 아래 모든 디렉토리
     if (!fs.existsSync(wtBase)) {
       if (!fs.existsSync(mainTasksPath)) {
         console.log(`${C.dim}정리할 worktree가 없습니다.${C.reset}`);
@@ -255,7 +260,7 @@ function cleanupWorktrees(targetDir, workers) {
 
 function showParallelStatus(targetDir) {
   const tasksPath = path.join(targetDir, '.sleepcode', 'task_queue.md');
-  const mainTasksPath = path.join(targetDir, '.sleepcode', 'task_queue.main.md');
+  const mainTasksPath = getRuntimeMainTaskQueuePath(targetDir);
   const workers = parseParallelTasks(tasksPath);
 
   if (!workers) {
@@ -264,7 +269,7 @@ function showParallelStatus(targetDir) {
     return;
   }
 
-  const wtBase = path.join(targetDir, '.sleepcode', 'worktrees');
+  const wtBase = getRuntimeWorktreesDir(targetDir);
 
   console.log(`\n${C.bold}워커 상태:${C.reset}\n`);
   for (const worker of workers) {
@@ -273,7 +278,7 @@ function showParallelStatus(targetDir) {
     const exists = isMainWorker ? true : fs.existsSync(wtPath);
     const sourcePath = isMainWorker
       ? (fs.existsSync(mainTasksPath) ? mainTasksPath : '')
-      : path.join(wtPath, '.sleepcode', 'task_queue.md');
+      : getRuntimeTaskQueuePath(wtPath);
 
     // worktree가 있으면 그 안의 task_queue.md에서 진행률 확인
     let done = 0;
@@ -785,8 +790,7 @@ ${C.bold}다음 단계:${C.reset}
 }
 
 function runParallelWorkers(targetDir, workerInfos, cliProvider) {
-  const logDir = path.join(targetDir, '.sleepcode', 'logs');
-  fs.mkdirSync(logDir, { recursive: true });
+  const { logsDir: logDir } = ensureRuntimeDirs(targetDir);
   const timestamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
 
   const py = detectPython();

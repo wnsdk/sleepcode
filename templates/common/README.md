@@ -107,7 +107,7 @@ tmux attach -t ai
 git log --oneline --since="12 hours ago"
 
 # 로그 확인
-tail -100 .sleepcode/logs/worker_*.log
+tail -100 .sleepcode/runtime/logs/worker_*.log
 
 # 주간 사용량 확인
 npx sleepcode usage
@@ -146,7 +146,9 @@ npx sleepcode usage
     base_rules.md    #   공통 작업 규칙
     ai_worker.*      #   1회 실행 스크립트
     log_filter.py    #   로그 필터 (핵심 메시지만 추출)
-  logs/              # 실행 로그 (자동 생성)
+  runtime/           # 실행 산출물 (자동 생성)
+    logs/            #   실행 로그
+    worktrees/       #   병렬 실행용 worktree
 ```
 
 ---

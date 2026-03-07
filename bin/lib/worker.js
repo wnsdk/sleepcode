@@ -595,12 +595,14 @@ function spawnWorker(ws, py, onDone, onUpdate, pushLog, cliProvider, onTaskCompl
     }
     return '# 완료 기록\n\n';
   };
+  const tasksFileRel = path.relative(wtDir, tasksPath).replace(/\\/g, '/');
   const doneFileRel = path.relative(wtDir, ws.doneFilePath).replace(/\\/g, '/');
   const runtimeRules = [
     '# Runtime Rules',
     '- This run owns exactly one task. Complete only the current task shown below.',
     '- Do not continue to another task even if more backlog items exist.',
     '- .sleepcode/task_queue.md is read-only backlog. Never edit it.',
+    `- Never edit ${tasksFileRel}; runtime manages the active task list.`,
     `- Never edit ${doneFileRel} or any other .sleepcode/task_done file.`,
     '- Never run git add, git commit, git merge, git checkout, git switch, git restore, git reset, git stash, or git worktree commands.',
     '- The runtime will append task_done entries and create the git commit after you exit.',

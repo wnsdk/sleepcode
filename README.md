@@ -224,7 +224,11 @@ npx sleepcode --type react-native --name my-app --role "쇼핑몰 앱 개발"
     ai_worker.sh/.ps1    #    1회 실행 스크립트 (OS별)
     log_filter.py        #    실시간 로그 필터
     notion_sync.py       #    Notion 동기화 (Notion DB 모드만)
-  logs/                  # 실행 로그 (자동 생성)
+  runtime/               # ⚙️ 실행 산출물 (자동 생성, gitignored)
+    logs/                #    실행 로그
+    worktrees/           #    병렬 실행용 git worktree
+    task_queue.md        #    Notion 실행용 런타임 태스크
+    task_queue.main.md   #    main 워커 런타임 태스크
   README.md              # 사용 가이드
 
 .claude/
@@ -346,7 +350,7 @@ sleepcode는 난이도에 따라 모델을 자동 선택하므로, 단순 작업
 | 세션 생성 + 실행 | `tmux new -s ai 'npx sleepcode run'` |
 | 백그라운드 전환 | `Ctrl+B` → `D` |
 | 세션 재접속 | `tmux attach -t ai` |
-| 실시간 로그 | `tail -f .sleepcode/logs/worker_*.log` |
+| 실시간 로그 | `tail -f .sleepcode/runtime/logs/worker_*.log` |
 | 종료 | `tmux attach -t ai` → `Ctrl+C` |
 
 ---

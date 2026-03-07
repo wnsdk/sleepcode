@@ -22,9 +22,11 @@ const {
 const {
   buildExecutionPlan,
   createDynamicWorkerState,
-  prepareParallelExecution,
-  prepareSingleExecution,
 } = require('./runExecution');
+const {
+  executeNotionTasks: executeRunTasks,
+  finishExecution: finishRunExecution,
+} = require('./runExecutionFlow');
 const {
   createActiveRunState,
   createIdleRunState,
@@ -174,128 +176,15 @@ function cmdWatch(cliProvider) {
     });
   }
 
-  // ─── 태스크 실행 ───
-
-  function executeNotionTasks(tasks, schema) {
-    const runState = createActiveRunState(tasks, schema);
-    isExecuting = runState.isExecuting;
-    execStartTime = runState.execStartTime;
-    currentSchema = runState.currentSchema;
-    currentNotionTasks = runState.currentNotionTasks;
-    executingTaskIds = runState.executingTaskIds;
-    const timestamp = createRunTimestamp();
-    const executionPlan = buildExecutionPlan(tasks);
-    const { workerGroups, workerNames, useParallel } = executionPlan;
-
-    watchPushLog('SYSTEM', `${C.bold}▶ ${tasks.length}개 태스크 실행 시작${C.reset}`);
-
-    // Notion 상태: 첫 번째 태스크만 Running, 나머지는 Pending + Run 해제
-    notionInProgressIds.clear();
-    applyTaskRunUpdates({
-      tasks,
-      schema,
-      firstRunningTaskIds: getFirstTaskIdsByWorker(workerGroups),
-      trackTasks: false,
-      trackedTasks: currentNotionTasks,
-      notionInProgressIds,
-      updatePage: notionUpdatePage,
-    });
-
-    // task_queue.md 생성
-    const tasksPath = runtimeTasksPath;
-
-    if (useParallel) {
-      watchPushLog('SYSTEM', `${C.cyan}병렬 모드${C.reset}: ${workerNames.join(', ')}`);
-      const workerStates = prepareParallelExecution({
-        targetDir,
-        runtimeTasksPath: tasksPath,
-        workerGroups,
-        timestamp,
-        logDir,
-        syncClaudeMd,
-        parseParallelTasks,
-        createWorktrees,
-        syncWorkerTaskProgress,
-      });
-      if (workerStates.length === 0) {
-        finishExecution(tasks, schema, []);
-        return;
-      }
-
-      // 대시보드를 실행 모드로 전환
-      currentWorkerStates = workerStates;
-      setWatchPhase('executing');
-
-      for (const ws of workerStates) {
-        spawnRunWorker(ws);
-      }
-    } else {
-      // 단일 모드
-      const allTasks = Object.values(workerGroups).flat();
-      watchPushLog('SYSTEM', `${C.cyan}단일 모드${C.reset}: ${allTasks.length}개 태스크`);
-      const ws = prepareSingleExecution({
-        targetDir,
-        runtimeTasksPath: tasksPath,
-        workerGroups,
-        logDir,
-        timestamp,
-        syncClaudeMd,
-        syncWorkerTaskProgress,
-      });
-
-      // 대시보드를 실행 모드로 전환
-      currentWorkerStates = [ws];
-      setWatchPhase('executing');
-
-      spawnRunWorker(ws);
-    }
+  function applyRunState(nextState) {
+    isExecuting = nextState.isExecuting;
+    execStartTime = nextState.execStartTime;
+    currentSchema = nextState.currentSchema;
+    currentNotionTasks = nextState.currentNotionTasks;
+    executingTaskIds = nextState.executingTaskIds;
   }
 
-  function finishExecution(notionTasks, schema, workerStates) {
-    watchPushLog('SYSTEM', `${C.bold}실행 완료 — Notion 업데이트${C.reset}`);
-
-    const completion = summarizeExecutionResults({
-      notionTasks,
-      schema,
-      workerStates,
-      notionCompletedIds,
-      getTaskCompletion: (workerRefs) => parseTaskStatuses(workerRefs, getWorkerDoneState),
-    });
-
-    // Notion 업데이트
-    for (const result of completion.taskResults) {
-      if (Object.keys(result.props).length > 0) {
-        notionUpdatePage(result.task.id, result.props);
-      }
-
-      const icon = result.isDone ? `${C.green}✓${C.reset}` : `${C.red}✗${C.reset}`;
-      watchPushLog('SYSTEM', `${icon} ${result.task.title} → ${result.newStatus}`);
-    }
-
-    // AI 보고 내용을 Notion 페이지 본문에 기록
-    if (completion.reportText.trim()) {
-      for (const task of notionTasks) {
-        notionAppendContent(task.id, completion.reportText);
-      }
-      watchPushLog('SYSTEM', `${C.dim}Notion 페이지에 보고 기록 완료${C.reset}`);
-    }
-
-    // 비용 기록
-    if (completion.totalCost > 0) {
-      recordCost(targetDir, completion.totalCost, 'run');
-    }
-
-    // 병렬 실행 후 남은 브랜치 자동 머지 및 워크트리 정리
-    finalizeParallelWorkers({
-      targetDir,
-      workerStates,
-      cliProvider,
-      autoMergeWorktrees,
-      cleanupWorktrees,
-      pushLog: (message) => watchPushLog('SYSTEM', message),
-    });
-
-    const idleState = createIdleRunState();
+  function applyIdleState(idleState) {
     isExecuting = idleState.isExecuting;
     executingTaskIds = idleState.executingTaskIds;
     currentSchema = idleState.currentSchema;
@@ -303,17 +192,63 @@ function cmdWatch(cliProvider) {
     notionCompletedIds = idleState.notionCompletedIds;
     currentWorkerStates = idleState.currentWorkerStates;
     execStartTime = idleState.execStartTime;
-    setWatchPhase('waiting');
-    watchPushLog('SYSTEM', `${C.dim}폴링 재개...${C.reset}`);
+  }
 
-    // 실행 완료 후 즉시 폴링 — 실행 중 추가된 태스크를 바로 감지
-    if (!dashboard.isGracefulShutdown()) {
-      setTimeout(() => {
-        if (pollingController) {
-          pollingController.pollOnce();
-        }
-      }, 1000);
-    }
+  // ─── 태스크 실행 ───
+
+  function executeNotionTasks(tasks, schema) {
+    executeRunTasks({
+      tasks,
+      schema,
+      targetDir,
+      runtimeTasksPath,
+      logDir,
+      notionInProgressIds,
+      updatePage: notionUpdatePage,
+      pushLog: watchPushLog,
+      setWatchPhase,
+      setRunState: applyRunState,
+      setWorkerStates: (workerStates) => {
+        currentWorkerStates = workerStates;
+      },
+      spawnRunWorker,
+      finishExecution,
+      syncClaudeMd,
+      parseParallelTasks,
+      createWorktrees,
+      syncWorkerTaskProgress,
+      buildExecutionPlanFn: buildExecutionPlan,
+      createActiveRunStateFn: createActiveRunState,
+      createRunTimestampFn: createRunTimestamp,
+      applyTaskRunUpdatesFn: applyTaskRunUpdates,
+      getFirstTaskIdsByWorkerFn: getFirstTaskIdsByWorker,
+    });
+  }
+
+  function finishExecution(notionTasks, schema, workerStates) {
+    finishRunExecution({
+      notionTasks,
+      schema,
+      workerStates,
+      notionCompletedIds,
+      targetDir,
+      cliProvider,
+      autoMergeWorktrees,
+      cleanupWorktrees,
+      updatePage: notionUpdatePage,
+      appendContent: notionAppendContent,
+      pushLog: watchPushLog,
+      applyIdleState,
+      setWatchPhase,
+      getWorkerDoneState,
+      dashboard,
+      pollingController,
+      summarizeExecutionResultsFn: summarizeExecutionResults,
+      parseTaskStatusesFn: parseTaskStatuses,
+      recordCostFn: recordCost,
+      finalizeParallelWorkersFn: finalizeParallelWorkers,
+      createIdleRunStateFn: createIdleRunState,
+    });
   }
 
   // ─── 실행 중 새 태스크 추가 (즉시 반영) ───

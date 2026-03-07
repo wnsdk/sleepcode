@@ -1,21 +1,11 @@
-const { C, SLEEPCODE_BADGE, notionLink, branchColor } = require('./constants');
-const { progressBar, visualWidth, padEndVisual } = require('./utils');
-const { boxLine, renderMenuLineWithLayout, setupMenuInput } = require('./dashboard');
-
-function clipVisualText(text, maxWidth) {
-  const source = String(text || '');
-  if (visualWidth(source) <= maxWidth) return source;
-
-  let width = 0;
-  let cut = 0;
-  for (const ch of source) {
-    const chWidth = visualWidth(ch);
-    if (width + chWidth > maxWidth - 3) break;
-    width += chWidth;
-    cut += ch.length;
-  }
-  return source.slice(0, cut) + '...';
-}
+const { C, branchColor } = require('./constants');
+const { setupMenuInput } = require('./dashboard');
+const {
+  buildParallelDashboardFrame,
+  clipVisualText,
+  formatElapsedSeconds,
+  getParallelDashboardHeight,
+} = require('./parallelDashboardFrame');
 
 function summarizeWorkerOutcomes(workerStates) {
   const failed = workerStates.filter((worker) => worker.status === 'failed');
@@ -62,7 +52,7 @@ function createParallelDashboard({
   const MAX_LOG_BUFFER = 200;
   const logBuffer = [];
   const menuState = { menuIndex: 0 };
-  const dashboardHeight = 11 + workerStates.length * 2;
+  const dashboardHeight = getParallelDashboardHeight(workerStates);
   const startTime = Date.now();
 
   let altScreenActive = false;
@@ -123,68 +113,14 @@ function createParallelDashboard({
   function renderDashboard() {
     if (!altScreenActive) return;
 
-    const lines = [];
-    const width = 62;
-    const totalTasks = workerStates.reduce((sum, worker) => sum + worker.total, 0);
-    const totalDone = workerStates.reduce((sum, worker) => sum + worker.done, 0);
-    const activeCount = workerStates.filter((worker) => worker.status === 'running').length;
-    const totalCost = workerStates.reduce((sum, worker) => sum + worker.cost, 0);
-
-    lines.push(`${C.dim}╔${'═'.repeat(width + 2)}╗${C.reset}`);
-    lines.push(boxLine(`${SLEEPCODE_BADGE} parallel  ${C.dim}${activeCount}/${workerStates.length} workers${C.reset}${notionLink(process.env.NOTION_DB_ID)}`, width));
-    lines.push(`${C.dim}╠${'═'.repeat(width + 2)}╣${C.reset}`);
-
-    for (const worker of workerStates) {
-      const bar = progressBar(worker.done, worker.total, 15);
-      const statusIcon = worker.status === 'running'
-        ? `${C.cyan}⟳${C.reset}`
-        : worker.status === 'done'
-          ? `${C.green}✓${C.reset}`
-          : worker.status === 'budget_stop'
-            ? `${C.yellow}■${C.reset}`
-            : `${C.red}✗${C.reset}`;
-      const percent = worker.total > 0 ? Math.round(worker.done / worker.total * 100) : 0;
-      const diffTag = worker.difficultyLabel ? ` ${C.yellow}${worker.difficulty}${C.reset}` : '';
-      lines.push(boxLine(`${statusIcon} ${C.bold}${padEndVisual(worker.name, 18)}${C.reset} ${bar} ${String(worker.done).padStart(2)}/${String(worker.total).padEnd(2)} ${C.cyan}${String(percent).padStart(3)}%${C.reset}${diffTag}`, width));
-      if (worker.currentTask && worker.status === 'running') {
-        lines.push(boxLine(`  ${C.dim}> ${clipVisualText(worker.currentTask, width - 6)}${C.reset}`, width));
-      } else {
-        lines.push(boxLine('', width));
-      }
-    }
-
-    lines.push(`${C.dim}╠${'═'.repeat(width + 2)}╣${C.reset}`);
-    const costStr = `$${totalCost.toFixed(4)}`;
-    const elapsed = Math.floor((Date.now() - startTime) / 1000);
-    const elapsedStr = elapsed >= 3600
-      ? `${Math.floor(elapsed / 3600)}h ${Math.floor((elapsed % 3600) / 60)}m`
-      : elapsed >= 60
-        ? `${Math.floor(elapsed / 60)}m ${elapsed % 60}s`
-        : `${elapsed}s`;
-    const totalPct = totalTasks > 0 ? Math.round(totalDone / totalTasks * 100) : 0;
-    lines.push(boxLine(`${C.dim}비용${C.reset} ${C.yellow}${costStr}${C.reset}  ${C.dim}·  경과${C.reset} ${C.cyan}${elapsedStr}${C.reset}  ${C.dim}·  진행${C.reset} ${totalDone}/${totalTasks} ${C.cyan}${totalPct}%${C.reset}`, width));
-
-    const budgetInfo = getBudgetInfo(targetDir);
-    if (budgetInfo) {
-      const pct = Math.min(100, (budgetInfo.total / budgetInfo.budget * 100)).toFixed(0);
-      const budgetBar = progressBar(Math.min(budgetInfo.total, budgetInfo.budget), budgetInfo.budget, 10);
-      const warn = budgetInfo.over ? ` ${C.red}한도 도달!${C.reset}` : '';
-      lines.push(boxLine(`${C.dim}주간${C.reset} ${C.yellow}$${budgetInfo.total.toFixed(2)}${C.reset}/${C.dim}$${budgetInfo.budget}${C.reset} (${pct}%) ${budgetBar}${warn}`, width));
-    } else {
-      lines.push(boxLine('', width));
-    }
-
-    lines.push(`${C.dim}╚${'═'.repeat(width + 2)}╝${C.reset}`);
-
-    if (gracefulShutdown) {
-      lines.push(`  ${C.yellow}⏳ 마무리 중... 현재 작업 완료 후 종료됩니다${C.reset}`);
-      menuState._menuLayout = null;
-    } else {
-      const menuRender = renderMenuLineWithLayout(menuState.menuIndex, width, menuState.confirmPending, menuState._menuItems);
-      lines.push(menuRender.line);
-      menuState._menuLayout = { row: lines.length, items: menuRender.items };
-    }
-    lines.push(`${C.dim} ══ ${C.reset}${C.cyan}logs${C.reset}${C.dim} ${'═'.repeat(width - 6)}${C.reset}`);
+    const { lines, menuLayout } = buildParallelDashboardFrame({
+      workerStates,
+      budgetInfo: getBudgetInfo(targetDir),
+      gracefulShutdown,
+      menuState,
+      startTime,
+    });
+    menuState._menuLayout = menuLayout;
 
     for (let i = 0; i < lines.length; i++) {
       process.stdout.write(`\x1b[${i + 1};1H${lines[i]}\x1b[K`);
@@ -360,8 +296,11 @@ function createParallelDashboard({
 }
 
 module.exports = {
+  buildParallelDashboardFrame,
   clipVisualText,
+  formatElapsedSeconds,
   createParallelDashboard,
+  getParallelDashboardHeight,
   getCompletionNextSteps,
   summarizeWorkerOutcomes,
 };

@@ -2,13 +2,37 @@ const fs = require('fs');
 const path = require('path');
 const { execSync, spawnSync } = require('child_process');
 const { C, SLEEPCODE_BADGE, notionLink, branchColor, PROVIDERS } = require('./constants');
-const { countTasks, progressBar, visualWidth, padEndVisual, readTaskDoneSet } = require('./utils');
+const {
+  countTasks,
+  progressBar,
+  visualWidth,
+  padEndVisual,
+  readTaskDoneSet,
+  readCurrentRunTaskDoneSet,
+} = require('./utils');
 const { detectPython } = require('./prerequisites');
 const { resolveProviderPlan, providerLabel, buildExecutionPrompt, getProviderRunCommand } = require('./provider');
 const { isOverBudget, recordCost } = require('./config');
 const { boxLine, renderMenuLineWithLayout, setupMenuInput } = require('./dashboard');
 const { spawnWorker } = require('./worker');
 const MAIN_WORKER_NAME = 'main';
+
+function ensureWorkerDoneTracking(ws) {
+  const initialState = readTaskDoneSet(ws.path, ws.doneFilePath);
+  ws.doneFilePath = initialState.doneFilePath;
+  if (!ws.initialDoneKeys) ws.initialDoneKeys = new Set(initialState.doneSet);
+  if (!ws.completedTaskKeys) ws.completedTaskKeys = new Set();
+}
+
+function getWorkerDoneState(ws) {
+  ensureWorkerDoneTracking(ws);
+  return readCurrentRunTaskDoneSet(
+    ws.path,
+    ws.doneFilePath,
+    ws.initialDoneKeys,
+    ws.completedTaskKeys
+  );
+}
 
 function parseParallelTasks(tasksPath) {
   if (!fs.existsSync(tasksPath)) return null;
@@ -801,7 +825,7 @@ function runParallelWorkers(targetDir, workerInfos, cliProvider) {
     const tasksPath = ws.tasksPath || path.join(ws.path, '.sleepcode', 'task_queue.md');
     if (fs.existsSync(tasksPath)) {
       const content = fs.readFileSync(tasksPath, 'utf-8');
-      const doneState = readTaskDoneSet(ws.path, ws.doneFilePath);
+      const doneState = getWorkerDoneState(ws);
       const tc = countTasks(content, doneState.doneSet);
       ws.total = tc.total;
       ws.done = tc.done;
@@ -1114,7 +1138,7 @@ function runParallelWorkers(targetDir, workerInfos, cliProvider) {
       try {
         if (fs.existsSync(tp)) {
           const content = fs.readFileSync(tp, 'utf-8');
-          const doneState = readTaskDoneSet(ws.path, ws.doneFilePath);
+          const doneState = getWorkerDoneState(ws);
           const tc = countTasks(content, doneState.doneSet);
           ws.done = tc.done;
           ws.total = tc.total;

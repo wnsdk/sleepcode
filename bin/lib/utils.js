@@ -167,20 +167,52 @@ function readTaskDoneSet(targetDir, doneFilePath) {
   return { doneFilePath: donePath, doneSet };
 }
 
+function buildEffectiveDoneSet(doneSet, baselineDoneSet = null, extraDoneSet = null) {
+  const effectiveDoneSet = new Set();
+
+  if (doneSet) {
+    for (const key of doneSet) {
+      if (baselineDoneSet && baselineDoneSet.has(key)) continue;
+      effectiveDoneSet.add(key);
+    }
+  }
+
+  if (extraDoneSet) {
+    for (const key of extraDoneSet) {
+      effectiveDoneSet.add(key);
+    }
+  }
+
+  return effectiveDoneSet;
+}
+
+function readCurrentRunTaskDoneSet(targetDir, doneFilePath, baselineDoneSet = null, extraDoneSet = null) {
+  const state = readTaskDoneSet(targetDir, doneFilePath);
+  return {
+    doneFilePath: state.doneFilePath,
+    rawDoneSet: state.doneSet,
+    doneSet: buildEffectiveDoneSet(state.doneSet, baselineDoneSet, extraDoneSet),
+  };
+}
+
 function ensureTaskDoneFile(doneFilePath) {
   if (fs.existsSync(doneFilePath)) return;
   fs.mkdirSync(path.dirname(doneFilePath), { recursive: true });
   fs.writeFileSync(doneFilePath, '# 완료 기록\n\n');
 }
 
-function appendTaskDone(targetDir, taskEntry, doneFilePath) {
+function appendTaskDone(targetDir, taskEntry, doneFilePath, dedupeSet = null) {
   if (!taskEntry || !taskEntry.title) return false;
-  const state = readTaskDoneSet(targetDir, doneFilePath);
-  if (state.doneSet.has(taskEntry.key)) return false;
+  const resolvedDoneFilePath = doneFilePath || getTaskDoneFilePath(targetDir);
+  if (dedupeSet && dedupeSet.has(taskEntry.key)) return false;
+  if (!dedupeSet) {
+    const state = readTaskDoneSet(targetDir, resolvedDoneFilePath);
+    if (state.doneSet.has(taskEntry.key)) return false;
+  }
 
-  ensureTaskDoneFile(state.doneFilePath);
+  ensureTaskDoneFile(resolvedDoneFilePath);
   const notionTag = taskEntry.notionId ? ` <!-- notion:${taskEntry.notionId} -->` : '';
-  fs.appendFileSync(state.doneFilePath, `- [x] ${taskEntry.title}${notionTag}\n`);
+  fs.appendFileSync(resolvedDoneFilePath, `- [x] ${taskEntry.title}${notionTag}\n`);
   return true;
 }
 
@@ -277,6 +309,8 @@ module.exports = {
   buildTaskKey,
   extractTaskItems,
   readTaskDoneSet,
+  buildEffectiveDoneSet,
+  readCurrentRunTaskDoneSet,
   appendTaskDone,
   countTasks,
   getNextPendingTaskEntry,

@@ -9,6 +9,7 @@ const {
   visualWidth,
   padEndVisual,
   readTaskDoneSet,
+  readCurrentRunTaskDoneSet,
   loadEnvFileToProcessEnv,
   parseNotionDbId,
 } = require('./utils');
@@ -421,6 +422,23 @@ function cmdWatch(cliProvider) {
     flushRender();
   }
 
+  function ensureWorkerDoneTracking(ws) {
+    const initialState = readTaskDoneSet(ws.path, ws.doneFilePath);
+    ws.doneFilePath = initialState.doneFilePath;
+    if (!ws.initialDoneKeys) ws.initialDoneKeys = new Set(initialState.doneSet);
+    if (!ws.completedTaskKeys) ws.completedTaskKeys = new Set();
+  }
+
+  function getWorkerDoneState(ws) {
+    ensureWorkerDoneTracking(ws);
+    return readCurrentRunTaskDoneSet(
+      ws.path,
+      ws.doneFilePath,
+      ws.initialDoneKeys,
+      ws.completedTaskKeys
+    );
+  }
+
   function handleTaskStarted(payload) {
     const taskEntry = payload && payload.taskEntry ? payload.taskEntry : null;
     if (!taskEntry || !taskEntry.notionId || !currentSchema) return;
@@ -446,16 +464,14 @@ function cmdWatch(cliProvider) {
       if (!fs.existsSync(tp)) continue;
       try {
         const content = fs.readFileSync(tp, 'utf-8');
-        const doneState = readTaskDoneSet(wsPath, typeof ref === 'string' ? null : ref.doneFilePath);
-        const completedTaskKeys = (typeof ref === 'string' || !ref.completedTaskKeys)
-          ? null
-          : ref.completedTaskKeys;
+        const doneState = (typeof ref === 'string')
+          ? { doneSet: new Set() }
+          : getWorkerDoneState(ref);
         const tasks = extractTaskItems(content);
         for (const task of tasks) {
           if (!task.notionId) continue;
           statuses[task.notionId] = task.checked
-            || doneState.doneSet.has(task.key)
-            || (completedTaskKeys ? completedTaskKeys.has(task.key) : false);
+            || doneState.doneSet.has(task.key);
         }
       } catch {}
     }
@@ -584,7 +600,7 @@ function cmdWatch(cliProvider) {
         const tp = ws.tasksPath || path.join(ws.path, '.sleepcode', 'task_queue.md');
         if (fs.existsSync(tp)) {
           const content = fs.readFileSync(tp, 'utf-8');
-          const doneState = readTaskDoneSet(ws.path, ws.doneFilePath);
+          const doneState = getWorkerDoneState(ws);
           const tc = countTasks(content, doneState.doneSet);
           ws.total = tc.total;
           ws.done = tc.done;
@@ -634,7 +650,7 @@ function cmdWatch(cliProvider) {
       };
 
       const singleContent = fs.readFileSync(tasksPath, 'utf-8');
-      const singleDoneState = readTaskDoneSet(targetDir, ws.doneFilePath);
+      const singleDoneState = getWorkerDoneState(ws);
       const tc = countTasks(singleContent, singleDoneState.doneSet);
       ws.total = tc.total;
       ws.done = tc.done;
@@ -658,7 +674,7 @@ function cmdWatch(cliProvider) {
     // task_queue + task_done/<branch>.md에서 완료 상태 확인 (notion page ID 매칭)
     const workerRefs = (workerStates && workerStates.length > 0)
       ? workerStates
-      : [{ path: targetDir }];
+      : [];
     const taskCompletion = parseTaskStatuses(workerRefs);
 
     // 총 비용
@@ -827,7 +843,7 @@ function cmdWatch(cliProvider) {
         fs.writeFileSync(tp, content);
 
         // 워커 total 갱신
-        const doneState = readTaskDoneSet(ws.path, ws.doneFilePath);
+        const doneState = getWorkerDoneState(ws);
         const tc = countTasks(content, doneState.doneSet);
         ws.total = tc.total;
         ws.done = tc.done;
@@ -906,7 +922,7 @@ function cmdWatch(cliProvider) {
               if (Object.keys(props).length > 0) notionUpdatePage(task.id, props);
             }
             fs.writeFileSync(tp, content);
-            const doneState = readTaskDoneSet(ws.path, ws.doneFilePath);
+            const doneState = getWorkerDoneState(ws);
             const tc = countTasks(content, doneState.doneSet);
             ws.total = tc.total;
             ws.done = tc.done;
@@ -1056,7 +1072,7 @@ function cmdWatch(cliProvider) {
       try {
         if (fs.existsSync(tp)) {
           const content = fs.readFileSync(tp, 'utf-8');
-          const doneState = readTaskDoneSet(ws.path, ws.doneFilePath);
+          const doneState = getWorkerDoneState(ws);
           const tc = countTasks(content, doneState.doneSet);
           ws.done = tc.done;
           ws.total = tc.total;

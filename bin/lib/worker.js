@@ -8,6 +8,7 @@ const {
   getNextPendingTaskEntry,
   getTaskDoneFilePath,
   readTaskDoneSet,
+  readCurrentRunTaskDoneSet,
   appendTaskDone,
   visualWidth,
 } = require('./utils');
@@ -84,13 +85,13 @@ function processStreamEvent(ws, obj, onUpdate, pushLog) {
       if (ws.targetDir) recordCost(ws.targetDir, cost, 'parallel', ws.name);
     }
 
-    const tasksPath2 = ws.tasksPath || path.join(ws.path, '.sleepcode', 'task_queue.md');
-    if (fs.existsSync(tasksPath2)) {
-      const content = fs.readFileSync(tasksPath2, 'utf-8');
-      const doneState = readTaskDoneSet(ws.path, ws.doneFilePath);
-      const tc = countTasks(content, doneState.doneSet);
-      ws.done = tc.done;
-      ws.total = tc.total;
+  const tasksPath2 = ws.tasksPath || path.join(ws.path, '.sleepcode', 'task_queue.md');
+  if (fs.existsSync(tasksPath2)) {
+    const content = fs.readFileSync(tasksPath2, 'utf-8');
+    const doneState = getWorkerDoneState(ws);
+    const tc = countTasks(content, doneState.doneSet);
+    ws.done = tc.done;
+    ws.total = tc.total;
     }
 
     const msg = typeof obj.message === 'string' ? obj.message : '';
@@ -153,6 +154,25 @@ function gitOutput(targetDir, args) {
 
 function getHeadCommit(targetDir) {
   return gitOutput(targetDir, ['rev-parse', 'HEAD']);
+}
+
+function ensureWorkerDoneTracking(ws, targetDir = null) {
+  const resolvedTargetDir = targetDir || ws.path;
+  const initialState = readTaskDoneSet(resolvedTargetDir, ws.doneFilePath);
+  ws.doneFilePath = initialState.doneFilePath;
+  if (!ws.initialDoneKeys) ws.initialDoneKeys = new Set(initialState.doneSet);
+  if (!ws.completedTaskKeys) ws.completedTaskKeys = new Set();
+}
+
+function getWorkerDoneState(ws, targetDir = null) {
+  const resolvedTargetDir = targetDir || ws.path;
+  ensureWorkerDoneTracking(ws, resolvedTargetDir);
+  return readCurrentRunTaskDoneSet(
+    resolvedTargetDir,
+    ws.doneFilePath,
+    ws.initialDoneKeys,
+    ws.completedTaskKeys
+  );
 }
 
 function detectForbiddenGitWriteCommand(obj) {
@@ -307,6 +327,7 @@ function spawnWorker(ws, py, onDone, onUpdate, pushLog, cliProvider, onTaskCompl
     : { exists: false, content: '' };
   syncClaudeMd(wtDir);
   ws.doneFilePath = ws.doneFilePath || getTaskDoneFilePath(wtDir);
+  ensureWorkerDoneTracking(ws, wtDir);
 
   const restoreRuntimeClaudeMd = () => {
     if (!generatedClaudeMd) return;
@@ -365,7 +386,7 @@ function spawnWorker(ws, py, onDone, onUpdate, pushLog, cliProvider, onTaskCompl
 
     if (fs.existsSync(tasksPath)) {
       const content = fs.readFileSync(tasksPath, 'utf-8');
-      const doneState = readTaskDoneSet(wtDir, ws.doneFilePath);
+      const doneState = getWorkerDoneState(ws, wtDir);
       const tc = countTasks(content, doneState.doneSet);
       ws.done = tc.done;
       ws.total = tc.total;
@@ -389,7 +410,7 @@ function spawnWorker(ws, py, onDone, onUpdate, pushLog, cliProvider, onTaskCompl
     }
 
     // 미완료 태스크가 없으면 완료 처리
-    const doneState = readTaskDoneSet(wtDir, ws.doneFilePath);
+    const doneState = getWorkerDoneState(ws, wtDir);
     const nextTaskEntry = getNextPendingTaskEntry(taskQueueText, doneState.doneSet);
     const nextTask = nextTaskEntry ? nextTaskEntry.title : null;
     if (!nextTaskEntry) {
@@ -539,7 +560,7 @@ function spawnWorker(ws, py, onDone, onUpdate, pushLog, cliProvider, onTaskCompl
         // 태스크 완료 여부 확인 후 다음 태스크로 이동
         if (fs.existsSync(tasksPath)) {
           const updatedContent = fs.readFileSync(tasksPath, 'utf-8');
-          let updatedDoneState = readTaskDoneSet(wtDir, ws.doneFilePath);
+          let updatedDoneState = getWorkerDoneState(ws, wtDir);
           let finalCode = code;
           let finalError = null;
           let commitResult = null;
@@ -557,14 +578,22 @@ function spawnWorker(ws, py, onDone, onUpdate, pushLog, cliProvider, onTaskCompl
               : { committed: false, reason: 'runtime_cleanup_failed', error: finalError };
 
             if (commitResult.committed) {
-              if (!ws.completedTaskKeys) ws.completedTaskKeys = new Set();
-              ws.completedTaskKeys.add(nextTaskEntry.key);
               pushLog(ws.name, `${C.green}[COMMIT]${C.reset} ${nextTaskEntry.title}`);
               try {
-                const appended = appendTaskDone(wtDir, nextTaskEntry, ws.doneFilePath);
+                const appended = appendTaskDone(
+                  wtDir,
+                  nextTaskEntry,
+                  ws.doneFilePath,
+                  updatedDoneState.doneSet
+                );
                 if (appended) {
+                  ws.completedTaskKeys.add(nextTaskEntry.key);
                   pushLog(ws.name, `${C.green}[DONELOG]${C.reset} ${nextTaskEntry.title}`);
-                  updatedDoneState = readTaskDoneSet(wtDir, ws.doneFilePath);
+                  updatedDoneState = getWorkerDoneState(ws, wtDir);
+                } else {
+                  finalCode = 1;
+                  finalError = 'task_done append skipped unexpectedly';
+                  pushLog(ws.name, `${C.red}[DONELOG]${C.reset} ${nextTaskEntry.title} (duplicate)`);
                 }
               } catch (e) {
                 finalCode = 1;

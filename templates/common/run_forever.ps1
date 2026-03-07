@@ -9,8 +9,10 @@ param(
     [string]$provider = ''
 )
 
-[Console]::OutputEncoding = [System.Text.Encoding]::UTF8
-$OutputEncoding = [System.Text.Encoding]::UTF8
+$encodingBootstrap = Join-Path $PSScriptRoot 'encoding_bootstrap.ps1'
+if (Test-Path $encodingBootstrap) {
+    . $encodingBootstrap
+}
 $ErrorActionPreference = 'Continue'
 Set-Location (Split-Path (Split-Path $PSScriptRoot -Parent) -Parent)
 
@@ -113,13 +115,17 @@ while ($true) {
             $stdinPrompt = 'Continue with the next tasks.'
             Log 'codex running... (resume)'
             [System.IO.File]::WriteAllText($tempFile, $stdinPrompt, [System.Text.Encoding]::UTF8)
-            cmd /c "type `"$tempFile`" | codex exec resume --last --json --dangerously-bypass-approvals-and-sandbox - 2>&1 | python -u .sleepcode/scripts/log_filter.py" 2>&1 |
+            Get-Content -Raw -Encoding UTF8 $tempFile |
+              codex exec resume --last --json --dangerously-bypass-approvals-and-sandbox - 2>&1 |
+              python -u .sleepcode/scripts/log_filter.py 2>&1 |
               Tee-Object -Append $logFile
         } else {
             $stdinPrompt = Build-CodexPrompt $tasksPrompt
             Log 'codex running...'
             [System.IO.File]::WriteAllText($tempFile, $stdinPrompt, [System.Text.Encoding]::UTF8)
-            cmd /c "type `"$tempFile`" | codex exec --json --dangerously-bypass-approvals-and-sandbox - 2>&1 | python -u .sleepcode/scripts/log_filter.py" 2>&1 |
+            Get-Content -Raw -Encoding UTF8 $tempFile |
+              codex exec --json --dangerously-bypass-approvals-and-sandbox - 2>&1 |
+              python -u .sleepcode/scripts/log_filter.py 2>&1 |
               Tee-Object -Append $logFile
         }
     } else {
@@ -127,13 +133,17 @@ while ($true) {
             $stdinPrompt = 'Continue with the next tasks.'
             Log 'claude running... (continue)'
             [System.IO.File]::WriteAllText($tempFile, $stdinPrompt, [System.Text.Encoding]::UTF8)
-            cmd /c "type `"$tempFile`" | claude --continue -p --dangerously-skip-permissions --output-format stream-json --verbose 2>&1 | python -u .sleepcode/scripts/log_filter.py" 2>&1 |
+            Get-Content -Raw -Encoding UTF8 $tempFile |
+              claude --continue -p --dangerously-skip-permissions --output-format stream-json --verbose 2>&1 |
+              python -u .sleepcode/scripts/log_filter.py 2>&1 |
               Tee-Object -Append $logFile
         } else {
             $stdinPrompt = $tasksPrompt
             Log 'claude running...'
             [System.IO.File]::WriteAllText($tempFile, $stdinPrompt, [System.Text.Encoding]::UTF8)
-            cmd /c "type `"$tempFile`" | claude -p --dangerously-skip-permissions --output-format stream-json --verbose 2>&1 | python -u .sleepcode/scripts/log_filter.py" 2>&1 |
+            Get-Content -Raw -Encoding UTF8 $tempFile |
+              claude -p --dangerously-skip-permissions --output-format stream-json --verbose 2>&1 |
+              python -u .sleepcode/scripts/log_filter.py 2>&1 |
               Tee-Object -Append $logFile
         }
     }

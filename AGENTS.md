@@ -41,6 +41,22 @@
 - 기능이 정상 동작한다고 판단되면 commit 한다.
 - commit message 는 변경 내용을 구체적으로 설명한다.
 
+---
+
+## Windows 한글 인코딩 보호 규칙 (PowerShell)
+
+- Windows PowerShell에서 명령 실행 전 UTF-8 모드를 강제한다.
+- 파일 읽기/쓰기 명령(`Get-Content`, `Set-Content`, `Add-Content`, `Out-File`)에는 항상 `-Encoding UTF8`을 명시한다.
+- 셸로 파일을 직접 재작성하지 말고, 코드 수정은 가능한 `apply_patch`를 우선 사용한다.
+- 콘솔 출력이 깨져 보이면 아래 초기화 명령을 먼저 실행한 뒤 작업을 진행한다.
+
+```powershell
+[Console]::InputEncoding = [System.Text.UTF8Encoding]::new($false)
+[Console]::OutputEncoding = [System.Text.UTF8Encoding]::new($false)
+$OutputEncoding = [System.Text.UTF8Encoding]::new($false)
+chcp 65001 > $null
+```
+
 
 ---
 

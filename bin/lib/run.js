@@ -54,7 +54,7 @@ function runWorker(loop, cont, cliProvider) {
     const contFlag = cont ? ' --continue' : '';
     const providerFlag = ' --provider ' + providerPlan.selected;
     const cmd = IS_WIN
-      ? `powershell -File "${scriptPath}"${contFlag}${providerFlag}`
+      ? `powershell -NoProfile -ExecutionPolicy Bypass -File "${scriptPath}"${contFlag}${providerFlag}`
       : `"${scriptPath}"${contFlag}${providerFlag}`;
     const modeLabel = cont ? '무한 루프 실행 (세션 연속 모드)' : '무한 루프 실행';
     console.log(`${C.cyan}${modeLabel}: ${scriptName}${C.reset}\n`);

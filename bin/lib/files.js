@@ -37,7 +37,7 @@ function generateFiles(targetDir, { typeKey, projectName, role, buildCmd, testCm
 
   // 스크립트 파일 → scripts/ 하위로 복사 (OS별 분기)
   const scriptFiles = IS_WIN
-    ? ['ai_worker.ps1', 'run_forever.ps1']
+    ? ['ai_worker.ps1', 'run_forever.ps1', 'encoding_bootstrap.ps1']
     : ['ai_worker.sh', 'run_forever.sh'];
   const allScriptFiles = [...scriptFiles, 'log_filter.py'];
   if (notionDbId) allScriptFiles.push('notion_sync.py');
@@ -181,6 +181,9 @@ function printResult(notionDbId) {
   console.log(`  ${C.green}✓${C.reset} .sleepcode/scripts/base_rules.md`);
   console.log(`  ${C.green}✓${C.reset} .sleepcode/scripts/${workerScript}`);
   console.log(`  ${C.green}✓${C.reset} .sleepcode/scripts/${foreverScript}`);
+  if (IS_WIN) {
+    console.log(`  ${C.green}✓${C.reset} .sleepcode/scripts/encoding_bootstrap.ps1`);
+  }
   console.log(`  ${C.green}✓${C.reset} .sleepcode/scripts/log_filter.py`);
   console.log(`  ${C.green}✓${C.reset} .sleepcode/README.md`);
   console.log(`  ${C.green}✓${C.reset} .claude/settings.local.json`);

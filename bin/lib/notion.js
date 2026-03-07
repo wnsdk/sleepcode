@@ -128,6 +128,7 @@ async function createNotionDb(apiKey, parentPageId, dbTitle) {
       'Worker': { select: { options: [] } },
       'Priority': { number: { format: 'number' } },
       'Log': { rich_text: {} },
+      'Model': { rich_text: {} },
       'Cost': { number: { format: 'number' } },
       'Completed At': { date: {} },
     },
@@ -154,6 +155,7 @@ const EXPECTED_DB_PROPERTIES = {
   'Worker': { select: { options: [] } },
   'Priority': { number: { format: 'number' } },
   'Log': { rich_text: {} },
+  'Model': { rich_text: {} },
   'Cost': { number: { format: 'number' } },
   'Completed At': { date: {} },
 };

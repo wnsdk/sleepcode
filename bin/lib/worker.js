@@ -166,7 +166,7 @@ function commitTaskNow(targetDir, taskEntry) {
   }
 }
 
-function spawnWorker(ws, py, onDone, onUpdate, pushLog, cliProvider, onTaskCompleted) {
+function spawnWorker(ws, py, onDone, onUpdate, pushLog, cliProvider, onTaskCompleted, onTaskStarted) {
   const wtDir = ws.path;
   syncClaudeMd(wtDir);
 
@@ -215,6 +215,17 @@ function spawnWorker(ws, py, onDone, onUpdate, pushLog, cliProvider, onTaskCompl
     ws.status = (code === 0) ? 'done' : 'failed';
     ws.currentTask = errMsg || '';
     onUpdate();
+    if (typeof onTaskStarted === 'function' && nextTaskEntry) {
+      try {
+        onTaskStarted({
+          worker: ws,
+          taskEntry: nextTaskEntry,
+          model: ws.model,
+          provider: ws.provider,
+          difficulty: ws.difficulty,
+        });
+      } catch {}
+    }
     onDone();
   }
 

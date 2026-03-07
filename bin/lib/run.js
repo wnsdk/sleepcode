@@ -2,7 +2,6 @@ const { C } = require('./constants');
 const { isOverBudget, recordCost } = require('./config');
 const { syncClaudeMd } = require('./files');
 const { createRunDashboard } = require('./runDashboard');
-const { spawnWorker } = require('./worker');
 const { parseParallelTasks, createWorktrees, cleanupWorktrees, autoMergeWorktrees } = require('./parallel');
 const { getWorkerDoneState, syncWorkerTaskProgress } = require('./taskState');
 const {
@@ -37,10 +36,6 @@ const {
   createRunTimestamp,
 } = require('./runSession');
 const {
-  areAllWorkersSettled,
-  mergeCompletedWorkerNow,
-} = require('./runWorkerCompletion');
-const {
   buildPollInfo,
   filterNewTasks,
   selectTasksToRun,
@@ -52,6 +47,13 @@ const {
   splitTasksByWorkerPresence,
 } = require('./runWorkers');
 const { createRunSetup } = require('./runSetup');
+const {
+  handleGracefulStopDetected,
+  handleWorkerDone: handleRunWorkerDone,
+  spawnRunWorker: spawnManagedRunWorker,
+  stopWatchTimers,
+  stopWorkerProcesses,
+} = require('./runWatchControl');
 
 function cmdWatch(cliProvider) {
   let setup;
@@ -92,20 +94,6 @@ function cmdWatch(cliProvider) {
   let execStartTime = null;
   let pollingController = null;
 
-  function stopWorkerProcesses(signal, runningOnly = false) {
-    for (const ws of currentWorkerStates) {
-      if (runningOnly && ws.status !== 'running') continue;
-      if (!ws._proc) continue;
-      try { ws._proc.kill(signal); } catch {}
-    }
-  }
-
-  function stopWatchTimers() {
-    if (pollingController) {
-      pollingController.stopAll();
-    }
-  }
-
   const dashboard = createRunDashboard({
     dbId,
     pollIntervalSec,
@@ -123,15 +111,15 @@ function cmdWatch(cliProvider) {
       if (pollingController) {
         pollingController.stopPolling();
       }
-      stopWorkerProcesses('SIGINT', true);
+      stopWorkerProcesses(currentWorkerStates, 'SIGINT', true);
     },
     onImmediateExit: () => {
-      stopWatchTimers();
-      stopWorkerProcesses();
+      stopWatchTimers(pollingController);
+      stopWorkerProcesses(currentWorkerStates);
     },
     onInterrupt: () => {
-      stopWatchTimers();
-      stopWorkerProcesses();
+      stopWatchTimers(pollingController);
+      stopWorkerProcesses(currentWorkerStates);
     },
   });
 
@@ -143,21 +131,6 @@ function cmdWatch(cliProvider) {
   function setWatchPhase(newPhase) {
     watchPhase = newPhase;
     dashboard.setWatchPhase();
-  }
-
-  function handleWorkerDone(completedWs) {
-    scheduleRender();
-    mergeCompletedWorkerNow({
-      completedWorker: completedWs,
-      targetDir,
-      cliProvider,
-      autoMergeWorktrees,
-      pushLog: (message) => watchPushLog('SYSTEM', message),
-    });
-
-    if (areAllWorkersSettled(currentWorkerStates)) {
-      finishExecution(currentNotionTasks, currentSchema, currentWorkerStates);
-    }
   }
 
   // ─── Notion API 헬퍼 ───
@@ -204,17 +177,28 @@ function cmdWatch(cliProvider) {
   }
 
   function spawnRunWorker(ws) {
-    spawnWorker(
-      ws,
+    spawnManagedRunWorker({
+      workerState: ws,
       py,
-      () => handleWorkerDone(ws),
+      onDone: () => handleRunWorkerDone({
+        completedWorker: ws,
+        currentWorkerStates,
+        targetDir,
+        cliProvider,
+        autoMergeWorktrees,
+        pushLog: (message) => watchPushLog('SYSTEM', message),
+        scheduleRender,
+        finishExecution,
+        currentNotionTasks,
+        currentSchema,
+      }),
       scheduleRender,
-      watchPushLog,
+      pushLog: watchPushLog,
       cliProvider,
       handleTaskCompleted,
       handleTaskStarted,
       handleTaskUiUpdated
-    );
+    });
   }
 
   // ─── 태스크 실행 ───
@@ -477,9 +461,7 @@ function cmdWatch(cliProvider) {
     dashboard,
     pushLog: watchPushLog,
     onGracefulStopDetected: () => {
-      dashboard.dispose();
-      console.log(`\n${C.yellow}graceful_stop 감지 — run 종료${C.reset}`);
-      process.exit(0);
+      handleGracefulStopDetected({ dashboard });
     },
   });
 

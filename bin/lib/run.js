@@ -15,11 +15,6 @@ const {
   createRunPollingController,
 } = require('./runPolling');
 const {
-  isSingleMainWorkerMode,
-  startDynamicWorker,
-  trackDynamicTaskIds,
-} = require('./runDynamicTasks');
-const {
   buildExecutionPlan,
   createDynamicWorkerState,
 } = require('./runExecution');
@@ -38,11 +33,10 @@ const {
   selectTasksToRun,
 } = require('./runPoll');
 const {
-  appendWorkerTasks,
   applyTaskRunUpdates,
   getFirstTaskIdsByWorker,
-  splitTasksByWorkerPresence,
 } = require('./runWorkers');
+const { addTasksDuringExecution: expandRunTasksDuringExecution } = require('./runTaskExpansion');
 const { createRunNotionBindings } = require('./runNotionBindings');
 const { createRunSetup } = require('./runSetup');
 const {
@@ -254,91 +248,26 @@ function cmdWatch(cliProvider) {
   // ─── 실행 중 새 태스크 추가 (즉시 반영) ───
 
   function addTasksDuringExecution(newTasks, schema) {
-    trackDynamicTaskIds(executingTaskIds, newTasks);
-    const { existingGroups: tasksForExisting, newGroups: tasksForNew } = splitTasksByWorkerPresence(
+    expandRunTasksDuringExecution({
       newTasks,
-      currentWorkerStates.map((ws) => ws.name)
-    );
-
-    // 1. 기존 워커에 태스크 추가: task_queue.md에 라인 추가
-    for (const [workerName, tasks] of Object.entries(tasksForExisting)) {
-      const ws = currentWorkerStates.find(w => w.name === workerName);
-      if (!ws) continue;
-      const result = appendWorkerTasks({
-        workerState: ws,
-        tasks,
-        schema,
-        trackedTasks: currentNotionTasks,
-        notionInProgressIds,
-        updatePage: notionUpdatePage,
-        syncWorkerTaskProgress,
-        onError: (error) => {
-          watchPushLog('SYSTEM', `${C.red}태스크 추가 실패 (${workerName}): ${error.message}${C.reset}`);
-        },
-      });
-      if (!result.ok) {
-        continue;
-      }
-      for (const task of tasks) {
-        watchPushLog('SYSTEM', `${C.green}+${C.reset} ${task.title} → ${C.cyan}${workerName}${C.reset} 에 추가`);
-      }
-    }
-
-    // 2. 새로운 워커 그룹: worktree 생성 + 워커 스폰
-    for (const [workerName, tasks] of Object.entries(tasksForNew)) {
-      const newWs = startDynamicWorker({
-        currentWorkerStates,
-        workerName,
-        tasks,
-        schema,
-        targetDir,
-        logDir,
-        createWorktrees,
-        createRunTimestamp,
-        createDynamicWorkerState,
-        applyRunTaskUpdates: ({ tasks, schema, firstRunningTaskIds, options }) => applyTaskRunUpdates({
-          tasks,
-          schema,
-          firstRunningTaskIds,
-          trackTasks: options && Object.prototype.hasOwnProperty.call(options, 'trackTasks')
-            ? options.trackTasks
-            : true,
-          trackedTasks: currentNotionTasks,
-          notionInProgressIds,
-          updatePage: notionUpdatePage,
-        }),
-        setWatchPhase,
-        pushLog: (message) => watchPushLog('SYSTEM', message),
-        spawnRunWorker,
-      });
-
-      if (newWs) {
-        continue;
-      }
-
-      if (isSingleMainWorkerMode(currentWorkerStates)) {
-        const ws = currentWorkerStates[0];
-        const result = appendWorkerTasks({
-          workerState: ws,
-          tasks,
-          schema,
-          trackedTasks: currentNotionTasks,
-          notionInProgressIds,
-          updatePage: notionUpdatePage,
-          syncWorkerTaskProgress,
-          onSuccess: () => {
-            watchPushLog('SYSTEM', `${C.yellow}↷${C.reset} worktree 생성 실패 → main에 ${tasks.length}개 태스크 추가`);
-          },
-        });
-        if (!result.ok) {
-          continue;
-        }
-      } else {
-        watchPushLog('SYSTEM', `${C.red}워커 ${workerName} worktree 생성 실패${C.reset}`);
-      }
-    }
-
-    scheduleRender();
+      schema,
+      executingTaskIds,
+      currentWorkerStates,
+      currentNotionTasks,
+      notionInProgressIds,
+      updatePage: notionUpdatePage,
+      syncWorkerTaskProgress,
+      targetDir,
+      logDir,
+      createWorktrees,
+      createRunTimestamp,
+      createDynamicWorkerState,
+      setWatchPhase,
+      spawnRunWorker,
+      scheduleRender,
+      pushLog: watchPushLog,
+      applyTaskRunUpdatesFn: applyTaskRunUpdates,
+    });
   }
 
   pollingController = createRunPollingController({

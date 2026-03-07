@@ -4,20 +4,12 @@ const { C } = require('./constants');
 const { detectPython } = require('./prerequisites');
 const { resolveProviderPlan } = require('./provider');
 const { isOverBudget } = require('./config');
-const { spawnWorker } = require('./worker');
-const { syncWorkerTaskProgress } = require('./taskState');
 const { ensureRuntimeDirs } = require('./runtimePaths');
 const {
-  createParallelDashboard,
   getCompletionNextSteps,
   summarizeWorkerOutcomes,
 } = require('./parallelDashboard');
-const {
-  applyParallelBudgetStop,
-  mergeCompletedParallelWorker,
-  stopRunningWorkers,
-  syncParallelWorkerProgress,
-} = require('./parallelRunnerControl');
+const { createParallelRunnerRuntime } = require('./parallelRunnerRuntime');
 
 function createWorkerStates(targetDir, workerInfos, logsDir, timestamp) {
   return workerInfos.map((worker) => ({
@@ -99,88 +91,15 @@ function runParallelWorkers(targetDir, workerInfos, cliProvider) {
   }
 
   const workerStates = createWorkerStates(targetDir, workerInfos, logsDir, timestamp);
-  syncParallelWorkerProgress({
-    workerStates,
-    syncWorkerTaskProgressFn: syncWorkerTaskProgress,
-  });
-
-  const dashboard = createParallelDashboard({
-    workerStates,
+  const runtime = createParallelRunnerRuntime({
     targetDir,
+    cliProvider,
+    workerStates,
+    py,
     getBudgetInfo: isOverBudget,
-    onGracefulExit: () => {
-      stopRunningWorkers(workerStates.filter((worker) => worker.status === 'running'), 'SIGINT');
-    },
-    onImmediateExit: () => stopRunningWorkers(workerStates),
-    onInterrupt: () => stopRunningWorkers(workerStates),
+    printParallelCompletionSummary,
   });
-
-  dashboard.start();
-
-  const dashboardInterval = setInterval(() => dashboard.renderDashboard(), 3000);
-  const taskProgressInterval = setInterval(() => {
-    syncParallelWorkerProgress({
-      workerStates,
-      scheduleRender: () => dashboard.scheduleRender(),
-      syncWorkerTaskProgressFn: syncWorkerTaskProgress,
-    });
-  }, 5000);
-
-  let budgetStopped = false;
-  const budgetCheckInterval = setInterval(() => {
-    if (budgetStopped) return;
-    const result = applyParallelBudgetStop({
-      targetDir,
-      workerStates,
-      dashboard,
-      isOverBudgetFn: isOverBudget,
-    });
-    budgetStopped = result.stopped;
-  }, 30000);
-
-  let activeWorkers = workerStates.length;
-
-  function finishIfDone() {
-    if (activeWorkers !== 0) return;
-    clearInterval(dashboardInterval);
-    clearInterval(taskProgressInterval);
-    clearInterval(budgetCheckInterval);
-    dashboard.renderDashboard();
-    dashboard.dispose();
-    printParallelCompletionSummary(workerStates);
-  }
-
-  function onWorkerDone(completedWorker) {
-    activeWorkers -= 1;
-    dashboard.renderDashboard();
-    mergeCompletedParallelWorker({
-      completedWorker,
-      targetDir,
-      cliProvider,
-      dashboard,
-    });
-    dashboard.scheduleRender();
-
-    finishIfDone();
-  }
-
-  function handleTaskUiUpdated() {
-    dashboard.flushRender();
-  }
-
-  for (const worker of workerStates) {
-    spawnWorker(
-      worker,
-      py,
-      () => onWorkerDone(worker),
-      () => dashboard.scheduleRender(),
-      (name, message) => dashboard.pushLog(name, message),
-      cliProvider,
-      null,
-      null,
-      handleTaskUiUpdated
-    );
-  }
+  runtime.start();
 }
 
 module.exports = {

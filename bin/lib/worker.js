@@ -368,7 +368,101 @@ function buildTaskCommitMessage(taskEntry, stagedFiles = []) {
   return `${prefix}: ${subject}`;
 }
 
-function commitTaskNow(targetDir, taskEntry, startHead) {
+function toGitPath(targetDir, filePath) {
+  return path.relative(targetDir, filePath).replace(/\\/g, '/');
+}
+
+function stageFile(targetDir, filePath) {
+  const gitPath = toGitPath(targetDir, filePath);
+  execFileSync('git', ['add', '--', gitPath], {
+    cwd: targetDir,
+    stdio: ['ignore', 'pipe', 'pipe'],
+  });
+}
+
+function captureTaskDoneSnapshot(doneFilePath) {
+  const exists = fs.existsSync(doneFilePath);
+  return {
+    exists,
+    content: exists ? fs.readFileSync(doneFilePath, 'utf-8') : '',
+  };
+}
+
+function restoreTaskDoneSnapshot(targetDir, doneFilePath, snapshot) {
+  const gitPath = toGitPath(targetDir, doneFilePath);
+
+  if (snapshot.exists) {
+    fs.mkdirSync(path.dirname(doneFilePath), { recursive: true });
+    fs.writeFileSync(doneFilePath, snapshot.content);
+    stageFile(targetDir, doneFilePath);
+    return;
+  }
+
+  if (fs.existsSync(doneFilePath)) {
+    fs.unlinkSync(doneFilePath);
+  }
+
+  try {
+    execFileSync('git', ['restore', '--staged', '--', gitPath], {
+      cwd: targetDir,
+      stdio: ['ignore', 'pipe', 'pipe'],
+    });
+  } catch {}
+}
+
+function prepareTaskDoneAppend(targetDir, taskEntry, doneFilePath, dedupeSet = null) {
+  const resolvedDoneFilePath = doneFilePath || getTaskDoneFilePath(targetDir);
+  const snapshot = captureTaskDoneSnapshot(resolvedDoneFilePath);
+
+  let appended = false;
+  try {
+    appended = appendTaskDone(targetDir, taskEntry, resolvedDoneFilePath, dedupeSet);
+  } catch (e) {
+    return {
+      ok: false,
+      reason: 'task_done_append_failed',
+      error: e.message,
+    };
+  }
+
+  if (!appended) {
+    return {
+      ok: false,
+      reason: 'task_done_append_skipped',
+    };
+  }
+
+  try {
+    stageFile(targetDir, resolvedDoneFilePath);
+  } catch (e) {
+    try {
+      restoreTaskDoneSnapshot(targetDir, resolvedDoneFilePath, snapshot);
+    } catch {}
+    return {
+      ok: false,
+      reason: 'task_done_stage_failed',
+      error: formatExecError(e),
+    };
+  }
+
+  return {
+    ok: true,
+    doneFilePath: resolvedDoneFilePath,
+    snapshot,
+  };
+}
+
+function rollbackPreparedTaskDone(targetDir, prepared) {
+  if (!prepared || !prepared.ok) return null;
+  try {
+    restoreTaskDoneSnapshot(targetDir, prepared.doneFilePath, prepared.snapshot);
+    return null;
+  } catch (e) {
+    return e.message || String(e);
+  }
+}
+
+function commitTaskNow(targetDir, taskEntry, startHead, options = null) {
   if (!taskEntry || !taskEntry.title) {
     return { committed: false, reason: 'empty_task' };
   }
@@ -397,13 +491,31 @@ function commitTaskNow(targetDir, taskEntry, startHead) {
     };
   }
 
+  const taskDoneTxn = options
+    ? prepareTaskDoneAppend(targetDir, taskEntry, options.doneFilePath, options.dedupeSet)
+    : null;
+
+  if (taskDoneTxn && !taskDoneTxn.ok) {
+    return {
+      committed: false,
+      reason: taskDoneTxn.reason,
+      error: taskDoneTxn.error,
+    };
+  }
+
+  const failWithRollback = (result) => {
+    const rollbackError = rollbackPreparedTaskDone(targetDir, taskDoneTxn);
+    if (!rollbackError) return result;
+    return { ...result, rollbackError };
+  };
+
   const stageResult = stageTaskChanges(targetDir);
   if (!stageResult.ok) {
-    return {
+    return failWithRollback({
       committed: false,
       reason: stageResult.reason,
       error: stageResult.error,
-    };
+    });
   }
 
   const msg = buildTaskCommitMessage(taskEntry, stageResult.stagedFiles);
@@ -413,12 +525,12 @@ function commitTaskNow(targetDir, taskEntry, startHead) {
       stdio: ['ignore', 'pipe', 'pipe'],
     });
   } catch (e) {
-    return {
+    return failWithRollback({
       committed: false,
       reason: 'git_commit_failed',
       error: formatExecError(e),
       stagedFiles: stageResult.stagedFiles,
-    };
+    });
   }
 
   let endHead = '';
@@ -449,6 +561,7 @@ function commitTaskNow(targetDir, taskEntry, startHead) {
     stagedFiles: stageResult.stagedFiles,
     startHead,
     endHead,
+    taskDoneAppended: !!taskDoneTxn,
   };
 }
 
@@ -746,35 +859,23 @@ function spawnWorker(ws, py, onDone, onUpdate, pushLog, cliProvider, onTaskCompl
             }
 
             commitResult = finalCode === 0
-              ? commitTaskNow(wtDir, nextTaskEntry, taskStartHead)
+              ? commitTaskNow(wtDir, nextTaskEntry, taskStartHead, {
+                doneFilePath: ws.doneFilePath,
+                dedupeSet: updatedDoneState.doneSet,
+              })
               : { committed: false, reason: 'runtime_cleanup_failed', error: finalError };
 
             if (commitResult.committed) {
+              ws.completedTaskKeys.add(nextTaskEntry.key);
+              pushLog(ws.name, `${C.green}[DONELOG]${C.reset} ${nextTaskEntry.title}`);
               pushLog(ws.name, `${C.green}[COMMIT]${C.reset} ${nextTaskEntry.title}`);
-              try {
-                const appended = appendTaskDone(
-                  wtDir,
-                  nextTaskEntry,
-                  ws.doneFilePath,
-                  updatedDoneState.doneSet
-                );
-                if (appended) {
-                  ws.completedTaskKeys.add(nextTaskEntry.key);
-                  pushLog(ws.name, `${C.green}[DONELOG]${C.reset} ${nextTaskEntry.title}`);
-                  updatedDoneState = getWorkerDoneState(ws, wtDir);
-                } else {
-                  finalCode = 1;
-                  finalError = 'task_done append skipped unexpectedly';
-                  pushLog(ws.name, `${C.red}[DONELOG]${C.reset} ${nextTaskEntry.title} (duplicate)`);
-                }
-              } catch (e) {
-                finalCode = 1;
-                finalError = `task_done append failed: ${e.message}`;
-                pushLog(ws.name, `${C.red}[DONELOG]${C.reset} ${nextTaskEntry.title} (${e.message})`);
-              }
+              updatedDoneState = getWorkerDoneState(ws, wtDir);
             } else {
               finalCode = 1;
               finalError = `commit failed: ${commitResult.reason}${commitResult.error ? ` (${commitResult.error})` : ''}`;
+              if (commitResult.rollbackError) {
+                finalError += ` [rollback: ${commitResult.rollbackError}]`;
+              }
               pushLog(ws.name, `${C.red}[COMMIT]${C.reset} ${nextTaskEntry.title} (${commitResult.reason})`);
             }
 

@@ -9,14 +9,12 @@ const { ask, select, parseNotionDbId } = require('./lib/utils');
 const { checkPrerequisites } = require('./lib/prerequisites');
 const { normalizeProvider } = require('./lib/provider');
 const { validateNotionDbId, createNotionDb, syncNotionDbSchema } = require('./lib/notion');
-const { showSources } = require('./lib/sources');
 const { generateFiles, printResult } = require('./lib/files');
 const { saveConfig } = require('./lib/config');
 const { showUsage } = require('./lib/config');
 const { showHelp, showVersion, parseArgs } = require('./lib/cli');
 const { runWorker } = require('./lib/run');
 const { runParallel } = require('./lib/parallel');
-const { generateTasks } = require('./lib/generate');
 
 // ─── 메인 ───
 async function main() {
@@ -42,14 +40,6 @@ async function main() {
   if (firstArg === 'run') {
     const cont = !!cliArgs.continue;
     runWorker(cont, providerArg);
-    return;
-  }
-  if (firstArg === 'generate') {
-    generateTasks(providerArg);
-    return;
-  }
-  if (firstArg === 'sources') {
-    showSources();
     return;
   }
   if (firstArg === 'parallel') {

@@ -103,23 +103,6 @@ function generateFiles(targetDir, { typeKey, projectName, role, buildCmd, testCm
   // docs/.gitkeep
   writeFile(path.join(scDir, 'docs', '.gitkeep'), '');
 
-  // sources.json (참고자료 URL 관리)
-  const sourcesPath = path.join(scDir, 'sources.json');
-  if (!fs.existsSync(sourcesPath)) {
-    const sourcesData = { "$schema": "참고자료 URL 관리 파일 — generate 명령에서 자동으로 읽어 tasks.md 생성에 활용됩니다.", notion: [], figma: [], urls: [] };
-    if (notionPages) {
-      for (const page of notionPages.split(',').map(s => s.trim()).filter(Boolean)) {
-        sourcesData.notion.push({ url: '', label: page });
-      }
-    }
-    if (figmaFileNames) {
-      for (const file of figmaFileNames.split(',').map(s => s.trim()).filter(Boolean)) {
-        sourcesData.figma.push({ url: '', label: file });
-      }
-    }
-    writeFile(sourcesPath, JSON.stringify(sourcesData, null, 2) + '\n');
-  }
-
   // tasks.md는 Notion에서 동적으로 생성됨 (로컬 기본 템플릿 폐기)
 
   // rules.md
@@ -173,7 +156,6 @@ function printResult(notionDbId) {
   console.log(`\n${C.bold}파일 생성 완료:${C.reset}\n`);
   console.log(`  ${C.green}✓${C.reset} .sleepcode/rules.md          ${C.dim}← 수정하세요${C.reset}`);
   console.log(`  ${C.green}✓${C.reset} .sleepcode/scripts/notion_sync.py`);
-  console.log(`  ${C.green}✓${C.reset} .sleepcode/sources.json      ${C.dim}← 참고자료 URL 추가${C.reset}`);
   console.log(`  ${C.green}✓${C.reset} .sleepcode/docs/             ${C.dim}← 참고자료 파일 추가${C.reset}`);
   console.log(`  ${C.green}✓${C.reset} .sleepcode/scripts/base_rules.md`);
   console.log(`  ${C.green}✓${C.reset} .sleepcode/scripts/${workerScript}`);
@@ -192,9 +174,7 @@ ${C.bold}${C.green}완료!${C.reset} 다음 단계:
 
   ${C.bold}1.${C.reset} .sleepcode/rules.md 를 프로젝트에 맞게 수정
   ${C.bold}2.${C.reset} 참고 자료 추가:
-     ${C.dim}• .sleepcode/sources.json 에 Notion/Figma URL 등록${C.reset}
      ${C.dim}• .sleepcode/docs/ 에 기획서, 스크린샷 등 파일 추가${C.reset}
-     ${C.cyan}npx sleepcode sources${C.reset}         ${C.dim}# 참고자료 현황 확인${C.reset}
   ${taskStep}
   ${C.bold}4.${C.reset} 실행:
      ${C.cyan}npx sleepcode run${C.reset}          ${C.dim}# 1회 실행${C.reset}

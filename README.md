@@ -25,20 +25,10 @@ npx sleepcode run      # 실행
 ```
 
 1. 프로젝트 루트에서 `npx sleepcode` → 인터랙티브 초기화
-2. `.sleepcode/tasks.md`에 작업 목록 작성 (또는 `generate`로 자동 생성)
+2. `.sleepcode/tasks.md`에 작업 목록 작성 (또는 Notion DB에서 관리)
 3. `npx sleepcode run` → AI가 태스크를 순서대로 수행
 
 ### tasks.md 작성
-
-**자동 생성 (추천)**
-
-```bash
-npx sleepcode generate
-```
-
-참고 자료(docs/, Figma, Notion)와 프로젝트 구조를 분석해서 `tasks.md`를 자동 생성합니다.
-
-**직접 작성**
 
 `.sleepcode/tasks.md`:
 
@@ -179,7 +169,6 @@ claude --dangerously-skip-permissions
 |--------|------|
 | `npx sleepcode` | 인터랙티브 초기화 |
 | `npx sleepcode run` | 1회 실행 |
-| `npx sleepcode generate` | 참고자료 기반 tasks.md 자동 생성 |
 | `npx sleepcode parallel` | 병렬 실행 (워커별 동시 개발) |
 | `npx sleepcode parallel --setup` | worktree만 생성 (실행 전 확인) |
 | `npx sleepcode parallel --merge` | 완료된 브랜치 자동 머지 |

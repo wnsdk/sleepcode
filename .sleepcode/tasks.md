@@ -4,4 +4,4 @@
 
 ---
 
-- [x] sleepcode run 할때 —loop 로 실행하는 방식 및 관련 기능들은 완전히 폐기해줘 <!-- notion:31cad790-3b5d-80dc-bcb6-e0755a4bdad5 -->
+- [x] sleepcode generate 명령어 및 관련 기능들은 완전히 폐기해줘 <!-- notion:31cad790-3b5d-801c-9ba9-fcd2a631dd42 -->

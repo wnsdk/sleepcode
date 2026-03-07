@@ -16,16 +16,6 @@ claude --dangerously-skip-permissions
 
 ### 2. 작업 목록 작성
 
-**자동 생성 (추천)**
-
-```bash
-npx sleepcode generate
-```
-
-참고 자료(docs/, Figma, Notion)와 프로젝트 구조를 분석해서 `tasks.md`를 자동 생성합니다.
-
-**직접 작성**
-
 `.sleepcode/tasks.md`:
 
 ```markdown

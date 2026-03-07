@@ -9,8 +9,6 @@ ${SLEEPCODE_BADGE}  v${pkg.version}
 
 사용법: sleepcode [옵션]
        sleepcode run [--continue]
-       sleepcode generate
-       sleepcode sources
        sleepcode parallel [--setup|--clean|--merge|--status]
        sleepcode usage
        sleepcode notion-update [--notion-key <key>] [--notion-db <id|url>]
@@ -21,8 +19,6 @@ ${SLEEPCODE_BADGE}  v${pkg.version}
   help             도움말 보기
   version          버전 정보 보기
   run              1회 실행 (대시보드 모드)
-  generate         참고자료 기반으로 태스크 자동 생성
-  sources          참고자료 URL 관리 (sources.json)
   parallel         @worker 섹션 기반 병렬 실행
   usage            주간 사용량 확인
   notion-update    기존 Notion DB 컬럼을 최신 버전으로 업데이트

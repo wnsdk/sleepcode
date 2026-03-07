@@ -19,14 +19,16 @@ const {
   buildRuntimeTaskQueueContent,
   groupTasksByWorker,
   parseTaskStatuses,
-  updateFirstPendingStatuses,
-  updateTaskCompletion,
-  updateTaskModel,
 } = require('./notionRun');
 const {
   finalizeParallelWorkers,
   summarizeExecutionResults,
 } = require('./runCompletion');
+const {
+  handleTaskCompletedEvent,
+  handleTaskStartedEvent,
+  syncNextPendingTaskStatus,
+} = require('./runNotionEvents');
 const {
   areAllWorkersSettled,
   mergeCompletedWorkerNow,
@@ -192,32 +194,14 @@ function cmdWatch(cliProvider) {
   const notionUpdatePage = (pageId, props) => notionSync.updatePage(pageId, props);
   const notionAppendContent = (pageId, text) => notionSync.appendContent(pageId, text);
 
-  function updateNotionCompletion(taskEntry) {
-    return updateTaskCompletion({
-      taskEntry,
+  function handleTaskCompleted(payload) {
+    handleTaskCompletedEvent({
+      payload,
       schema: currentSchema,
       notionCompletedIds,
       updatePage: notionUpdatePage,
+      pushLog: (message) => watchPushLog('SYSTEM', message),
     });
-  }
-
-  function handleTaskCompleted(payload) {
-    const taskEntry = payload && payload.taskEntry ? payload.taskEntry : null;
-    if (!taskEntry) return;
-    const commit = payload && payload.commit ? payload.commit : null;
-    if (!commit || !commit.committed) {
-      const reason = commit && commit.reason ? commit.reason : 'unknown';
-      watchPushLog('SYSTEM', `${C.red}✗${C.reset} ${taskEntry.title} → commit 실패 (${reason})`);
-      return;
-    }
-    const updated = updateNotionCompletion(taskEntry);
-    if (taskEntry.notionId && updated !== null) {
-      if (updated) {
-        watchPushLog('SYSTEM', `${C.green}✓${C.reset} ${taskEntry.title} → Success`);
-      } else {
-        watchPushLog('SYSTEM', `${C.yellow}⚠${C.reset} ${taskEntry.title} → Notion 업데이트 실패`);
-      }
-    }
   }
 
   function handleTaskUiUpdated() {
@@ -225,33 +209,25 @@ function cmdWatch(cliProvider) {
   }
 
   function handleTaskStarted(payload) {
-    const taskEntry = payload && payload.taskEntry ? payload.taskEntry : null;
-    const model = payload && payload.model ? payload.model : '';
-    const ok = updateTaskModel({
-      taskEntry,
+    handleTaskStartedEvent({
+      payload,
       schema: currentSchema,
-      model,
       updatePage: notionUpdatePage,
+      pushLog: (message) => watchPushLog('SYSTEM', message),
     });
-    if (ok) {
-      watchPushLog('SYSTEM', `${C.dim}Model 업데이트: ${taskEntry.title} → ${model}${C.reset}`);
-    } else {
-      watchPushLog('SYSTEM', `${C.yellow}⚠${C.reset} ${taskEntry.title} → Model 업데이트 실패`);
-    }
   }
 
   // 태스크 완료 감지 시 다음 대기 태스크를 Running으로 업데이트
   const notionInProgressIds = new Set(); // 이미 Running으로 설정된 태스크 ID 추적
 
   function updateNextTaskStatus(workerPaths) {
-    if (!currentSchema || !currentNotionTasks || currentNotionTasks.length === 0) return;
-    const statuses = parseTaskStatuses(workerPaths, getWorkerDoneState);
-    updateFirstPendingStatuses({
+    syncNextPendingTaskStatus({
       schema: currentSchema,
       tasks: currentNotionTasks,
-      taskStatuses: statuses,
+      workerPaths,
       notionInProgressIds,
       updatePage: notionUpdatePage,
+      getWorkerDoneState,
     });
   }
 

@@ -1,0 +1,2 @@
+﻿- [x] 터미널 UI에서 Logs가 스크롤 가능하게 해줘 <!-- notion:31cad790-3b5d-80aa-9184-ef7730577abc -->
+- [x] templates > rules 에 NestJS를 추가해줘 <!-- notion:31cad790-3b5d-8027-a0bb-c74265e75c88 -->

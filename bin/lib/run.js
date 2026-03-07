@@ -155,13 +155,25 @@ function cmdWatch(cliProvider) {
   }
 
   let renderPending = false;
+  let renderTimer = null;
   function scheduleRender() {
     if (renderPending) return;
     renderPending = true;
-    setTimeout(() => {
+    renderTimer = setTimeout(() => {
       renderPending = false;
+      renderTimer = null;
       renderDashboard();
     }, 200);
+  }
+
+  function flushRender() {
+    if (renderTimer) {
+      clearTimeout(renderTimer);
+      renderTimer = null;
+    }
+    renderPending = false;
+    renderDashboard();
+    renderLogs(true);
   }
 
   function renderDashboard() {
@@ -393,7 +405,6 @@ function cmdWatch(cliProvider) {
     if (!commit || !commit.committed) {
       const reason = commit && commit.reason ? commit.reason : 'unknown';
       watchPushLog('SYSTEM', `${C.red}✗${C.reset} ${taskEntry.title} → commit 실패 (${reason})`);
-      scheduleRender();
       return;
     }
     const updated = updateNotionCompletion(taskEntry);
@@ -404,7 +415,10 @@ function cmdWatch(cliProvider) {
         watchPushLog('SYSTEM', `${C.yellow}⚠${C.reset} ${taskEntry.title} → Notion 업데이트 실패`);
       }
     }
-    scheduleRender();
+  }
+
+  function handleTaskUiUpdated() {
+    flushRender();
   }
 
   function handleTaskStarted(payload) {
@@ -590,7 +604,7 @@ function cmdWatch(cliProvider) {
       }
 
       for (const ws of workerStates) {
-        spawnWorker(ws, py, onWorkerDone, scheduleRender, watchPushLog, cliProvider, handleTaskCompleted, handleTaskStarted);
+        spawnWorker(ws, py, onWorkerDone, scheduleRender, watchPushLog, cliProvider, handleTaskCompleted, handleTaskStarted, handleTaskUiUpdated);
       }
     } else {
       // 단일 모드
@@ -634,7 +648,7 @@ function cmdWatch(cliProvider) {
         if (allDone) {
           finishExecution(currentNotionTasks, currentSchema, currentWorkerStates);
         }
-      }, scheduleRender, watchPushLog, cliProvider, handleTaskCompleted, handleTaskStarted);
+      }, scheduleRender, watchPushLog, cliProvider, handleTaskCompleted, handleTaskStarted, handleTaskUiUpdated);
     }
   }
 
@@ -875,7 +889,7 @@ function cmdWatch(cliProvider) {
             if (allDone) {
               finishExecution(currentNotionTasks, currentSchema, currentWorkerStates);
             }
-          }, scheduleRender, watchPushLog, cliProvider, handleTaskCompleted, handleTaskStarted);
+          }, scheduleRender, watchPushLog, cliProvider, handleTaskCompleted, handleTaskStarted, handleTaskUiUpdated);
         } else {
           // worktree 생성 실패 시 main에 태스크 추가
           const ws = currentWorkerStates[0];
@@ -945,7 +959,7 @@ function cmdWatch(cliProvider) {
             if (allDone) {
               finishExecution(currentNotionTasks, currentSchema, currentWorkerStates);
             }
-          }, scheduleRender, watchPushLog, cliProvider, handleTaskCompleted, handleTaskStarted);
+          }, scheduleRender, watchPushLog, cliProvider, handleTaskCompleted, handleTaskStarted, handleTaskUiUpdated);
         } else {
           watchPushLog('SYSTEM', `${C.red}워커 ${workerName} worktree 생성 실패${C.reset}`);
         }

@@ -155,14 +155,48 @@ function getHeadCommit(targetDir) {
   return gitOutput(targetDir, ['rev-parse', 'HEAD']);
 }
 
+function detectForbiddenGitWriteCommand(obj) {
+  if (!obj || !obj.item || obj.item.type !== 'command_execution') return null;
+  const command = String(obj.item.command || '').trim();
+  if (!command) return null;
+
+  const lowered = command.toLowerCase();
+  const forbiddenPattern = /\bgit\s+(add|commit|merge|checkout|switch|cherry-pick|rebase|reset|restore|stash|worktree|clean)\b/;
+  if (!forbiddenPattern.test(lowered)) return null;
+  return command;
+}
+
 function stageTaskChanges(targetDir) {
   try {
-    execFileSync('git', ['add', '-A', '--', '.', ':(exclude).sleepcode', ':(exclude).sleepcode/**'], {
+    execFileSync('git', ['add', '-u', '--', '.'], {
       cwd: targetDir,
       stdio: ['ignore', 'pipe', 'pipe'],
     });
   } catch (e) {
     return { ok: false, reason: 'git_add_failed', error: formatExecError(e) };
+  }
+
+  let untrackedFiles = [];
+  try {
+    untrackedFiles = gitOutput(targetDir, ['ls-files', '--others', '--exclude-standard', '--']).split(/\r?\n/).filter(Boolean);
+  } catch (e) {
+    return { ok: false, reason: 'git_ls_untracked_failed', error: formatExecError(e) };
+  }
+
+  const addableUntracked = untrackedFiles.filter((filePath) => {
+    const normalized = String(filePath || '').replace(/\\/g, '/');
+    return normalized !== '.sleepcode' && !normalized.startsWith('.sleepcode/');
+  });
+
+  if (addableUntracked.length > 0) {
+    try {
+      execFileSync('git', ['add', '--', ...addableUntracked], {
+        cwd: targetDir,
+        stdio: ['ignore', 'pipe', 'pipe'],
+      });
+    } catch (e) {
+      return { ok: false, reason: 'git_add_untracked_failed', error: formatExecError(e) };
+    }
   }
 
   let stagedFiles = [];
@@ -186,6 +220,26 @@ function commitTaskNow(targetDir, taskEntry, startHead) {
 
   if (!startHead) {
     return { committed: false, reason: 'missing_start_head' };
+  }
+
+  let currentHead = '';
+  try {
+    currentHead = getHeadCommit(targetDir);
+  } catch (e) {
+    return {
+      committed: false,
+      reason: 'git_head_failed',
+      error: formatExecError(e),
+    };
+  }
+
+  if (currentHead !== startHead) {
+    return {
+      committed: false,
+      reason: 'manual_commit_detected',
+      startHead,
+      endHead: currentHead,
+    };
   }
 
   const stageResult = stageTaskChanges(targetDir);
@@ -243,7 +297,7 @@ function commitTaskNow(targetDir, taskEntry, startHead) {
   };
 }
 
-function spawnWorker(ws, py, onDone, onUpdate, pushLog, cliProvider, onTaskCompleted, onTaskStarted) {
+function spawnWorker(ws, py, onDone, onUpdate, pushLog, cliProvider, onTaskCompleted, onTaskStarted, onTaskUiUpdated) {
   const wtDir = ws.path;
   const tasksPath = ws.tasksPath || path.join(wtDir, '.sleepcode', 'task_queue.md');
   const claudeMdPath = path.join(wtDir, 'CLAUDE.md');
@@ -275,16 +329,23 @@ function spawnWorker(ws, py, onDone, onUpdate, pushLog, cliProvider, onTaskCompl
   const doneFileRel = path.relative(wtDir, ws.doneFilePath).replace(/\\/g, '/');
   const runtimeRules = [
     '# Runtime Rules',
-    '- .sleepcode/task_queue.md is read-only backlog. NEVER edit or commit this file.',
-    `- Mark completion by appending to ${doneFileRel}: - [x] <task text>`,
-    '- Keep the original notion comment when present: <!-- notion:... -->',
+    '- This run owns exactly one task. Complete only the current task shown below.',
+    '- Do not continue to another task even if more backlog items exist.',
+    '- .sleepcode/task_queue.md is read-only backlog. Never edit it.',
+    `- Never edit ${doneFileRel} or any other .sleepcode/task_done file.`,
+    '- Never run git add, git commit, git merge, git checkout, git switch, git restore, git reset, git stash, or git worktree commands.',
+    '- The runtime will append task_done entries and create the git commit after you exit.',
+    '- After implementing the current task, stop and return a short summary.',
     '',
   ].join('\n');
-  const buildTaskPrompt = (queueText) => {
-    const q = String(queueText || '').trimEnd();
+  const buildTaskPrompt = (taskEntry) => {
+    const notionTag = taskEntry && taskEntry.notionId ? ` <!-- notion:${taskEntry.notionId} -->` : '';
+    const currentTaskBlock = taskEntry
+      ? `# Current Task\n\n- [ ] ${taskEntry.title}${notionTag}`
+      : '# Current Task\n\n- [ ] (missing task)';
     const doneLog = readDoneLogText().trimEnd();
-    if (!doneLog) return `${runtimeRules}\n${q}`;
-    return `${runtimeRules}\n${q}\n\n---\n\n${doneLog}\n`;
+    if (!doneLog) return `${runtimeRules}\n${currentTaskBlock}`;
+    return `${runtimeRules}\n${currentTaskBlock}\n\n---\n\n${doneLog}\n`;
   };
 
   const logStream = fs.createWriteStream(ws.logFile, { flags: 'a' });
@@ -391,15 +452,16 @@ function spawnWorker(ws, py, onDone, onUpdate, pushLog, cliProvider, onTaskCompl
       } catch {}
     }
 
+    const taskPrompt = buildTaskPrompt(nextTaskEntry);
     const promptsByProvider = {
-      [PROVIDERS.CLAUDE]: buildTaskPrompt(taskQueueText),
-      [PROVIDERS.CODEX]: buildExecutionPrompt(wtDir, buildTaskPrompt(taskQueueText), PROVIDERS.CODEX),
+      [PROVIDERS.CLAUDE]: taskPrompt,
+      [PROVIDERS.CODEX]: buildExecutionPrompt(wtDir, taskPrompt, PROVIDERS.CODEX),
     };
 
     function runAttempt(provider, allowFallback) {
       ws.provider = provider;
       const invoke = getProviderRunCommand(provider, false, ws.model);
-      const stdinPrompt = promptsByProvider[provider] || buildTaskPrompt(taskQueueText);
+      const stdinPrompt = promptsByProvider[provider] || taskPrompt;
 
       const proc = spawn(invoke.command, invoke.args, {
         cwd: wtDir,
@@ -414,6 +476,7 @@ function spawnWorker(ws, py, onDone, onUpdate, pushLog, cliProvider, onTaskCompl
 
       let buffer = '';
       let sawEvents = false;
+      let blockedCommandError = null;
 
       proc.stdout.on('data', (data) => {
         buffer += data.toString();
@@ -426,6 +489,14 @@ function spawnWorker(ws, py, onDone, onUpdate, pushLog, cliProvider, onTaskCompl
           sawEvents = true;
           try {
             const obj = JSON.parse(line);
+            const forbiddenCommand = detectForbiddenGitWriteCommand(obj);
+            if (forbiddenCommand && !blockedCommandError) {
+              blockedCommandError = `forbidden git write command attempted: ${forbiddenCommand}`;
+              logLine(`BLOCKED_GIT_WRITE: ${forbiddenCommand}`);
+              pushLog(ws.name, `${C.red}[BLOCK]${C.reset} git write command 차단`);
+              onUpdate();
+              try { proc.kill(); } catch {}
+            }
             processStreamEvent(ws, obj, onUpdate, pushLog);
           } catch {}
         }
@@ -435,14 +506,24 @@ function spawnWorker(ws, py, onDone, onUpdate, pushLog, cliProvider, onTaskCompl
         logStream.write(`[STDERR] ${data.toString()}`);
       });
 
-      proc.on('close', (code) => {
+      proc.on('close', async (code) => {
         if (buffer.trim()) {
           logStream.write(buffer + '\n');
           try {
             const obj = JSON.parse(buffer);
+            const forbiddenCommand = detectForbiddenGitWriteCommand(obj);
+            if (forbiddenCommand && !blockedCommandError) {
+              blockedCommandError = `forbidden git write command attempted: ${forbiddenCommand}`;
+              logLine(`BLOCKED_GIT_WRITE: ${forbiddenCommand}`);
+            }
             processStreamEvent(ws, obj, onUpdate, pushLog);
             sawEvents = true;
           } catch {}
+        }
+
+        if (blockedCommandError) {
+          finalize(1, blockedCommandError);
+          return;
         }
 
         if (code !== 0 && allowFallback && ws.fallbackProvider && ws.fallbackProvider !== provider && !sawEvents) {
@@ -461,6 +542,7 @@ function spawnWorker(ws, py, onDone, onUpdate, pushLog, cliProvider, onTaskCompl
           let updatedDoneState = readTaskDoneSet(wtDir, ws.doneFilePath);
           let finalCode = code;
           let finalError = null;
+          let commitResult = null;
 
           if (code === 0 && nextTaskEntry) {
             try {
@@ -470,7 +552,7 @@ function spawnWorker(ws, py, onDone, onUpdate, pushLog, cliProvider, onTaskCompl
               finalError = `runtime cleanup failed: ${e.message}`;
             }
 
-            const commitResult = finalCode === 0
+            commitResult = finalCode === 0
               ? commitTaskNow(wtDir, nextTaskEntry, taskStartHead)
               : { committed: false, reason: 'runtime_cleanup_failed', error: finalError };
 
@@ -495,21 +577,32 @@ function spawnWorker(ws, py, onDone, onUpdate, pushLog, cliProvider, onTaskCompl
               pushLog(ws.name, `${C.red}[COMMIT]${C.reset} ${nextTaskEntry.title} (${commitResult.reason})`);
             }
 
-            if (typeof onTaskCompleted === 'function') {
-              try {
-                onTaskCompleted({
-                  worker: ws,
-                  taskEntry: nextTaskEntry,
-                  commit: commitResult,
-                });
-              } catch {}
-            }
           }
 
           const tc = countTasks(updatedContent, updatedDoneState.doneSet);
           ws.done = tc.done;
           ws.total = tc.total;
+          if (typeof onTaskCompleted === 'function') {
+            try {
+              await Promise.resolve(onTaskCompleted({
+                worker: ws,
+                taskEntry: nextTaskEntry,
+                commit: commitResult,
+              }));
+            } catch {}
+          }
+
           onUpdate();
+          if (typeof onTaskUiUpdated === 'function') {
+            try {
+              await Promise.resolve(onTaskUiUpdated({
+                worker: ws,
+                taskEntry: nextTaskEntry,
+                code: finalCode,
+                error: finalError,
+              }));
+            } catch {}
+          }
 
           // 미완료 태스크가 남아있으면 다음 태스크 실행 (provider 재선택)
           const remaining = getNextPendingTask(updatedContent, updatedDoneState.doneSet);

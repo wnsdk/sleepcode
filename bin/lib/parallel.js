@@ -867,6 +867,7 @@ function runParallelWorkers(targetDir, workerInfos, cliProvider) {
   // 대시보드 렌더링
   const startTime = Date.now();
   let renderPending = false;
+  let renderTimer = null;
   const menuState = { menuIndex: 0 };
   let gracefulShutdown = false;
 
@@ -960,10 +961,21 @@ function runParallelWorkers(targetDir, workerInfos, cliProvider) {
   function scheduleRender() {
     if (renderPending) return;
     renderPending = true;
-    setTimeout(() => {
+    renderTimer = setTimeout(() => {
       renderPending = false;
+      renderTimer = null;
       renderDashboard();
     }, 200);
+  }
+
+  function flushRender() {
+    if (renderTimer) {
+      clearTimeout(renderTimer);
+      renderTimer = null;
+    }
+    renderPending = false;
+    renderDashboard();
+    renderLogs(dashboardHeight, true);
   }
 
   // Alternate Screen 초기화
@@ -1212,8 +1224,12 @@ function runParallelWorkers(targetDir, workerInfos, cliProvider) {
     console.log('');
   }
 
+  function handleTaskUiUpdated() {
+    flushRender();
+  }
+
   for (const ws of workerStates) {
-    spawnWorker(ws, py, () => onWorkerDone(ws), scheduleRender, pushLog, cliProvider, null);
+    spawnWorker(ws, py, () => onWorkerDone(ws), scheduleRender, pushLog, cliProvider, null, null, handleTaskUiUpdated);
   }
 }
 

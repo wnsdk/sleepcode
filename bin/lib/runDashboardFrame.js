@@ -1,40 +1,14 @@
 const { C, SLEEPCODE_BADGE_WITH_VERSION, notionLink } = require('./constants');
-const { progressBar, visualWidth, padEndVisual } = require('./utils');
+const { progressBar, padEndVisual } = require('./utils');
 const { providerLabelWithModel } = require('./provider');
 const { boxLine, renderMenuLineWithLayout } = require('./dashboard');
-
-function clipVisualText(text, maxWidth) {
-  const source = String(text || '');
-  if (visualWidth(source) <= maxWidth) return source;
-
-  let width = 0;
-  let cut = 0;
-  for (const ch of source) {
-    const chWidth = visualWidth(ch);
-    if (width + chWidth > maxWidth - 3) break;
-    width += chWidth;
-    cut += ch.length;
-  }
-
-  return source.slice(0, cut) + '...';
-}
+const { clipVisualText, formatElapsedSeconds } = require('./dashboardUtils');
 
 function getRunDashboardHeight(phase, workerStates) {
   if (phase !== 'executing' || !Array.isArray(workerStates) || workerStates.length === 0) {
     return 12;
   }
   return 8 + workerStates.length * 2;
-}
-
-function formatElapsedSeconds(elapsedSeconds) {
-  const elapsed = Math.max(0, Math.floor(Number(elapsedSeconds) || 0));
-  if (elapsed >= 3600) {
-    return `${Math.floor(elapsed / 3600)}h ${Math.floor((elapsed % 3600) / 60)}m`;
-  }
-  if (elapsed >= 60) {
-    return `${Math.floor(elapsed / 60)}m ${elapsed % 60}s`;
-  }
-  return `${elapsed}s`;
 }
 
 function buildRunDashboardFrame({

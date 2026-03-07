@@ -1,4 +1,3 @@
-const fs = require('fs');
 const path = require('path');
 
 const { C } = require('./constants');
@@ -8,12 +7,17 @@ const { isOverBudget } = require('./config');
 const { spawnWorker } = require('./worker');
 const { syncWorkerTaskProgress } = require('./taskState');
 const { ensureRuntimeDirs } = require('./runtimePaths');
-const { autoMergeWorktrees } = require('./parallelMerge');
 const {
   createParallelDashboard,
   getCompletionNextSteps,
   summarizeWorkerOutcomes,
 } = require('./parallelDashboard');
+const {
+  applyParallelBudgetStop,
+  mergeCompletedParallelWorker,
+  stopRunningWorkers,
+  syncParallelWorkerProgress,
+} = require('./parallelRunnerControl');
 
 function createWorkerStates(targetDir, workerInfos, logsDir, timestamp) {
   return workerInfos.map((worker) => ({
@@ -95,70 +99,43 @@ function runParallelWorkers(targetDir, workerInfos, cliProvider) {
   }
 
   const workerStates = createWorkerStates(targetDir, workerInfos, logsDir, timestamp);
-  for (const worker of workerStates) {
-    const tasksPath = worker.tasksPath || path.join(worker.path, '.sleepcode', 'task_queue.md');
-    if (!fs.existsSync(tasksPath)) continue;
-    const content = fs.readFileSync(tasksPath, 'utf-8');
-    syncWorkerTaskProgress(worker, null, content);
-  }
-
-  function stopRunningWorkers(signal = null) {
-    for (const worker of workerStates) {
-      if (!worker._proc) continue;
-      try {
-        if (signal) worker._proc.kill(signal);
-        else worker._proc.kill();
-      } catch {}
-    }
-  }
+  syncParallelWorkerProgress({
+    workerStates,
+    syncWorkerTaskProgressFn: syncWorkerTaskProgress,
+  });
 
   const dashboard = createParallelDashboard({
     workerStates,
     targetDir,
     getBudgetInfo: isOverBudget,
     onGracefulExit: () => {
-      for (const worker of workerStates) {
-        if (worker.status === 'running' && worker._proc) {
-          try { worker._proc.kill('SIGINT'); } catch {}
-        }
-      }
+      stopRunningWorkers(workerStates.filter((worker) => worker.status === 'running'), 'SIGINT');
     },
-    onImmediateExit: () => stopRunningWorkers(),
-    onInterrupt: () => stopRunningWorkers(),
+    onImmediateExit: () => stopRunningWorkers(workerStates),
+    onInterrupt: () => stopRunningWorkers(workerStates),
   });
 
   dashboard.start();
 
   const dashboardInterval = setInterval(() => dashboard.renderDashboard(), 3000);
   const taskProgressInterval = setInterval(() => {
-    for (const worker of workerStates) {
-      if (worker.status !== 'running') continue;
-      const tasksPath = worker.tasksPath || path.join(worker.path, '.sleepcode', 'task_queue.md');
-      try {
-        if (!fs.existsSync(tasksPath)) continue;
-        const content = fs.readFileSync(tasksPath, 'utf-8');
-        syncWorkerTaskProgress(worker, null, content);
-      } catch {}
-    }
-    dashboard.scheduleRender();
+    syncParallelWorkerProgress({
+      workerStates,
+      scheduleRender: () => dashboard.scheduleRender(),
+      syncWorkerTaskProgressFn: syncWorkerTaskProgress,
+    });
   }, 5000);
 
   let budgetStopped = false;
   const budgetCheckInterval = setInterval(() => {
     if (budgetStopped) return;
-    const result = isOverBudget(targetDir);
-    if (!result || !result.over) return;
-
-    budgetStopped = true;
-    dashboard.pushLog('SYSTEM', `${C.yellow}주간 한도 ${result.threshold}% 도달 ($${result.total.toFixed(2)}) — 워커 중지${C.reset}`);
-    for (const worker of workerStates) {
-      if (worker.status === 'running' && worker._proc) {
-        worker.status = 'budget_stop';
-        worker.currentTask = '한도 도달 — 중지됨';
-        try { worker._proc.kill(); } catch {}
-      }
-    }
-    dashboard.renderDashboard();
+    const result = applyParallelBudgetStop({
+      targetDir,
+      workerStates,
+      dashboard,
+      isOverBudgetFn: isOverBudget,
+    });
+    budgetStopped = result.stopped;
   }, 30000);
 
   let activeWorkers = workerStates.length;
@@ -176,25 +153,13 @@ function runParallelWorkers(targetDir, workerInfos, cliProvider) {
   function onWorkerDone(completedWorker) {
     activeWorkers -= 1;
     dashboard.renderDashboard();
-
-    if (completedWorker && completedWorker.status === 'done') {
-      dashboard.pushLog('SYSTEM', `${C.green}${completedWorker.name} 완료 — main 브랜치에 즉시 병합 중...${C.reset}`);
-      try {
-        const mergeResults = autoMergeWorktrees(targetDir, [completedWorker], cliProvider);
-        if (mergeResults.merged.length > 0) {
-          dashboard.pushLog('SYSTEM', `${C.green}✓ ${completedWorker.name} — main 브랜치 병합 완료${C.reset}`);
-          completedWorker.merged = true;
-        } else if (mergeResults.skipped.length > 0) {
-          dashboard.pushLog('SYSTEM', `${C.dim}${completedWorker.name} — 병합 스킵 (변경 없음)${C.reset}`);
-          completedWorker.merged = true;
-        } else if (mergeResults.conflicted.length > 0) {
-          dashboard.pushLog('SYSTEM', `${C.red}✗ ${completedWorker.name} — 병합 충돌 (수동 처리 필요)${C.reset}`);
-        }
-      } catch (e) {
-        dashboard.pushLog('SYSTEM', `${C.red}✗ ${completedWorker.name} — 병합 오류: ${e.message}${C.reset}`);
-      }
-      dashboard.scheduleRender();
-    }
+    mergeCompletedParallelWorker({
+      completedWorker,
+      targetDir,
+      cliProvider,
+      dashboard,
+    });
+    dashboard.scheduleRender();
 
     finishIfDone();
   }

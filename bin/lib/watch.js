@@ -184,17 +184,18 @@ function cmdWatch(cliProvider) {
       lines.push(`${C.dim}╠${'═'.repeat(W + 2)}╣${C.reset}`);
       const remaining = lastPollTime ? Math.max(0, pollIntervalSec - Math.floor((Date.now() - lastPollTime) / 1000)) : pollIntervalSec;
       lines.push(boxLine(`${C.dim}다음 폴링${C.reset} ${C.cyan}${remaining}초${C.reset}`, W));
-      lines.push(`${C.dim}╠${'═'.repeat(W + 2)}╣${C.reset}`);
     }
 
-    const budgetInfo = isOverBudget(targetDir);
-    if (budgetInfo) {
-      const pct = Math.min(100, (budgetInfo.total / budgetInfo.budget * 100)).toFixed(0);
-      const budgetBar = progressBar(Math.min(budgetInfo.total, budgetInfo.budget), budgetInfo.budget, 10);
-      const warn = budgetInfo.over ? ` ${C.red}한도 도달!${C.reset}` : '';
-      lines.push(boxLine(`${C.dim}주간${C.reset} ${C.yellow}$${budgetInfo.total.toFixed(2)}${C.reset}/${C.dim}$${budgetInfo.budget}${C.reset} (${pct}%) ${budgetBar}${warn}`, W));
-    } else {
-      lines.push(boxLine('', W));
+    if (watchPhase === 'executing') {
+      const budgetInfo = isOverBudget(targetDir);
+      if (budgetInfo) {
+        const pct = Math.min(100, (budgetInfo.total / budgetInfo.budget * 100)).toFixed(0);
+        const budgetBar = progressBar(Math.min(budgetInfo.total, budgetInfo.budget), budgetInfo.budget, 10);
+        const warn = budgetInfo.over ? ` ${C.red}한도 도달!${C.reset}` : '';
+        lines.push(boxLine(`${C.dim}주간${C.reset} ${C.yellow}$${budgetInfo.total.toFixed(2)}${C.reset}/${C.dim}$${budgetInfo.budget}${C.reset} (${pct}%) ${budgetBar}${warn}`, W));
+      } else {
+        lines.push(boxLine('', W));
+      }
     }
 
     // 테이블 닫기

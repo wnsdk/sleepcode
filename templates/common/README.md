@@ -41,9 +41,6 @@ npx sleepcode generate
 ```bash
 # 1회 실행
 npx sleepcode run
-
-# 무한 루프 (잠자기 전)
-npx sleepcode run --loop
 ```
 
 ### 4. 병렬 실행 (여러 기능 동시 개발)
@@ -82,16 +79,13 @@ Notion DB를 제어판으로 사용하여 원격으로 태스크를 관리합니
 
 ```bash
 npx sleepcode run         # 한 번 실행
-npx sleepcode run --loop  # 무한 루프 모드
 ```
-
-명시적으로 `--loop` 옵션을 주면 30초마다 Notion DB를 폴링하며 **Run** 체크 또는 **Status = Start** 인 태스크를 감지하고 자동 실행합니다.
 
 ### 6. tmux 분리 (백그라운드 전환, macOS/Linux)
 
 ```bash
 # tmux 세션에서 실행
-tmux new -s ai 'npx sleepcode run --loop'
+tmux new -s ai 'npx sleepcode run'
 
 # 백그라운드 전환
 Ctrl + B → D
@@ -145,7 +139,6 @@ npx sleepcode usage
   scripts/           # 시스템 (수정하지 마세요)
     base_rules.md    #   공통 작업 규칙
     ai_worker.*      #   1회 실행 스크립트
-    run_forever.*    #   무한 루프 감시자 스크립트
     log_filter.py    #   로그 필터 (핵심 메시지만 추출)
   logs/              # 실행 로그 (자동 생성)
 ```

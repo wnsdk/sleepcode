@@ -40,9 +40,8 @@ async function main() {
     return;
   }
   if (firstArg === 'run') {
-    const loop = !!cliArgs.loop;
     const cont = !!cliArgs.continue;
-    runWorker(loop, cont, providerArg);
+    runWorker(cont, providerArg);
     return;
   }
   if (firstArg === 'generate') {
@@ -178,8 +177,6 @@ async function main() {
       }
     }
     const notionFilter = cliArgs.notionFilter || '';
-    const sleepInterval = cliArgs.interval || '30';
-
     console.log(`${C.dim}타입: ${typeConfig.label}${C.reset}`);
     console.log(`${C.dim}이름: ${projectName}${C.reset}`);
     console.log(`${C.dim}역할: ${role}${C.reset}`);
@@ -198,7 +195,6 @@ async function main() {
       notionPages,
       notionDbId,
       notionFilter,
-      sleepInterval,
       provider: providerArg || PROVIDERS.CLAUDE,
     });
 
@@ -335,8 +331,6 @@ async function main() {
 
     notionPages = await ask(rl, '참고할 Notion 페이지명 (없으면 Enter)', '');
 
-    const sleepInterval = await ask(rl, '반복 간격 (초)', '30');
-
     // 주간 예산 설정
     let weeklyBudget = 0;
     let budgetThreshold = 90;
@@ -373,7 +367,6 @@ async function main() {
       notionPages,
       notionDbId,
       notionFilter,
-      sleepInterval,
       provider: providerArg || PROVIDERS.CLAUDE,
     });
 

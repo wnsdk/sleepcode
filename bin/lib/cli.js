@@ -8,7 +8,7 @@ function showHelp() {
 ${SLEEPCODE_BADGE}  v${pkg.version}
 
 사용법: sleepcode [옵션]
-       sleepcode run [--loop] [--continue]
+       sleepcode run [--continue]
        sleepcode generate
        sleepcode sources
        sleepcode parallel [--setup|--clean|--merge|--status]
@@ -20,7 +20,7 @@ ${SLEEPCODE_BADGE}  v${pkg.version}
 명령어:
   help             도움말 보기
   version          버전 정보 보기
-  run              1회 실행 (대시보드 모드, --loop 무한 실행)
+  run              1회 실행 (대시보드 모드)
   generate         참고자료 기반으로 태스크 자동 생성
   sources          참고자료 URL 관리 (sources.json)
   parallel         @worker 섹션 기반 병렬 실행
@@ -43,12 +43,10 @@ ${SLEEPCODE_BADGE}  v${pkg.version}
   --notion-parent <id|url>   새 DB 생성 시 상위 Notion 페이지
   --notion-db-name <name>    새 DB 이름 (기본: <프로젝트명> - sleepcode tasks)
   --notion-filter <f>  Notion 필터 (예: "Status = To Do")
-  --interval <sec>     반복 간격 (초, 기본 30)
   --budget <usd>       주간 예산 ($, 예: 50)
   --threshold <pct>    사용량 임계값 (%, 기본 90)
   --provider <name>    AI provider (claude, codex, auto)
   --claude-ratio <pct> Claude 사용 비율 (0-100, 예: 30 → Claude 30% / Codex 70%)
-  --loop              run 명령 무한 루프 실행
   -c, --continue       이전 세션 이어서 실행 (토큰 절약)
   -f, --force          기존 .sleepcode/ 덮어쓰기
   -v, --version        버전 정보
@@ -77,12 +75,10 @@ function parseArgs() {
     else if (args[i] === '--notion-parent' && args[i + 1]) parsed.notionParent = args[++i];
     else if (args[i] === '--notion-db-name' && args[i + 1]) parsed.notionDbName = args[++i];
     else if (args[i] === '--notion-filter' && args[i + 1]) parsed.notionFilter = args[++i];
-    else if (args[i] === '--interval' && args[i + 1]) parsed.interval = args[++i];
     else if (args[i] === '--budget' && args[i + 1]) parsed.budget = args[++i];
     else if (args[i] === '--threshold' && args[i + 1]) parsed.threshold = args[++i];
     else if (args[i] === '--provider' && args[i + 1]) parsed.provider = args[++i];
     else if (args[i] === '--claude-ratio' && args[i + 1]) parsed.claudeRatio = args[++i];
-    else if (args[i] === '--loop') parsed.loop = true;
     else if (args[i] === '--continue' || args[i] === '-c') parsed.continue = true;
     else if (args[i] === '--force' || args[i] === '-f') parsed.force = true;
     else if (args[i] === '--help' || args[i] === '-h') {

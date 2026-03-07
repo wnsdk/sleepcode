@@ -1,5 +1,5 @@
 # AI Worker - single-run script (PowerShell)
-# Used when running one cycle manually instead of run_forever.ps1.
+# Executes a single task cycle.
 
 param(
     [string]$provider = ''

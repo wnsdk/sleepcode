@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # AI Worker - single-run script
-# Used when running one cycle manually instead of run_forever.sh.
+# Executes a single task cycle.
 
 cd "$(dirname "$0")/../.." || exit 1
 

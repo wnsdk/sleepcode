@@ -12,9 +12,6 @@
 # 1회 실행
 npx sleepcode run
 
-# 무한 루프 (잠자기 전)
-npx sleepcode run --loop
-
 # 병렬 실행 (여러 기능 동시 개발)
 npx sleepcode parallel
 ```
@@ -182,7 +179,6 @@ claude --dangerously-skip-permissions
 |--------|------|
 | `npx sleepcode` | 인터랙티브 초기화 |
 | `npx sleepcode run` | 1회 실행 |
-| `npx sleepcode run --loop` | 무한 루프 실행 |
 | `npx sleepcode generate` | 참고자료 기반 tasks.md 자동 생성 |
 | `npx sleepcode parallel` | 병렬 실행 (워커별 동시 개발) |
 | `npx sleepcode parallel --setup` | worktree만 생성 (실행 전 확인) |
@@ -208,8 +204,6 @@ npx sleepcode --type react-native --name my-app --role "쇼핑몰 앱 개발"
 | `--notion-page <name>` | Notion 참고 페이지명 (선택) |
 | `--notion-db <id\|url>` | Notion DB ID 또는 URL (태스크 동기화용) |
 | `--notion-filter <f>` | Notion 필터 (예: `"Status = To Do"`) |
-| `--interval <sec>` | 반복 간격 초 (기본: 30) |
-| `--loop` | `run` 명령 무한 루프 실행 |
 | `--budget <usd>` | 주간 예산 USD |
 | `--threshold <pct>` | 예산 임계값 % (기본: 90) |
 | `-f, --force` | 기존 `.sleepcode/` 폴더 덮어쓰기 |
@@ -229,7 +223,6 @@ npx sleepcode --type react-native --name my-app --role "쇼핑몰 앱 개발"
   scripts/               # ⚙️ 시스템 (수정하지 마세요)
     base_rules.md        #    공통 작업 규칙
     ai_worker.sh/.ps1    #    1회 실행 스크립트 (OS별)
-    run_forever.sh/.ps1  #    무한 루프 스크립트 (OS별)
     log_filter.py        #    실시간 로그 필터
     notion_sync.py       #    Notion 동기화 (Notion DB 모드만)
   logs/                  # 실행 로그 (자동 생성)
@@ -277,6 +270,21 @@ tasks.md → @worker별 분리 → git worktree 생성 → 동시 실행 → 완
 
 태스크 시작 시 난이도를 자동 평가(1-5점)하여, 프로바이더에 맞는 최적 모델을 자동으로 선택합니다.
 
+### Provider 선택 우선순위
+
+```
+CLI --provider 인자 > 환경변수 SLEEPCODE_PROVIDER > config.json claudeRatio > 기본값(claude)
+```
+
+- `--provider claude|codex` 로 명시 지정 가능
+- `.sleepcode/.env`에 `SLEEPCODE_PROVIDER=codex` 설정 가능
+- `.sleepcode/config.json`의 `claudeRatio`로 확률적 분배 (예: `0.3` = Claude 30%, Codex 70%)
+- 둘 다 미지정 시 기본값은 `claude`
+
+### 난이도 판정 → 모델 매핑
+
+태스크 텍스트를 `claude-haiku-4-5`에게 보내 난이도(1-5)를 빠르게 판정한 뒤, 아래 매핑에 따라 모델을 자동 선택합니다. (판정 실패 시 기본 난이도 3 적용)
+
 | 난이도 | 별점 | 설명 | Claude 모델 | Codex 모델 |
 |--------|------|------|-------------|------------|
 | 1 | ★☆☆☆☆ | 단순 작업 (오타 수정, 설정 변경, 텍스트 업데이트) | claude-haiku-4-5 | gpt-5.1-codex-mini |
@@ -285,25 +293,50 @@ tasks.md → @worker별 분리 → git worktree 생성 → 동시 실행 → 완
 | 4 | ★★★★☆ | 어려운 작업 (복잡한 기능, 아키텍처 변경, 멀티파일 리팩토링) | claude-opus-4-6 | gpt-5.3-codex |
 | 5 | ★★★★★ | 매우 어려운 작업 (대규모 재설계, 복잡한 알고리즘, 시스템 전반 변경) | claude-opus-4-6 | gpt-5.1-codex-max |
 
-### 모델 선택 근거
+### 모델별 토큰 비용 비교
 
-**Claude 모델**
-- `claude-haiku-4-5` (난이도 1): 가장 빠르고 저렴. 단순 반복 작업에 최적.
-- `claude-sonnet-4-6` (난이도 2-3): 속도와 성능의 균형. 대부분의 일반 개발 태스크 처리 가능.
-- `claude-opus-4-6` (난이도 4-5): 최고 성능. 복잡한 설계·아키텍처 결정이 필요한 태스크에 사용.
+sleepcode는 난이도에 따라 모델을 자동 선택하므로, 단순 작업에는 저렴한 모델을, 복잡한 작업에만 고성능 모델을 사용하여 비용을 최적화합니다.
+
+**Claude 모델** (MTok = 100만 토큰)
+
+| 모델 | Input | Output | 난이도 | 비용 특징 |
+|------|-------|--------|--------|-----------|
+| claude-haiku-4-5 | $1/MTok | $5/MTok | 1 | Opus 대비 **1/5 가격**. 단순 반복 작업에 최적 |
+| claude-sonnet-4-6 | $3/MTok | $15/MTok | 2-3 | Opus 대비 **3/5 가격**. 대부분의 개발 태스크에 균형 |
+| claude-opus-4-6 | $5/MTok | $25/MTok | 4-5 | 최고 성능. 복잡한 설계·아키텍처 결정에 사용 |
+
+> 예시: 동일한 10만 input + 5만 output 토큰 태스크 기준
+> - Haiku: $0.10 + $0.25 = **$0.35**
+> - Sonnet: $0.30 + $0.75 = **$1.05** (Haiku의 3배)
+> - Opus: $0.50 + $1.25 = **$1.75** (Haiku의 5배)
 
 **Codex 모델**
-- `gpt-5.1-codex-mini` (난이도 1-2): 빠른 응답/낮은 비용의 경량 코딩 모델.
-- `gpt-5.2-codex` (난이도 3): 일반적인 기능 구현과 리팩토링에 균형.
-- `gpt-5.3-codex` / `gpt-5.1-codex-max` (난이도 4-5): 복잡한 설계/추론 작업 우선.
-- 계정에서 해당 모델이 보이지 않으면 Codex CLI 기본 모델(`default`)로 자동 fallback 됩니다.
 
-### 동작 방식
+| 모델 | Input | Output | 난이도 | 비용 특징 |
+|------|-------|--------|--------|-----------|
+| gpt-5.1-codex-mini | $0.25/MTok | $2/MTok | 1-2 | 가장 저렴. 경량 코딩 작업에 최적 |
+| gpt-5.2-codex | $1.75/MTok | $14/MTok | 3 | 일반적인 기능 구현·리팩토링에 균형 |
+| gpt-5.3-codex | $1.75/MTok | $14/MTok | 4 | 복잡한 추론이 필요한 작업 |
+| gpt-5.1-codex-max | $1.25/MTok | $10/MTok | 5 | 대규모 설계·고난이도 작업 |
 
-1. 태스크 시작 시 `claude-haiku-4-5`로 난이도를 빠르게 평가 (Claude 미설치 시 기본 난이도 3 적용)
-2. 평가된 난이도 기준으로 Claude/Codex 각각 모델을 선택하고 실행
-3. Codex 모델이 계정에서 미지원이면 `default`로 자동 fallback
-4. 실행 로그 예시: `[DIFFICULTY] ★★★☆☆ (3/5) -> gpt-5.2-codex` 또는 `-> default`
+> 예시: 동일한 10만 input + 5만 output 토큰 태스크 기준
+> - Codex-Mini: $0.025 + $0.10 = **$0.125**
+> - Codex 5.2/5.3: $0.175 + $0.70 = **$0.875** (Mini의 7배)
+> - Codex-Max: $0.125 + $0.50 = **$0.625** (Mini의 5배)
+
+### 실행 흐름
+
+```
+1. Provider 선택 (CLI → 환경변수 → claudeRatio → 기본값)
+2. 태스크 텍스트를 Claude Haiku로 난이도 판정 (1-5)
+3. 난이도에 맞는 모델 자동 선택
+4. 선택된 provider + model로 태스크 실행
+5. 실패 시 fallback provider로 자동 재시도
+```
+
+- 병렬 모드에서는 각 워커가 독립적으로 난이도 평가 및 모델 선택을 수행합니다.
+- 실행 로그 표시: `[DIFFICULTY] ★★★☆☆ (3/5) -> claude-sonnet-4-6`
+- Codex 모델이 계정에서 미지원이면 `default`로 자동 fallback
 
 ---
 
@@ -311,7 +344,7 @@ tasks.md → @worker별 분리 → git worktree 생성 → 동시 실행 → 완
 
 | 동작 | 명령어 |
 |------|--------|
-| 세션 생성 + 실행 | `tmux new -s ai 'npx sleepcode run --loop'` |
+| 세션 생성 + 실행 | `tmux new -s ai 'npx sleepcode run'` |
 | 백그라운드 전환 | `Ctrl+B` → `D` |
 | 세션 재접속 | `tmux attach -t ai` |
 | 실시간 로그 | `tail -f .sleepcode/logs/worker_*.log` |

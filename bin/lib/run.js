@@ -10,7 +10,7 @@ const { syncClaudeMd } = require('./files');
 const { boxLine, renderMenuLine, setupMenuInput } = require('./dashboard');
 const { processStreamEvent } = require('./worker');
 
-function runWorker(loop, cont, cliProvider) {
+function runWorker(cont, cliProvider) {
   const targetDir = process.cwd();
 
   // 예산 체크
@@ -28,43 +28,6 @@ function runWorker(loop, cont, cliProvider) {
   if (!fs.existsSync(scriptsDir)) {
     console.error(`${C.red}.sleepcode/scripts/ 폴더가 없습니다. 먼저 'npx sleepcode'로 초기화하세요.${C.reset}`);
     process.exit(1);
-  }
-
-  // --loop 모드는 기존 셸 스크립트 방식 유지
-  if (loop) {
-    const scriptName = IS_WIN ? 'run_forever.ps1' : 'run_forever.sh';
-    const scriptPath = path.join(scriptsDir, scriptName);
-
-    if (!fs.existsSync(scriptPath)) {
-      console.error(`${C.red}스크립트를 찾을 수 없습니다: ${scriptPath}${C.reset}`);
-      process.exit(1);
-    }
-
-    let providerPlan;
-    try {
-      providerPlan = resolveProviderPlan(targetDir, cliProvider);
-    } catch (e) {
-      console.error(C.red + e.message + C.reset);
-      process.exit(1);
-    }
-    if (providerPlan.requestedUnavailable) {
-      console.log(C.yellow + 'requested provider unavailable, switched to ' + providerLabel(providerPlan.selected) + '.' + C.reset);
-    }
-
-    const contFlag = cont ? ' --continue' : '';
-    const providerFlag = ' --provider ' + providerPlan.selected;
-    const cmd = IS_WIN
-      ? `powershell -NoProfile -ExecutionPolicy Bypass -File "${scriptPath}"${contFlag}${providerFlag}`
-      : `"${scriptPath}"${contFlag}${providerFlag}`;
-    const modeLabel = cont ? '무한 루프 실행 (세션 연속 모드)' : '무한 루프 실행';
-    console.log(`${C.cyan}${modeLabel}: ${scriptName}${C.reset}\n`);
-
-    try {
-      execSync(cmd, { stdio: 'inherit', cwd: targetDir, env: { ...process.env, SLEEPCODE_PROVIDER: providerPlan.selected } });
-    } catch (e) {
-      process.exit(e.status || 1);
-    }
-    return;
   }
 
   // 1회 실행: 대시보드 모드
@@ -145,6 +108,15 @@ function runSingleWithDashboard(targetDir, cont, cliProvider) {
     const tc = countTasks(content);
     ws.total = tc.total;
     ws.done = tc.done;
+  }
+
+  const pendingTasks = Math.max(0, ws.total - ws.done);
+  if (pendingTasks === 0) {
+    console.log(`${C.yellow}실행 가능한 미완료 태스크가 없습니다. AI 실행을 건너뜁니다.${C.reset}`);
+    if (process.env.NOTION_API_KEY && process.env.NOTION_DB_ID) {
+      console.log(`${C.dim}Notion에서 Run 체크된 태스크를 추가한 뒤 다시 실행하세요.${C.reset}`);
+    }
+    return;
   }
 
   // 로그 버퍼 (리사이즈 시 재렌더링용)

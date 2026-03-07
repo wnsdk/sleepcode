@@ -27,7 +27,7 @@ function syncClaudeMd(targetDir) {
   }
 }
 
-function generateFiles(targetDir, { typeKey, projectName, role, buildCmd, testCmd, lintCmd, figmaKey, figmaFileNames, notionKey, notionPages, notionDbId, notionFilter, sleepInterval, provider = PROVIDERS.CLAUDE }) {
+function generateFiles(targetDir, { typeKey, projectName, role, buildCmd, testCmd, lintCmd, figmaKey, figmaFileNames, notionKey, notionPages, notionDbId, notionFilter, provider = PROVIDERS.CLAUDE }) {
   const scDir = path.join(targetDir, '.sleepcode');
   const claudeDir = path.join(targetDir, '.claude');
   fs.mkdirSync(path.join(scDir, 'docs'), { recursive: true });
@@ -37,8 +37,8 @@ function generateFiles(targetDir, { typeKey, projectName, role, buildCmd, testCm
 
   // 스크립트 파일 → scripts/ 하위로 복사 (OS별 분기)
   const scriptFiles = IS_WIN
-    ? ['ai_worker.ps1', 'run_forever.ps1', 'encoding_bootstrap.ps1']
-    : ['ai_worker.sh', 'run_forever.sh'];
+    ? ['ai_worker.ps1', 'encoding_bootstrap.ps1']
+    : ['ai_worker.sh'];
   const allScriptFiles = [...scriptFiles, 'log_filter.py'];
   if (notionDbId) allScriptFiles.push('notion_sync.py');
 
@@ -47,7 +47,6 @@ function generateFiles(targetDir, { typeKey, projectName, role, buildCmd, testCm
     const dest = path.join(scDir, 'scripts', file);
     if (fs.existsSync(src)) {
       let content = fs.readFileSync(src, 'utf-8');
-      content = content.replace(/\{\{SLEEP_INTERVAL\}\}/g, sleepInterval);
       // Shell/Python 스크립트는 반드시 LF 줄바꿈 (Windows에서도)
       if (file.endsWith('.sh') || file.endsWith('.py')) {
         content = content.replace(/\r\n/g, '\n');
@@ -97,7 +96,6 @@ function generateFiles(targetDir, { typeKey, projectName, role, buildCmd, testCm
   // 실행 권한 (Unix만)
   if (!IS_WIN) {
     fs.chmodSync(path.join(scDir, 'scripts', 'ai_worker.sh'), 0o755);
-    fs.chmodSync(path.join(scDir, 'scripts', 'run_forever.sh'), 0o755);
     fs.chmodSync(path.join(scDir, 'scripts', 'log_filter.py'), 0o755);
     if (notionDbId) fs.chmodSync(path.join(scDir, 'scripts', 'notion_sync.py'), 0o755);
   }
@@ -171,7 +169,6 @@ function generateFiles(targetDir, { typeKey, projectName, role, buildCmd, testCm
 
 function printResult(notionDbId) {
   const workerScript = IS_WIN ? 'ai_worker.ps1' : 'ai_worker.sh';
-  const foreverScript = IS_WIN ? 'run_forever.ps1' : 'run_forever.sh';
 
   console.log(`\n${C.bold}파일 생성 완료:${C.reset}\n`);
   console.log(`  ${C.green}✓${C.reset} .sleepcode/rules.md          ${C.dim}← 수정하세요${C.reset}`);
@@ -180,7 +177,6 @@ function printResult(notionDbId) {
   console.log(`  ${C.green}✓${C.reset} .sleepcode/docs/             ${C.dim}← 참고자료 파일 추가${C.reset}`);
   console.log(`  ${C.green}✓${C.reset} .sleepcode/scripts/base_rules.md`);
   console.log(`  ${C.green}✓${C.reset} .sleepcode/scripts/${workerScript}`);
-  console.log(`  ${C.green}✓${C.reset} .sleepcode/scripts/${foreverScript}`);
   if (IS_WIN) {
     console.log(`  ${C.green}✓${C.reset} .sleepcode/scripts/encoding_bootstrap.ps1`);
   }
@@ -202,7 +198,6 @@ ${C.bold}${C.green}완료!${C.reset} 다음 단계:
   ${taskStep}
   ${C.bold}4.${C.reset} 실행:
      ${C.cyan}npx sleepcode run${C.reset}          ${C.dim}# 1회 실행${C.reset}
-     ${C.cyan}npx sleepcode run --loop${C.reset}   ${C.dim}# 무한 루프${C.reset}
 `);
 }
 

@@ -145,7 +145,6 @@ tasks.md 내용만 출력하세요. 다른 설명은 하지 마세요.`;
     console.log(`${C.dim}${result}${C.reset}\n`);
     console.log(`필요하면 tasks.md를 직접 수정한 뒤 실행하세요:`);
     console.log(`  ${C.cyan}npx sleepcode run${C.reset}          ${C.dim}# 1회 실행${C.reset}`);
-    console.log(`  ${C.cyan}npx sleepcode run --loop${C.reset}   ${C.dim}# 무한 루프${C.reset}`);
   } catch (e) {
     const stderr = e.stderr ? e.stderr.toString().trim() : '';
     console.error(`${C.red}태스크 생성 실패:${C.reset}`);

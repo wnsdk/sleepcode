@@ -1,23 +1,4 @@
-const fs = require('fs');
-const path = require('path');
-const { execFileSync } = require('child_process');
-
-const { TEMPLATES_DIR, IS_WIN } = require('./constants');
-
-function ensureNotionSyncScript(targetDir) {
-  const syncScript = path.join(targetDir, '.sleepcode', 'scripts', 'notion_sync.py');
-  if (fs.existsSync(syncScript)) return syncScript;
-
-  const src = path.join(TEMPLATES_DIR, 'common', 'notion_sync.py');
-  if (!fs.existsSync(src)) {
-    throw new Error('notion_sync.py를 찾을 수 없습니다.');
-  }
-
-  fs.mkdirSync(path.dirname(syncScript), { recursive: true });
-  fs.writeFileSync(syncScript, fs.readFileSync(src, 'utf-8').replace(/\r\n/g, '\n'));
-  if (!IS_WIN) fs.chmodSync(syncScript, 0o755);
-  return syncScript;
-}
+const { createNotionSyncBridge, ensureNotionSyncScript } = require('./notionSyncBridge');
 
 function buildStatusProps(schema, statusValue) {
   if (!schema || !schema.status_prop) return null;
@@ -50,26 +31,25 @@ function buildModelProp(schema, modelName) {
   return { [schema.model_prop]: { rich_text: [{ text: { content: modelName } }] } };
 }
 
-function createNotionSyncClient({ targetDir, pythonCommand, syncScript = null, env = process.env }) {
-  const scriptPath = syncScript || ensureNotionSyncScript(targetDir);
-
-  function runSyncCommand(args, options = {}) {
-    return execFileSync(pythonCommand, [scriptPath, ...args], {
-      cwd: targetDir,
-      env,
-      stdio: ['pipe', 'pipe', 'pipe'],
-      encoding: 'utf-8',
-      timeout: options.timeoutMs || 30000,
-      input: options.input,
-    });
-  }
+function createNotionSyncClient({
+  targetDir,
+  pythonCommand,
+  syncScript = null,
+  env = process.env,
+  createNotionSyncBridgeFn = createNotionSyncBridge,
+} = {}) {
+  const bridge = createNotionSyncBridgeFn({
+    targetDir,
+    pythonCommand,
+    syncScript,
+    env,
+  });
 
   return {
-    syncScript: scriptPath,
+    syncScript: bridge.scriptPath,
     poll() {
       try {
-        const result = runSyncCommand(['poll']).trim();
-        return JSON.parse(result);
+        return bridge.poll();
       } catch (e) {
         const stderr = e.stderr ? String(e.stderr).trim() : '';
         return { error: 'poll_failed', message: stderr || e.message || 'unknown error' };
@@ -77,21 +57,15 @@ function createNotionSyncClient({ targetDir, pythonCommand, syncScript = null, e
     },
     updatePage(pageId, props) {
       try {
-        runSyncCommand(['update-page', String(pageId)], {
-          input: JSON.stringify(props),
-          timeoutMs: 15000,
-        });
-        return true;
+        const result = bridge.updatePage(pageId, props);
+        return !result || result.ok !== false;
       } catch {
         return false;
       }
     },
     appendContent(pageId, text) {
       try {
-        runSyncCommand(['append-content', String(pageId)], {
-          input: text,
-          timeoutMs: 60000,
-        });
+        bridge.appendContent(pageId, text);
         return true;
       } catch {
         return false;

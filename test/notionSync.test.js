@@ -5,6 +5,7 @@ const {
   buildCompletedAtProp,
   buildModelProp,
   buildStatusProps,
+  createNotionSyncClient,
 } = require('../bin/lib/notionSync');
 
 test('buildStatusProps supports status and select schemas', () => {
@@ -39,4 +40,53 @@ test('buildCompletedAtProp emits an ISO timestamp with timezone offset', () => {
     props['Completed At'].date.start,
     /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}[+-]\d{2}:\d{2}$/
   );
+});
+
+test('createNotionSyncClient delegates to the bridge and returns safe results', () => {
+  const calls = [];
+  const client = createNotionSyncClient({
+    targetDir: 'C:\\workspace\\sleepcode',
+    pythonCommand: 'python3',
+    createNotionSyncBridgeFn: (options) => {
+      calls.push(options);
+      return {
+        scriptPath: 'C:\\workspace\\sleepcode\\.sleepcode\\scripts\\notion_sync.py',
+        poll: () => ({ tasks: [], schema: {} }),
+        updatePage: () => ({ ok: true }),
+        appendContent: () => {},
+      };
+    },
+  });
+
+  assert.equal(client.syncScript, 'C:\\workspace\\sleepcode\\.sleepcode\\scripts\\notion_sync.py');
+  assert.deepEqual(client.poll(), { tasks: [], schema: {} });
+  assert.equal(client.updatePage('page-1', { Status: { status: { name: 'Running' } } }), true);
+  assert.equal(client.appendContent('page-1', 'report text'), true);
+  assert.equal(calls.length, 1);
+  assert.equal(calls[0].pythonCommand, 'python3');
+});
+
+test('createNotionSyncClient converts bridge failures into poll/update/append fallbacks', () => {
+  const client = createNotionSyncClient({
+    targetDir: 'C:\\workspace\\sleepcode',
+    pythonCommand: 'python3',
+    createNotionSyncBridgeFn: () => ({
+      scriptPath: 'C:\\workspace\\sleepcode\\.sleepcode\\scripts\\notion_sync.py',
+      poll: () => {
+        const error = new Error('bridge failed');
+        error.stderr = 'stderr message';
+        throw error;
+      },
+      updatePage: () => {
+        throw new Error('update failed');
+      },
+      appendContent: () => {
+        throw new Error('append failed');
+      },
+    }),
+  });
+
+  assert.deepEqual(client.poll(), { error: 'poll_failed', message: 'stderr message' });
+  assert.equal(client.updatePage('page-1', { Status: { status: { name: 'Running' } } }), false);
+  assert.equal(client.appendContent('page-1', 'report text'), false);
 });

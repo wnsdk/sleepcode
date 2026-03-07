@@ -639,6 +639,7 @@ function runParallelWorkers(targetDir, workerInfos, cliProvider) {
   const MAX_LOG_BUFFER = 200;
   const logBuffer = [];
   let altScreenActive = false;
+  let cursorHidden = false;
 
   function appendLogToScreen(line) {
     if (!altScreenActive) return;
@@ -743,6 +744,8 @@ function runParallelWorkers(targetDir, workerInfos, cliProvider) {
     for (let i = 0; i < lines.length; i++) {
       process.stdout.write(`\x1b[${i + 1};1H${lines[i]}\x1b[K`);
     }
+    // 커서를 한 곳에 고정 (숨김 미지원 터미널 대비)
+    process.stdout.write('\x1b[1;1H');
   }
 
   /** 이벤트 기반 렌더 요청을 200ms 디바운스로 처리 (깜빡임 방지) */
@@ -761,6 +764,8 @@ function runParallelWorkers(targetDir, workerInfos, cliProvider) {
     process.stdout.write('\x1b[?1049h');
     process.stdout.write('\x1b[H');
     process.stdout.write('\x1b[2J');
+    process.stdout.write('\x1b[?25l');
+    cursorHidden = true;
     const rows = process.stdout.rows || 24;
     if (rows > dashboardHeight) {
       process.stdout.write(`\x1b[${dashboardHeight + 1};${rows}r`);
@@ -773,6 +778,10 @@ function runParallelWorkers(targetDir, workerInfos, cliProvider) {
     altScreenActive = false;
     process.stdout.write('\x1b[r');
     process.stdout.write('\x1b[?1049l');
+    if (cursorHidden) {
+      process.stdout.write('\x1b[?25h');
+      cursorHidden = false;
+    }
   }
 
   process.stdout.on('resize', () => {

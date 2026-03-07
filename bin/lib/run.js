@@ -85,6 +85,7 @@ function cmdWatch(cliProvider) {
   const MAX_LOG_BUFFER = 200;
   const logBuffer = [];
   let altScreenActive = false;
+  let cursorHidden = false;
 
   function getDashboardHeight() {
     if (watchPhase !== 'executing' || currentWorkerStates.length === 0) return 12;
@@ -204,6 +205,8 @@ function cmdWatch(cliProvider) {
     for (let i = 0; i < lines.length; i++) {
       process.stdout.write(`\x1b[${i + 1};1H${lines[i]}\x1b[K`);
     }
+    // 커서를 한 곳에 고정 (숨김 미지원 터미널 대비)
+    process.stdout.write('\x1b[1;1H');
   }
 
   function setWatchPhase(newPhase) {
@@ -228,6 +231,8 @@ function cmdWatch(cliProvider) {
     process.stdout.write('\x1b[?1049h');
     process.stdout.write('\x1b[H');
     process.stdout.write('\x1b[2J');
+    process.stdout.write('\x1b[?25l');
+    cursorHidden = true;
     currentDashboardHeight = getDashboardHeight();
     const rows = process.stdout.rows || 24;
     if (rows > currentDashboardHeight) {
@@ -241,6 +246,10 @@ function cmdWatch(cliProvider) {
     altScreenActive = false;
     process.stdout.write('\x1b[r');
     process.stdout.write('\x1b[?1049l');
+    if (cursorHidden) {
+      process.stdout.write('\x1b[?25h');
+      cursorHidden = false;
+    }
   }
 
   process.stdout.on('resize', () => {

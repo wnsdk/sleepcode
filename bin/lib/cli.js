@@ -8,7 +8,7 @@ function showHelp() {
 ${SLEEPCODE_BADGE}  v${pkg.version}
 
 사용법: sleepcode [옵션]
-       sleepcode watch [--notion-db <id|url>] [--notion-key <key>]
+       sleepcode run [--loop] [--continue]
        sleepcode generate
        sleepcode sources
        sleepcode parallel [--setup|--clean|--merge|--status]
@@ -20,8 +20,7 @@ ${SLEEPCODE_BADGE}  v${pkg.version}
 명령어:
   help             도움말 보기
   version          버전 정보 보기
-  watch            Notion DB 감시 (제어판 모드, 자동 실행)
-  run              watch의 별칭 (sleepcode watch와 동일)
+  run              1회 실행 (대시보드 모드, --loop 무한 실행)
   generate         참고자료 기반으로 태스크 자동 생성
   sources          참고자료 URL 관리 (sources.json)
   parallel         @worker 섹션 기반 병렬 실행
@@ -49,6 +48,7 @@ ${SLEEPCODE_BADGE}  v${pkg.version}
   --threshold <pct>    사용량 임계값 (%, 기본 90)
   --provider <name>    AI provider (claude, codex, auto)
   --claude-ratio <pct> Claude 사용 비율 (0-100, 예: 30 → Claude 30% / Codex 70%)
+  --loop              run 명령 무한 루프 실행
   -c, --continue       이전 세션 이어서 실행 (토큰 절약)
   -f, --force          기존 .sleepcode/ 덮어쓰기
   -v, --version        버전 정보
@@ -82,6 +82,7 @@ function parseArgs() {
     else if (args[i] === '--threshold' && args[i + 1]) parsed.threshold = args[++i];
     else if (args[i] === '--provider' && args[i + 1]) parsed.provider = args[++i];
     else if (args[i] === '--claude-ratio' && args[i + 1]) parsed.claudeRatio = args[++i];
+    else if (args[i] === '--loop') parsed.loop = true;
     else if (args[i] === '--continue' || args[i] === '-c') parsed.continue = true;
     else if (args[i] === '--force' || args[i] === '-f') parsed.force = true;
     else if (args[i] === '--help' || args[i] === '-h') {

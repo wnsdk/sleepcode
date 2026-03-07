@@ -16,7 +16,6 @@ const { showUsage } = require('./lib/config');
 const { showHelp, showVersion, parseArgs } = require('./lib/cli');
 const { runWorker } = require('./lib/run');
 const { runParallel } = require('./lib/parallel');
-const { cmdWatch } = require('./lib/watch');
 const { generateTasks } = require('./lib/generate');
 
 // ─── 메인 ───
@@ -41,7 +40,9 @@ async function main() {
     return;
   }
   if (firstArg === 'run') {
-    cmdWatch(providerArg);
+    const loop = !!cliArgs.loop;
+    const cont = !!cliArgs.continue;
+    runWorker(loop, cont, providerArg);
     return;
   }
   if (firstArg === 'generate') {
@@ -59,10 +60,6 @@ async function main() {
   }
   if (firstArg === 'usage') {
     showUsage();
-    return;
-  }
-  if (firstArg === 'watch') {
-    cmdWatch(providerArg);
     return;
   }
   if (firstArg === 'notion-update') {

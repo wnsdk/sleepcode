@@ -81,10 +81,11 @@ npx sleepcode parallel --clean      # worktree 정리
 Notion DB를 제어판으로 사용하여 원격으로 태스크를 관리합니다.
 
 ```bash
-npx sleepcode watch
+npx sleepcode run         # 한 번 실행
+npx sleepcode run --loop  # 무한 루프 모드
 ```
 
-30초마다 Notion DB를 폴링하여 **Run** 체크 또는 **Status = Start** 인 태스크를 감지하고 자동 실행합니다.
+명시적으로 `--loop` 옵션을 주면 30초마다 Notion DB를 폴링하며 **Run** 체크 또는 **Status = Start** 인 태스크를 감지하고 자동 실행합니다.
 
 ### 6. tmux 분리 (백그라운드 전환, macOS/Linux)
 

@@ -962,41 +962,48 @@ function cmdWatch(cliProvider) {
   const pollTimer = setInterval(doPoll, pollIntervalMs);
 
   // 메뉴 키 입력 핸들러
-  const cleanupMenuInput = setupMenuInput(
+  const pollNow = () => {
+    watchPushLog('SYSTEM', `${C.cyan}즉시 폴링 실행${C.reset}`);
+    doPoll();
+    renderDashboard();
+  };
+
+  const gracefulExit = () => {
+    if (gracefulShutdown) return;
+    gracefulShutdown = true;
+    watchPushLog('SYSTEM', `${C.yellow}마무리 후 종료 요청 — 현재 작업 완료 후 종료됩니다${C.reset}`);
+    clearInterval(pollTimer);
+    for (const ws of currentWorkerStates) {
+      if (ws.status === 'running' && ws._proc) {
+        try { ws._proc.kill('SIGINT'); } catch {}
+      }
+    }
+    renderDashboard();
+  };
+
+  const immediateExit = () => {
+    if (cleanupMenuInput) cleanupMenuInput();
+    clearInterval(pollTimer);
+    clearInterval(dashboardInterval);
+    clearInterval(taskProgressInterval);
+    for (const ws of currentWorkerStates) {
+      if (ws._proc) try { ws._proc.kill(); } catch {}
+    }
+    cleanupAltScreen();
+    console.log(`\n${C.yellow}즉시 종료됨${C.reset}`);
+    process.exit(0);
+  };
+
+  let cleanupMenuInput;
+  cleanupMenuInput = setupMenuInput(
     menuState,
     renderDashboard,
-    // 마무리 후 종료
-    () => {
-      if (gracefulShutdown) return;
-      gracefulShutdown = true;
-      watchPushLog('SYSTEM', `${C.yellow}마무리 후 종료 요청 — 현재 작업 완료 후 종료됩니다${C.reset}`);
-      clearInterval(pollTimer);
-      for (const ws of currentWorkerStates) {
-        if (ws.status === 'running' && ws._proc) {
-          try { ws._proc.kill('SIGINT'); } catch {}
-        }
-      }
-      renderDashboard();
-    },
-    // 즉시 종료
-    () => {
-      if (cleanupMenuInput) cleanupMenuInput();
-      clearInterval(pollTimer);
-      clearInterval(dashboardInterval);
-      clearInterval(taskProgressInterval);
-      for (const ws of currentWorkerStates) {
-        if (ws._proc) try { ws._proc.kill(); } catch {}
-      }
-      cleanupAltScreen();
-      console.log(`\n${C.yellow}즉시 종료됨${C.reset}`);
-      process.exit(0);
-    },
-    // 추가 메뉴: 즉시 폴링
-    [{ label: '즉시 폴링', noConfirm: true, handler: () => {
-      watchPushLog('SYSTEM', `${C.cyan}즉시 폴링 실행${C.reset}`);
-      doPoll();
-      renderDashboard();
-    }}]
+    [
+      { label: '즉시 폴링', noConfirm: true, handler: pollNow },
+      { label: '즉시 종료', handler: immediateExit },
+      { label: '마무리 후 종료', handler: gracefulExit },
+    ],
+    immediateExit
   );
 
   // 종료 핸들러

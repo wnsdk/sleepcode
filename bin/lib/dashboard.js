@@ -7,10 +7,9 @@ function boxLine(content, innerWidth) {
 }
 
 /** 대시보드 하단 메뉴 렌더링 */
-const MENU_ITEMS = ['마무리 후 종료', '즉시 종료'];
 
 function renderMenuLineWithLayout(selectedIndex, innerWidth, confirmPending, menuItems) {
-  const items = menuItems || MENU_ITEMS;
+  const items = menuItems || [];
   const parts = items.map((label, i) => {
     if (i === selectedIndex) {
       return `${C.cyan}${C.bold}▸ ${label}${C.reset}`;
@@ -48,7 +47,7 @@ function renderMenuLine(selectedIndex, innerWidth, confirmPending, menuItems) {
 }
 
 /** 대시보드 메뉴 키 입력 핸들러 설정 */
-function setupMenuInput(state, onRender, onGraceful, onImmediate, extraActions) {
+function setupMenuInput(state, onRender, menuEntries, onImmediate) {
   if (!process.stdin.isTTY) return null;
   process.stdin.setRawMode(true);
   process.stdin.resume();
@@ -56,10 +55,14 @@ function setupMenuInput(state, onRender, onGraceful, onImmediate, extraActions) 
     process.stdout.write('\x1b[?1000h\x1b[?1006h');
   }
 
+  const entries = Array.isArray(menuEntries) ? menuEntries : [];
+  if (entries.length === 0) {
+    throw new Error('setupMenuInput requires at least one menu entry');
+  }
   state.confirmPending = false;
-  const actions = [onGraceful, onImmediate, ...(extraActions || []).map(a => a.handler)];
-  state._menuItems = extraActions ? [...MENU_ITEMS, ...extraActions.map(a => a.label)] : MENU_ITEMS;
-  const itemCount = state._menuItems.length;
+  const actions = entries.map(entry => entry.handler);
+  state._menuItems = entries.map(entry => entry.label);
+  const itemCount = entries.length;
 
   const handler = (data) => {
     const input = data.toString();
@@ -89,8 +92,8 @@ function setupMenuInput(state, onRender, onGraceful, onImmediate, extraActions) 
             continue;
           }
           const action = actions[state.menuIndex];
-          const extraIdx = state.menuIndex - 2;
-          const isNoConfirm = extraIdx >= 0 && extraActions && extraActions[extraIdx] && extraActions[extraIdx].noConfirm;
+          const entry = entries[state.menuIndex];
+          const isNoConfirm = entry && entry.noConfirm;
           if (isNoConfirm) {
             action();
             continue;
@@ -111,7 +114,9 @@ function setupMenuInput(state, onRender, onGraceful, onImmediate, extraActions) 
 
     // Ctrl+C → 즉시 종료
     if (key === '\x03') {
-      onImmediate();
+      if (typeof onImmediate === 'function') {
+        onImmediate();
+      }
       return;
     }
 
@@ -132,9 +137,8 @@ function setupMenuInput(state, onRender, onGraceful, onImmediate, extraActions) 
     // Enter: 한 번 누르면 확인 대기, 다시 누르면 실행 (즉시 폴링은 확인 없이 바로 실행)
     if (key === '\r' || key === '\n') {
       const action = actions[state.menuIndex];
-      // extraActions에 noConfirm이 설정된 경우 확인 없이 바로 실행
-      const extraIdx = state.menuIndex - 2;
-      const isNoConfirm = extraIdx >= 0 && extraActions && extraActions[extraIdx] && extraActions[extraIdx].noConfirm;
+      const entry = entries[state.menuIndex];
+      const isNoConfirm = entry && entry.noConfirm;
       if (isNoConfirm) {
         action();
         return;
@@ -165,7 +169,6 @@ function setupMenuInput(state, onRender, onGraceful, onImmediate, extraActions) 
 
 module.exports = {
   boxLine,
-  MENU_ITEMS,
   renderMenuLine,
   renderMenuLineWithLayout,
   setupMenuInput,

@@ -803,31 +803,37 @@ function runParallelWorkers(targetDir, workerInfos, cliProvider) {
   process.on('exit', cleanupAltScreen);
 
   // 메뉴 키 입력 핸들러
-  const cleanupMenuInput = setupMenuInput(
+  const gracefulExit = () => {
+    if (gracefulShutdown) return;
+    gracefulShutdown = true;
+    pushLog('SYSTEM', `${C.yellow}마무리 후 종료 요청 — 현재 작업 완료 후 종료됩니다${C.reset}`);
+    for (const ws of workerStates) {
+      if (ws.status === 'running' && ws._proc) {
+        try { ws._proc.kill('SIGINT'); } catch {}
+      }
+    }
+    renderDashboard();
+  };
+
+  const immediateExit = () => {
+    if (cleanupMenuInput) cleanupMenuInput();
+    for (const ws of workerStates) {
+      if (ws._proc) try { ws._proc.kill(); } catch {}
+    }
+    cleanupAltScreen();
+    console.log(`\n${C.yellow}즉시 종료됨${C.reset}`);
+    process.exit(0);
+  };
+
+  let cleanupMenuInput;
+  cleanupMenuInput = setupMenuInput(
     menuState,
     renderDashboard,
-    // 마무리 후 종료: 현재 작업 완료 후 프로세스 종료
-    () => {
-      if (gracefulShutdown) return;
-      gracefulShutdown = true;
-      pushLog('SYSTEM', `${C.yellow}마무리 후 종료 요청 — 현재 작업 완료 후 종료됩니다${C.reset}`);
-      for (const ws of workerStates) {
-        if (ws.status === 'running' && ws._proc) {
-          try { ws._proc.kill('SIGINT'); } catch {}
-        }
-      }
-      renderDashboard();
-    },
-    // 즉시 종료
-    () => {
-      if (cleanupMenuInput) cleanupMenuInput();
-      for (const ws of workerStates) {
-        if (ws._proc) try { ws._proc.kill(); } catch {}
-      }
-      cleanupAltScreen();
-      console.log(`\n${C.yellow}즉시 종료됨${C.reset}`);
-      process.exit(0);
-    }
+    [
+      { label: '마무리 후 종료', handler: gracefulExit },
+      { label: '즉시 종료', handler: immediateExit },
+    ],
+    immediateExit
   );
 
   renderDashboard();

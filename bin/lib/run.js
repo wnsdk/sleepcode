@@ -1,7 +1,7 @@
 const fs = require('fs');
 const path = require('path');
 const { execSync } = require('child_process');
-const { C, SLEEPCODE_BADGE_HOVER, IS_WIN, TEMPLATES_DIR, branchColor, notionLink } = require('./constants');
+const { C, SLEEPCODE_BADGE_WITH_VERSION, IS_WIN, TEMPLATES_DIR, branchColor, notionLink } = require('./constants');
 const { countTasks, progressBar, visualWidth, padEndVisual, loadEnvFileToProcessEnv, parseNotionDbId } = require('./utils');
 const { detectPython } = require('./prerequisites');
 const { providerLabel, providerLabelWithModel } = require('./provider');
@@ -130,7 +130,7 @@ function cmdWatch(cliProvider) {
 
     if (watchPhase === 'executing' && currentWorkerStates.length > 0) {
       const activeCount = currentWorkerStates.filter(w => w.status === 'running').length;
-      lines.push(boxLine(`${SLEEPCODE_BADGE_HOVER}  run  ${C.cyan}⟳${C.reset} ${activeCount}/${currentWorkerStates.length} workers${notionLink(dbId)}`, W));
+      lines.push(boxLine(`${SLEEPCODE_BADGE_WITH_VERSION}  run  ${C.cyan}⟳${C.reset} ${activeCount}/${currentWorkerStates.length} workers${notionLink(dbId)}`, W));
       lines.push(`${C.dim}╠${'═'.repeat(W + 2)}╣${C.reset}`);
 
       for (const ws of currentWorkerStates) {
@@ -179,7 +179,7 @@ function cmdWatch(cliProvider) {
       lines.push(boxLine(`${C.dim}비용${C.reset} ${C.yellow}${costStr}${C.reset} ${C.dim}·${C.reset} ${C.dim}경과${C.reset} ${C.cyan}${elapsedStr}${C.reset} ${C.dim}·${C.reset} ${C.cyan}${totalPct}%${C.reset} ${C.dim}·${C.reset} ${C.dim}폴링${C.reset} ${remaining}초`, W));
     } else {
       // Waiting mode
-      lines.push(boxLine(`${SLEEPCODE_BADGE_HOVER}  run  ${C.dim}◆${C.reset} 대기 중${notionLink(dbId)}`, W));
+      lines.push(boxLine(`${SLEEPCODE_BADGE_WITH_VERSION}  run  ${C.dim}◆${C.reset} 대기 중${notionLink(dbId)}`, W));
       lines.push(`${C.dim}╠${'═'.repeat(W + 2)}╣${C.reset}`);
       lines.push(boxLine(`${C.dim}전체${C.reset} ${pollInfo.total}  ${C.dim}·  대기${C.reset} ${C.cyan}${pollInfo.pending}${C.reset}`, W));
       lines.push(`${C.dim}╠${'═'.repeat(W + 2)}╣${C.reset}`);

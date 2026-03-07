@@ -152,8 +152,8 @@ function generateFiles(targetDir, { typeKey, projectName, role, buildCmd, testCm
   // .gitattributes — 병렬 브랜치 머지 시 task_queue/task_done 충돌 완화
   const gitattributesPath = path.join(targetDir, '.gitattributes');
   const mergeRules = [
-    '.sleepcode/task_queue.md merge=union',
-    '.sleepcode/task_done/*.md merge=union',
+    '.sleepcode/task_queue.md -text merge=union',
+    '.sleepcode/task_done/*.md -text merge=union',
   ];
   if (fs.existsSync(gitattributesPath)) {
     let attrs = fs.readFileSync(gitattributesPath, 'utf-8');

@@ -70,7 +70,7 @@ test('buildFinalTaskProps and buildExecutionReportText summarize results', () =>
       status_prop: 'Status',
       status_type: 'status',
       completed_at_prop: 'Completed At',
-      cost_prop: 'Cost',
+      cost_prop: 'Tokens',
       log_prop: 'Log',
     },
     isDone: true,
@@ -80,7 +80,7 @@ test('buildFinalTaskProps and buildExecutionReportText summarize results', () =>
   });
 
   assert.deepEqual(props.Status, { status: { name: 'Success' } });
-  assert.equal(props.Cost.number, 0.6173);
+  assert.equal(props.Tokens.number, 0.6173);
   assert.match(props.Log.rich_text[0].text.content, /^완료 \(\$0\.6173\)$/);
   assert.match(
     buildExecutionReportText([

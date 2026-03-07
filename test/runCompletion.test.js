@@ -15,7 +15,7 @@ test('summarizeExecutionResults builds task outcomes, costs, and reports', () =>
     schema: {
       status_prop: 'Status',
       status_type: 'status',
-      cost_prop: 'Cost',
+      cost_prop: 'Tokens',
       log_prop: 'Log',
       completed_at_prop: 'Completed At',
     },
@@ -36,7 +36,7 @@ test('summarizeExecutionResults builds task outcomes, costs, and reports', () =>
       id: result.task.id,
       status: result.newStatus,
       hasStatusProp: Boolean(result.props.Status),
-      cost: result.props.Cost.number,
+      cost: result.props.Tokens.number,
     })),
     [
       { id: 'a', status: 'Success', hasStatusProp: false, cost: 1 },

@@ -251,7 +251,7 @@ def get_watch_schema(api_key, db_id):
         elif ptype in ("rich_text", "select") and lname in ("model", "모델") and not schema["model_prop"]:
             schema["model_prop"] = name
             schema["model_type"] = ptype
-        elif ptype == "number" and lname in ("cost", "비용"):
+        elif ptype == "number" and lname in ("cost", "비용", "tokens", "토큰"):
             schema["cost_prop"] = name
         elif ptype == "date" and lname in ("completed at", "completed_at", "완료일", "완료 시각"):
             schema["completed_at_prop"] = name

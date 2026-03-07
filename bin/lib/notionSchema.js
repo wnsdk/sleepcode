@@ -32,7 +32,7 @@ const EXPECTED_DB_PROPERTIES = {
   'Priority': { number: { format: 'number' } },
   'Log': { rich_text: {} },
   'Model': buildModelSelectProperty(),
-  'Cost': { number: { format: 'number' } },
+  'Tokens': { number: { format: 'number' } },
   'Completed At': { date: {} },
 };
 

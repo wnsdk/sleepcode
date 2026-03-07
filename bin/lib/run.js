@@ -28,6 +28,9 @@ const {
   syncNextPendingTaskStatus,
 } = require('./runNotionEvents');
 const {
+  createRunPollingController,
+} = require('./runPolling');
+const {
   isSingleMainWorkerMode,
   startDynamicWorker,
   trackDynamicTaskIds,
@@ -130,9 +133,7 @@ function cmdWatch(cliProvider) {
   let lastPollTime = null;
   let currentWorkerStates = [];
   let execStartTime = null;
-  let pollTimer = null;
-  let dashboardInterval = null;
-  let taskProgressInterval = null;
+  let pollingController = null;
 
   function stopWorkerProcesses(signal, runningOnly = false) {
     for (const ws of currentWorkerStates) {
@@ -143,9 +144,9 @@ function cmdWatch(cliProvider) {
   }
 
   function stopWatchTimers() {
-    clearInterval(pollTimer);
-    clearInterval(dashboardInterval);
-    clearInterval(taskProgressInterval);
+    if (pollingController) {
+      pollingController.stopAll();
+    }
   }
 
   const dashboard = createRunDashboard({
@@ -157,12 +158,14 @@ function cmdWatch(cliProvider) {
     getWorkerStates: () => currentWorkerStates,
     getExecStartTime: () => execStartTime,
     onPollNow: () => {
-      watchPushLog('SYSTEM', `${C.cyan}즉시 폴링 실행${C.reset}`);
-      doPoll();
-      renderDashboard();
+      if (pollingController) {
+        pollingController.pollNow();
+      }
     },
     onGracefulExit: () => {
-      clearInterval(pollTimer);
+      if (pollingController) {
+        pollingController.stopPolling();
+      }
       stopWorkerProcesses('SIGINT', true);
     },
     onImmediateExit: () => {
@@ -419,7 +422,11 @@ function cmdWatch(cliProvider) {
 
     // 실행 완료 후 즉시 폴링 — 실행 중 추가된 태스크를 바로 감지
     if (!dashboard.isGracefulShutdown()) {
-      setTimeout(doPoll, 1000);
+      setTimeout(() => {
+        if (pollingController) {
+          pollingController.pollOnce();
+        }
+      }, 1000);
     }
   }
 
@@ -486,83 +493,41 @@ function cmdWatch(cliProvider) {
     scheduleRender();
   }
 
-  // ─── 폴링 루프 ───
-
-  function doPoll() {
-    lastPollTime = Date.now();
-
-    // graceful_stop 체크
-    if (fs.existsSync(gracefulStopPath)) {
+  pollingController = createRunPollingController({
+    targetDir,
+    gracefulStopPath,
+    pollIntervalMs,
+    notionPoll,
+    isOverBudget,
+    buildPollInfo,
+    selectTasksToRun,
+    filterNewTasks,
+    getIsExecuting: () => isExecuting,
+    getExecutingTaskIds: () => executingTaskIds,
+    getWatchPhase: () => watchPhase,
+    getCurrentWorkerStates: () => currentWorkerStates,
+    setLastPollTime: (value) => {
+      lastPollTime = value;
+    },
+    setPollInfo: (value) => {
+      pollInfo = value;
+    },
+    addTasksDuringExecution,
+    executeNotionTasks,
+    renderDashboard,
+    scheduleRender,
+    updateNextTaskStatus,
+    syncWorkerTaskProgress,
+    dashboard,
+    pushLog: watchPushLog,
+    onGracefulStopDetected: () => {
       dashboard.dispose();
       console.log(`\n${C.yellow}graceful_stop 감지 — run 종료${C.reset}`);
       process.exit(0);
-    }
+    },
+  });
 
-    // 예산 체크
-    const budgetCheck = isOverBudget(targetDir);
-    if (budgetCheck && budgetCheck.over) {
-      watchPushLog('SYSTEM', `${C.yellow}주간 한도 도달 — 대기${C.reset}`);
-      renderDashboard();
-      return;
-    }
-
-    const data = notionPoll();
-
-    if (!data || data.error) {
-      const errMsg = data && data.message ? `: ${data.message}` : '';
-      watchPushLog('SYSTEM', `${C.red}폴링 실패${errMsg}${C.reset}`);
-      return;
-    }
-
-    const schema = data.schema;
-    pollInfo = buildPollInfo(data.tasks);
-    const tasksToRun = selectTasksToRun(data.tasks, schema);
-
-    // 실행 중일 때: 새로 추가된 태스크만 필터링하여 대기열에 추가
-    if (isExecuting) {
-      const newTasks = filterNewTasks(tasksToRun, executingTaskIds);
-      if (newTasks.length > 0) {
-        addTasksDuringExecution(newTasks, schema);
-      }
-      renderDashboard();
-      return;
-    }
-
-    if (tasksToRun.length > 0) {
-      executeNotionTasks(tasksToRun, schema);
-    } else {
-      renderDashboard();
-    }
-  }
-
-  dashboard.start();
-
-  // 대시보드 갱신 타이머 (카운트다운을 위해 1초 간격)
-  dashboardInterval = setInterval(renderDashboard, 1000);
-
-  // 5초마다 task_queue.md를 읽어 진행률 갱신 + 개별 태스크 Notion 상태 업데이트
-  taskProgressInterval = setInterval(() => {
-    if (watchPhase !== 'executing' || currentWorkerStates.length === 0) return;
-    for (const ws of currentWorkerStates) {
-      if (ws.status !== 'running') continue;
-      const tp = ws.tasksPath || path.join(ws.path, '.sleepcode', 'task_queue.md');
-      try {
-        if (fs.existsSync(tp)) {
-          const content = fs.readFileSync(tp, 'utf-8');
-          syncWorkerTaskProgress(ws, null, content);
-        }
-      } catch {}
-    }
-    // 완료된 태스크 감지 → 다음 대기 태스크를 Running으로 업데이트
-    updateNextTaskStatus(currentWorkerStates);
-    scheduleRender();
-  }, 5000);
-
-  // 초기 폴링
-  doPoll();
-
-  // 주기적 폴링
-  pollTimer = setInterval(doPoll, pollIntervalMs);
+  pollingController.start();
 }
 
 module.exports = {

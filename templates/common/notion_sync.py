@@ -230,6 +230,7 @@ def get_watch_schema(api_key, db_id):
         "model_type": None,
         "cost_prop": None,
         "completed_at_prop": None,
+        "commit_prop": None,
     }
 
     for name, prop in props.items():
@@ -255,6 +256,8 @@ def get_watch_schema(api_key, db_id):
             schema["cost_prop"] = name
         elif ptype == "date" and lname in ("completed at", "completed_at", "완료일", "완료 시각"):
             schema["completed_at_prop"] = name
+        elif ptype == "rich_text" and lname in ("commit", "커밋", "commit id", "커밋 id"):
+            schema["commit_prop"] = name
 
     # Fallback: status 미감지 시 첫 번째 status/select 프로퍼티 사용
     if not schema["status_prop"]:

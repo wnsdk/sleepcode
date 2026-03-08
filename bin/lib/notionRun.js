@@ -4,6 +4,7 @@ const path = require('path');
 const { extractTaskItems } = require('./utils');
 const {
   buildCompletedAtProp,
+  buildCommitProp,
   buildModelProp,
   buildStatusProps,
 } = require('./notionSync');
@@ -77,10 +78,10 @@ function parseTaskStatuses(workerRefs, getWorkerDoneState) {
   return statuses;
 }
 
-function updateTaskCompletion({ taskEntry, schema, notionCompletedIds, updatePage, worker }) {
+function updateTaskCompletion({ taskEntry, schema, notionCompletedIds, updatePage, worker, commit }) {
   if (!taskEntry || !taskEntry.notionId) return false;
   if (!schema) return false;
-  if (!schema.status_prop && !schema.completed_at_prop && !schema.cost_prop) return null;
+  if (!schema.status_prop && !schema.completed_at_prop && !schema.cost_prop && !schema.commit_prop) return null;
   if (notionCompletedIds.has(taskEntry.notionId)) return true;
 
   const props = {};
@@ -95,6 +96,10 @@ function updateTaskCompletion({ taskEntry, schema, notionCompletedIds, updatePag
       props[schema.cost_prop] = { number: Math.round(totalTokens) };
     }
   }
+
+  const commitId = commit && commit.endHead ? commit.endHead : null;
+  const commitProps = buildCommitProp(schema, commitId);
+  if (commitProps) Object.assign(props, commitProps);
 
   if (Object.keys(props).length === 0) return false;
 

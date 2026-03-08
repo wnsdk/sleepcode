@@ -34,8 +34,14 @@ function buildModelProp(schema, modelName) {
   return { [schema.model_prop]: { rich_text: [{ text: { content: modelName } }] } };
 }
 
+function buildCommitProp(schema, commitId) {
+  if (!schema || !schema.commit_prop || !commitId) return null;
+  return { [schema.commit_prop]: { rich_text: [{ text: { content: String(commitId) } }] } };
+}
+
 module.exports = {
   buildCompletedAtProp,
+  buildCommitProp,
   buildModelProp,
   buildStatusProps,
 };

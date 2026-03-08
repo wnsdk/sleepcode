@@ -24,6 +24,7 @@ const SCHEMA_KEYS = {
   MODEL_TYPE: 'model_type',
   COST_PROP: 'cost_prop',
   COMPLETED_AT_PROP: 'completed_at_prop',
+  COMMIT_PROP: 'commit_prop',
 };
 
 // Python 스크립트 상대 경로

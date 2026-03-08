@@ -34,6 +34,7 @@ function handleTaskCompletedEvent({
     notionCompletedIds,
     updatePage,
     worker,
+    commit,
   });
 
   if (taskEntry.notionId && updated !== null && typeof pushLog === 'function') {

@@ -39,6 +39,7 @@ const EXPECTED_DB_PROPERTIES = {
     description: 'Weighted token cost (Sonnet=1x). Cache: creation×1.25, read×0.1. Model: Opus×1.67, Sonnet×1.0, Haiku×0.33',
   },
   'Completed At': { date: {} },
+  'Commit': { rich_text: {} },
 };
 
 function normalizePropName(name) {

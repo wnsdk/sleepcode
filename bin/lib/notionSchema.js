@@ -36,7 +36,7 @@ const EXPECTED_DB_PROPERTIES = {
   'Model': buildModelSelectProperty(),
   'Cost': {
     number: { format: 'number' },
-    description: 'Weighted token cost. Claude: input×1.0 + cache_creation×1.25 + cache_read×0.1 + output×1.0',
+    description: 'Weighted token cost (Sonnet=1x). Cache: creation×1.25, read×0.1. Model: Opus×1.67, Sonnet×1.0, Haiku×0.33',
   },
   'Completed At': { date: {} },
 };

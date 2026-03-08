@@ -5,6 +5,21 @@ const { visualWidth } = require('./utils');
 const { recordCost } = require('./configBudget');
 const { syncWorkerTaskProgress } = require('./taskState');
 
+// 모델별 Cost 가중치 (Sonnet 기준 1.0 정규화)
+// https://docs.anthropic.com/en/docs/about-claude/pricing
+const CLAUDE_MODEL_WEIGHTS = {
+  opus:   { input: 5 / 3, output: 25 / 15 },   // $5/$25 per MTok
+  sonnet: { input: 1.0,   output: 1.0 },        // $3/$15 per MTok (기준)
+  haiku:  { input: 1 / 3, output: 5 / 15 },     // $1/$5 per MTok
+};
+
+function getModelWeight(model) {
+  const m = String(model || '').toLowerCase();
+  if (m.includes('opus'))   return CLAUDE_MODEL_WEIGHTS.opus;
+  if (m.includes('haiku'))  return CLAUDE_MODEL_WEIGHTS.haiku;
+  return CLAUDE_MODEL_WEIGHTS.sonnet;
+}
+
 function trimByWidth(text, width) {
   const src = (text || '').trim();
   if (!src) return '';
@@ -66,13 +81,14 @@ function processStreamEvent(ws, obj, onUpdate, pushLog) {
     }
 
     // Claude stream-json: 각 assistant 메시지의 message.usage에서 실시간 토큰 집계
-    // 캐시 토큰에 가중치를 적용하여 플랜 주간 한도 소모량에 비례하도록 계산
+    // 캐시 가중치 + 모델 가중치를 적용하여 플랜 주간 한도 소모량에 비례하도록 계산
     const msgUsage = obj.message && obj.message.usage;
     if (msgUsage) {
-      const input = (msgUsage.input_tokens || 0) * 1.0
+      const mw = getModelWeight(ws.model);
+      const input = ((msgUsage.input_tokens || 0) * 1.0
         + (msgUsage.cache_creation_input_tokens || 0) * 1.25
-        + (msgUsage.cache_read_input_tokens || 0) * 0.1;
-      const output = (msgUsage.output_tokens || 0) * 1.0;
+        + (msgUsage.cache_read_input_tokens || 0) * 0.1) * mw.input;
+      const output = (msgUsage.output_tokens || 0) * mw.output;
       if (input > 0 || output > 0) {
         ws.inputTokens = (ws.inputTokens || 0) + input;
         ws.outputTokens = (ws.outputTokens || 0) + output;
@@ -85,13 +101,14 @@ function processStreamEvent(ws, obj, onUpdate, pushLog) {
 
   if (msgType === 'result') {
     // Claude stream-json: result 이벤트의 usage로 최종 토큰 수 확정
-    // 캐시 토큰에 가중치를 적용하여 플랜 주간 한도 소모량에 비례하도록 계산
+    // 캐시 가중치 + 모델 가중치를 적용하여 플랜 주간 한도 소모량에 비례하도록 계산
     const finalUsage = obj.usage;
     if (finalUsage) {
-      const input = (finalUsage.input_tokens || 0) * 1.0
+      const mw = getModelWeight(ws.model);
+      const input = ((finalUsage.input_tokens || 0) * 1.0
         + (finalUsage.cache_creation_input_tokens || 0) * 1.25
-        + (finalUsage.cache_read_input_tokens || 0) * 0.1;
-      const output = (finalUsage.output_tokens || 0) * 1.0;
+        + (finalUsage.cache_read_input_tokens || 0) * 0.1) * mw.input;
+      const output = (finalUsage.output_tokens || 0) * mw.output;
       if (input > 0 || output > 0) {
         ws.inputTokens = input;
         ws.outputTokens = output;
@@ -180,6 +197,8 @@ function getTerminalResultMeta(obj) {
 }
 
 module.exports = {
+  CLAUDE_MODEL_WEIGHTS,
+  getModelWeight,
   processStreamEvent,
   getTerminalResultMeta,
   trimByWidth,

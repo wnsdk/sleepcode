@@ -64,7 +64,7 @@ npx sleepcode run
 **실행:**
 
 ```bash
-npx sleepcode parallel              # 병렬 실행 (실시간 대시보드 표시, 워커 완료 시 즉시 머지 시도)
+npx sleepcode parallel              # 병렬 실행 (실시간 대시보드 표시, 모든 워커 종료 후 일괄 머지)
 npx sleepcode parallel --setup      # worktree만 먼저 생성 (실행 전 확인용)
 npx sleepcode parallel --status     # 워커 상태 확인
 npx sleepcode parallel --merge      # 완료된 브랜치 자동 머지

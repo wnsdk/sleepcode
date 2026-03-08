@@ -76,40 +76,67 @@ function mergeCompletedParallelWorker({
   autoMergeWorktreesFn = autoMergeWorktrees,
 }) {
   if (!completedWorker || completedWorker.status !== 'done') {
-    return { merged: false, skipped: false, conflicted: false };
+    return { merged: false, skipped: false, conflicted: false, deferred: false };
+  }
+
+  if (completedWorker.usesMainBranch || completedWorker.name === 'main') {
+    completedWorker.merged = true;
+    return { merged: true, skipped: false, conflicted: false, deferred: false };
   }
 
   dashboard.pushLog(
     'SYSTEM',
-    `${C.green}${completedWorker.name} 완료 — main 브랜치에 즉시 병합 중...${C.reset}`
+    `${C.dim}${completedWorker.name} 완료 — 모든 워커 종료 확인 후 일괄 병합 예정${C.reset}`
   );
+  return { merged: false, skipped: false, conflicted: false, deferred: true };
+}
 
-  try {
-    const mergeResults = autoMergeWorktreesFn(targetDir, [completedWorker], cliProvider);
-    if (mergeResults.merged.length > 0) {
-      dashboard.pushLog('SYSTEM', `${C.green}✓ ${completedWorker.name} — main 브랜치 병합 완료${C.reset}`);
-      completedWorker.merged = true;
-      return { merged: true, skipped: false, conflicted: false };
-    }
-    if (mergeResults.skipped.length > 0) {
-      dashboard.pushLog('SYSTEM', `${C.dim}${completedWorker.name} — 병합 스킵 (변경 없음)${C.reset}`);
-      completedWorker.merged = true;
-      return { merged: false, skipped: true, conflicted: false };
-    }
-    if (mergeResults.conflicted.length > 0) {
-      dashboard.pushLog('SYSTEM', `${C.red}✗ ${completedWorker.name} — 병합 충돌 (수동 처리 필요)${C.reset}`);
-      return { merged: false, skipped: false, conflicted: true };
-    }
-  } catch (error) {
-    dashboard.pushLog('SYSTEM', `${C.red}✗ ${completedWorker.name} — 병합 오류: ${error.message}${C.reset}`);
-    return { merged: false, skipped: false, conflicted: false, error };
+function finalizeCompletedParallelWorkers({
+  targetDir,
+  cliProvider,
+  workerStates,
+  dashboard,
+  autoMergeWorktreesFn = autoMergeWorktrees,
+}) {
+  const workers = Array.isArray(workerStates) ? workerStates : [];
+  if (workers.length === 0) {
+    return { merged: [], skipped: [], conflicted: [] };
   }
 
-  return { merged: false, skipped: false, conflicted: false };
+  dashboard.pushLog('SYSTEM', `${C.bold}모든 워커 종료 확인 — 브랜치 일괄 병합 시작${C.reset}`);
+
+  try {
+    const mergeResults = autoMergeWorktreesFn(targetDir, workers, cliProvider);
+
+    for (const worker of workers) {
+      if (mergeResults.merged.includes(worker.name) || mergeResults.skipped.includes(worker.name)) {
+        worker.merged = true;
+      }
+    }
+
+    if (mergeResults.merged.length > 0) {
+      dashboard.pushLog('SYSTEM', `${C.green}✓ 일괄 병합 완료: ${mergeResults.merged.join(', ')}${C.reset}`);
+    }
+    if (mergeResults.skipped.length > 0) {
+      dashboard.pushLog('SYSTEM', `${C.dim}병합 스킵: ${mergeResults.skipped.join(', ')}${C.reset}`);
+    }
+    if (mergeResults.conflicted.length > 0) {
+      dashboard.pushLog(
+        'SYSTEM',
+        `${C.red}✗ 일괄 병합 충돌: ${mergeResults.conflicted.join(', ')}${C.reset} ${C.dim}(기본 AI 자동 해결 실패)${C.reset}`
+      );
+    }
+
+    return mergeResults;
+  } catch (error) {
+    dashboard.pushLog('SYSTEM', `${C.red}✗ 일괄 병합 오류: ${error.message}${C.reset}`);
+    return { merged: [], skipped: [], conflicted: workers.filter((worker) => !worker.merged).map((worker) => worker.name), error };
+  }
 }
 
 module.exports = {
   applyParallelBudgetStop,
+  finalizeCompletedParallelWorkers,
   mergeCompletedParallelWorker,
   stopRunningWorkers,
   syncParallelWorkerProgress,

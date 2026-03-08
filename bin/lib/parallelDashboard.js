@@ -13,8 +13,8 @@ function summarizeWorkerOutcomes(workerStates) {
   const failed = workerStates.filter((worker) => worker.status === 'failed');
   const done = workerStates.filter((worker) => worker.status === 'done');
   const stopped = workerStates.filter((worker) => worker.status === 'budget_stop');
-  const alreadyMerged = workerStates.filter((worker) => worker.merged);
-  const needsMerge = done.filter((worker) => !worker.merged);
+  const alreadyMerged = workerStates.filter((worker) => worker.merged && !worker.usesMainBranch && worker.name !== 'main');
+  const needsMerge = workerStates.filter((worker) => worker.status !== 'running' && !worker.merged);
 
   return {
     failed,

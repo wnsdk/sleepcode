@@ -6,6 +6,7 @@ const path = require('path');
 
 const {
   applyParallelBudgetStop,
+  finalizeCompletedParallelWorkers,
   mergeCompletedParallelWorker,
   stopRunningWorkers,
   syncParallelWorkerProgress,
@@ -126,9 +127,10 @@ test('applyParallelBudgetStop leaves workers untouched when budget is still avai
   assert.equal(workerStates[0].status, 'running');
 });
 
-test('mergeCompletedParallelWorker auto-merges completed workers and marks skipped merges', () => {
+test('mergeCompletedParallelWorker defers non-main merges until the last worker finishes', () => {
   const logs = [];
   const completedWorker = { name: 'feature-a', status: 'done', merged: false };
+  let called = false;
 
   const mergedResult = mergeCompletedParallelWorker({
     completedWorker,
@@ -138,70 +140,90 @@ test('mergeCompletedParallelWorker auto-merges completed workers and marks skipp
       pushLog: (...args) => logs.push(args),
     },
     autoMergeWorktreesFn: () => ({
-      merged: [completedWorker],
+      merged: (() => {
+        called = true;
+        return [completedWorker];
+      })(),
       skipped: [],
       conflicted: [],
     }),
   });
 
-  assert.deepEqual(mergedResult, { merged: true, skipped: false, conflicted: false });
-  assert.equal(completedWorker.merged, true);
-  assert.match(logs[0][1], /즉시 병합 중/);
-  assert.match(logs[1][1], /병합 완료/);
-
-  const skippedLogs = [];
-  const skippedWorker = { name: 'feature-b', status: 'done', merged: false };
-  const skippedResult = mergeCompletedParallelWorker({
-    completedWorker: skippedWorker,
-    targetDir: 'C:\\workspace\\sleepcode',
-    cliProvider: 'codex',
-    dashboard: {
-      pushLog: (...args) => skippedLogs.push(args),
-    },
-    autoMergeWorktreesFn: () => ({
-      merged: [],
-      skipped: [skippedWorker],
-      conflicted: [],
-    }),
-  });
-
-  assert.deepEqual(skippedResult, { merged: false, skipped: true, conflicted: false });
-  assert.equal(skippedWorker.merged, true);
-  assert.match(skippedLogs[1][1], /병합 스킵/);
+  assert.deepEqual(mergedResult, { merged: false, skipped: false, conflicted: false, deferred: true });
+  assert.equal(completedWorker.merged, false);
+  assert.equal(called, false);
+  assert.match(logs[0][1], /일괄 병합 예정/);
 });
 
-test('mergeCompletedParallelWorker reports conflicts and merge errors without throwing', () => {
-  const conflictLogs = [];
-  const conflictResult = mergeCompletedParallelWorker({
-    completedWorker: { name: 'feature-c', status: 'done' },
+test('mergeCompletedParallelWorker marks main workers as merged without deferring', () => {
+  const completedWorker = { name: 'main', status: 'done', merged: false, usesMainBranch: true };
+  const result = mergeCompletedParallelWorker({
+    completedWorker,
     targetDir: 'C:\\workspace\\sleepcode',
     cliProvider: 'codex',
     dashboard: {
-      pushLog: (...args) => conflictLogs.push(args),
+      pushLog: () => {
+        throw new Error('should not log');
+      },
+    },
+  });
+
+  assert.deepEqual(result, { merged: true, skipped: false, conflicted: false, deferred: false });
+  assert.equal(completedWorker.merged, true);
+});
+
+test('finalizeCompletedParallelWorkers batch-merges after all workers finish', () => {
+  const logs = [];
+  const workerStates = [
+    { name: 'main', status: 'done', merged: true },
+    { name: 'feature-a', status: 'done', merged: false },
+    { name: 'feature-b', status: 'failed', merged: false },
+  ];
+
+  const result = finalizeCompletedParallelWorkers({
+    targetDir: 'C:\\workspace\\sleepcode',
+    cliProvider: 'codex',
+    workerStates,
+    dashboard: {
+      pushLog: (...args) => logs.push(args),
     },
     autoMergeWorktreesFn: () => ({
-      merged: [],
-      skipped: [],
-      conflicted: [{}],
+      merged: ['feature-a'],
+      skipped: ['main'],
+      conflicted: ['feature-b'],
     }),
   });
 
-  assert.deepEqual(conflictResult, { merged: false, skipped: false, conflicted: true });
-  assert.match(conflictLogs[1][1], /병합 충돌/);
+  assert.deepEqual(result, {
+    merged: ['feature-a'],
+    skipped: ['main'],
+    conflicted: ['feature-b'],
+  });
+  assert.equal(workerStates[1].merged, true);
+  assert.equal(workerStates[2].merged, false);
+  assert.match(logs[0][1], /일괄 병합 시작/);
+  assert.match(logs[1][1], /일괄 병합 완료: feature-a/);
+  assert.match(logs[2][1], /병합 스킵: main/);
+  assert.match(logs[3][1], /일괄 병합 충돌: feature-b/);
+});
 
-  const errorLogs = [];
-  const errorResult = mergeCompletedParallelWorker({
-    completedWorker: { name: 'feature-d', status: 'done' },
+test('finalizeCompletedParallelWorkers reports merge errors without throwing', () => {
+  const logs = [];
+  const workerStates = [{ name: 'feature-d', status: 'done', merged: false }];
+
+  const result = finalizeCompletedParallelWorkers({
     targetDir: 'C:\\workspace\\sleepcode',
     cliProvider: 'codex',
+    workerStates,
     dashboard: {
-      pushLog: (...args) => errorLogs.push(args),
+      pushLog: (...args) => logs.push(args),
     },
     autoMergeWorktreesFn: () => {
       throw new Error('merge failed');
     },
   });
 
-  assert.equal(errorResult.error.message, 'merge failed');
-  assert.match(errorLogs[1][1], /병합 오류: merge failed/);
+  assert.equal(result.error.message, 'merge failed');
+  assert.deepEqual(result.conflicted, ['feature-d']);
+  assert.match(logs[1][1], /일괄 병합 오류: merge failed/);
 });

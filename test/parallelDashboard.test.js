@@ -27,7 +27,7 @@ test('summarizeWorkerOutcomes groups worker states for completion summary', () =
   assert.deepEqual(summary.failed.map((worker) => worker.name), ['c']);
   assert.deepEqual(summary.stopped.map((worker) => worker.name), ['d']);
   assert.deepEqual(summary.alreadyMerged.map((worker) => worker.name), ['a']);
-  assert.deepEqual(summary.needsMerge.map((worker) => worker.name), ['b']);
+  assert.deepEqual(summary.needsMerge.map((worker) => worker.name), ['b', 'c', 'd']);
 });
 
 test('getCompletionNextSteps returns merge/clean guidance based on summary', () => {

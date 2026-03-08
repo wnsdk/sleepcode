@@ -5,6 +5,7 @@ const {
   buildConflictResolutionPrompt,
   formatExecError,
 } = require('../bin/lib/parallelMerge');
+const { getConflictResolverProviders } = require('../bin/lib/parallelMergeConflict');
 
 test('formatExecError prefers stderr then stdout then message', () => {
   assert.equal(formatExecError({ stderr: 'stderr message', stdout: 'stdout message' }), 'stderr message');
@@ -22,4 +23,24 @@ test('buildConflictResolutionPrompt includes merge context and restrictions', ()
   assert.match(prompt, /Incoming branch: sleepcode\/feature-auth/);
   assert.match(prompt, /- src\/app\.js/);
   assert.match(prompt, /Do not modify or stage anything under \.sleepcode\//);
+});
+
+test('getConflictResolverProviders prefers the configured default provider first', () => {
+  assert.deepEqual(
+    getConflictResolverProviders({
+      preferred: 'codex',
+      selected: 'claude',
+      fallback: 'codex',
+    }),
+    ['codex', 'claude']
+  );
+
+  assert.deepEqual(
+    getConflictResolverProviders({
+      preferred: 'auto',
+      selected: 'claude',
+      fallback: 'codex',
+    }),
+    ['claude', 'codex']
+  );
 });

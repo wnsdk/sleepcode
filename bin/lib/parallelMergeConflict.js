@@ -137,6 +137,18 @@ function finalizeResolvedMerge(targetDir, conflictFiles) {
   }
 }
 
+function getConflictResolverProviders(plan) {
+  if (!plan) return [];
+
+  const preferredProvider = plan.preferred && plan.preferred !== PROVIDERS.AUTO
+    ? plan.preferred
+    : plan.selected;
+
+  return [preferredProvider, plan.selected, plan.fallback].filter((provider, index, arr) =>
+    provider && arr.indexOf(provider) === index
+  );
+}
+
 function resolveConflictsWithAI(targetDir, currentBranch, branch, cliProvider) {
   const conflictFiles = getConflictFiles(targetDir);
   if (conflictFiles.length === 0) {
@@ -156,9 +168,7 @@ function resolveConflictsWithAI(targetDir, currentBranch, branch, cliProvider) {
   }
 
   const prompt = buildConflictResolutionPrompt(targetDir, currentBranch, branch, conflictFiles);
-  const providers = [plan.selected, plan.fallback].filter((provider, index, arr) =>
-    provider && arr.indexOf(provider) === index
-  );
+  const providers = getConflictResolverProviders(plan);
 
   let lastFailure = null;
   for (const provider of providers) {
@@ -189,6 +199,7 @@ function resolveConflictsWithAI(targetDir, currentBranch, branch, cliProvider) {
 module.exports = {
   buildConflictResolutionPrompt,
   finalizeResolvedMerge,
+  getConflictResolverProviders,
   getConflictFiles,
   getGitStatus,
   hasConflictMarkers,

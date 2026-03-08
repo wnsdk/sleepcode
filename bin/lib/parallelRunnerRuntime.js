@@ -2,6 +2,7 @@ const { spawnWorker } = require('./worker');
 const { createParallelDashboard } = require('./parallelDashboard');
 const {
   applyParallelBudgetStop,
+  finalizeCompletedParallelWorkers,
   mergeCompletedParallelWorker,
   stopRunningWorkers,
   syncParallelWorkerProgress,
@@ -17,6 +18,7 @@ function createParallelRunnerRuntime({
   createParallelDashboardFn = createParallelDashboard,
   syncParallelWorkerProgressFn = syncParallelWorkerProgress,
   applyParallelBudgetStopFn = applyParallelBudgetStop,
+  finalizeCompletedParallelWorkersFn = finalizeCompletedParallelWorkers,
   mergeCompletedParallelWorkerFn = mergeCompletedParallelWorker,
   stopRunningWorkersFn = stopRunningWorkers,
   spawnWorkerFn = spawnWorker,
@@ -46,6 +48,12 @@ function createParallelRunnerRuntime({
     clearIntervalFn(dashboardInterval);
     clearIntervalFn(taskProgressInterval);
     clearIntervalFn(budgetCheckInterval);
+    finalizeCompletedParallelWorkersFn({
+      targetDir,
+      cliProvider,
+      workerStates,
+      dashboard,
+    });
     dashboard.renderDashboard();
     dashboard.dispose();
     printParallelCompletionSummary(workerStates);

@@ -26,22 +26,28 @@ test('mergeCompletedWorkerNow marks main workers as merged without running a mer
   assert.equal(called, false);
 });
 
-test('mergeCompletedWorkerNow logs merge success and marks worker as merged', () => {
+test('mergeCompletedWorkerNow defers non-main merges until every worker settles', () => {
   const logs = [];
   const worker = { name: 'feature-a', status: 'done', merged: false };
+  let called = false;
 
   const result = mergeCompletedWorkerNow({
     completedWorker: worker,
     targetDir: 'C:\\workspace\\sleepcode',
     cliProvider: 'claude',
-    autoMergeWorktrees: () => ({ merged: ['feature-a'], conflicted: [], skipped: [] }),
+    autoMergeWorktrees: () => {
+      called = true;
+      return { merged: ['feature-a'], conflicted: [], skipped: [] };
+    },
     pushLog: (message) => logs.push(message),
   });
 
-  assert.equal(result.attempted, true);
-  assert.equal(result.merged, true);
-  assert.equal(worker.merged, true);
-  assert.equal(logs.some((message) => message.includes('병합 완료')), true);
+  assert.equal(result.attempted, false);
+  assert.equal(result.deferred, true);
+  assert.equal(result.merged, false);
+  assert.equal(worker.merged, false);
+  assert.equal(called, false);
+  assert.equal(logs.some((message) => message.includes('일괄 병합 예정')), true);
 });
 
 test('areAllWorkersSettled detects whether any worker is still running', () => {

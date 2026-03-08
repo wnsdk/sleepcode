@@ -105,6 +105,7 @@ test('createParallelRunnerRuntime finishes only after the last worker completes'
   const calls = {
     clearIntervals: [],
     dispose: 0,
+    finalizeMerge: [],
     flushRender: 0,
     merge: [],
     printSummary: [],
@@ -130,6 +131,9 @@ test('createParallelRunnerRuntime finishes only after the last worker completes'
     },
     createParallelDashboardFn: () => createDashboardDouble(calls),
     syncParallelWorkerProgressFn: () => {},
+    finalizeCompletedParallelWorkersFn: (args) => {
+      calls.finalizeMerge.push(args);
+    },
     mergeCompletedParallelWorkerFn: (args) => {
       calls.merge.push(args);
     },
@@ -153,6 +157,8 @@ test('createParallelRunnerRuntime finishes only after the last worker completes'
   runtime.onWorkerDone(workerStates[1]);
   assert.equal(runtime.getActiveWorkers(), 0);
   assert.equal(calls.merge.length, 2);
+  assert.equal(calls.finalizeMerge.length, 1);
+  assert.equal(calls.finalizeMerge[0].workerStates, workerStates);
   assert.deepEqual(calls.clearIntervals, [3000, 5000, 30000]);
   assert.equal(calls.dispose, 1);
   assert.equal(calls.printSummary.length, 1);

@@ -117,7 +117,7 @@ function mergeWorktrees(targetDir, cliProvider) {
 
     if (outcome.status === 'merged') {
       if (outcome.autoResolved) {
-        console.log(`  ${C.green}✓${C.reset} ${outcome.branch} AI 머지 완료 (${providerLabel(outcome.provider)} 자동 해결)`);
+        console.log(`  ${C.green}✓${C.reset} ${outcome.branch} 머지 완료 (${providerLabel(outcome.provider)} 자동 충돌 해결)`);
       } else {
         console.log(`  ${C.green}✓${C.reset} ${outcome.branch} 머지 완료`);
       }
@@ -126,7 +126,7 @@ function mergeWorktrees(targetDir, cliProvider) {
     }
 
     if (outcome.status === 'conflicted') {
-      console.log(`  ${C.red}✗${C.reset} ${outcome.branch} ${C.red}AI 해결 실패${C.reset} — 수동 머지 필요`);
+      console.log(`  ${C.red}✗${C.reset} ${outcome.branch} ${C.red}기본 AI 자동 해결 실패${C.reset} — 수동 머지 필요`);
       results.conflicted.push(outcome.name);
       continue;
     }
@@ -143,7 +143,7 @@ function mergeWorktrees(targetDir, cliProvider) {
     console.log(`  ${C.green}성공: ${results.merged.length}${C.reset} (${results.merged.join(', ')})`);
   }
   if (results.conflicted.length > 0) {
-    console.log(`  ${C.red}충돌: ${results.conflicted.length}${C.reset} (${results.conflicted.join(', ')}) ${C.dim}(AI 자동 해결 실패)${C.reset}`);
+    console.log(`  ${C.red}충돌: ${results.conflicted.length}${C.reset} (${results.conflicted.join(', ')}) ${C.dim}(기본 AI 자동 해결 실패)${C.reset}`);
     console.log(`\n${C.yellow}충돌 브랜치를 수동으로 머지하세요:${C.reset}`);
     for (const name of results.conflicted) {
       console.log(`  ${C.cyan}git merge sleepcode/${name}${C.reset}  ${C.dim}# 충돌 해결 후 git commit${C.reset}`);

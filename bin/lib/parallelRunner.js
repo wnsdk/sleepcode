@@ -46,7 +46,9 @@ function printParallelCompletionSummary(workerStates) {
 
   console.log(`\n${C.bold}생성된 브랜치:${C.reset}`);
   for (const worker of workerStates) {
-    const mergedTag = worker.merged ? ` ${C.dim}(병합됨)${C.reset}` : '';
+    const mergedTag = worker.merged && !worker.usesMainBranch && worker.name !== 'main'
+      ? ` ${C.dim}(병합됨)${C.reset}`
+      : '';
     const icon = worker.status === 'done'
       ? `${C.green}✓${C.reset}`
       : worker.status === 'budget_stop'

@@ -66,7 +66,7 @@ npx sleepcode run      # 실행
 - [ ] 장바구니 수량 버그 수정
 ```
 
-`@worker main`은 별도 `sleepcode/main` 브랜치를 만들지 않고 현재 체크아웃된 브랜치(보통 `main`)에서 실행됩니다. 각 워커는 자신의 태스크를 모두 끝내는 즉시 `main` 브랜치로 병합을 시도합니다.
+`@worker main`은 별도 `sleepcode/main` 브랜치를 만들지 않고 현재 체크아웃된 브랜치(보통 `main`)에서 실행됩니다. 모든 워커가 종료된 것이 확인되면 완료된 브랜치들을 한꺼번에 병합하며, 충돌이 나면 기본 AI로 자동 해결과 merge commit까지 시도합니다.
 
 ```bash
 npx sleepcode parallel              # 병렬 실행

@@ -99,7 +99,7 @@ function showUsage() {
   console.log(`  세션 수:     ${usage.entries.length}`);
 
   if (providerEntries.length > 0) {
-    console.log(`\n${C.bold}사용한 토큰 (프로바이더별):${C.reset}\n`);
+    console.log(`\n${C.bold}Cost (프로바이더별):${C.reset}\n`);
     for (const [provider, tokens] of providerEntries) {
       const label = provider === 'unknown' ? '(기타)' : provider.charAt(0).toUpperCase() + provider.slice(1);
       const totalTok = tokens.input + tokens.output;
@@ -141,7 +141,7 @@ function showUsage() {
       const tokIn = entry.inputTokens || 0;
       const tokOut = entry.outputTokens || 0;
       const tokTotal = tokIn + tokOut;
-      const tokStr = tokTotal > 0 ? `  ${C.cyan}토큰 ${formatTokens(tokTotal)}${C.reset}` : '';
+      const tokStr = tokTotal > 0 ? `  ${C.cyan}Cost ${formatTokens(tokTotal)}${C.reset}` : '';
       console.log(`  ${C.dim}${time}${C.reset}  ${mode}${worker}${providerTag}${tokStr}`);
     }
     if (usage.entries.length > 10) {

@@ -229,7 +229,6 @@ def get_watch_schema(api_key, db_id):
         "model_prop": None,
         "model_type": None,
         "cost_prop": None,
-        "tokens_prop": None,
         "completed_at_prop": None,
     }
 
@@ -254,8 +253,6 @@ def get_watch_schema(api_key, db_id):
             schema["model_type"] = ptype
         elif ptype == "number" and lname in ("cost", "비용"):
             schema["cost_prop"] = name
-        elif ptype == "number" and lname in ("tokens", "토큰"):
-            schema["tokens_prop"] = name
         elif ptype == "date" and lname in ("completed at", "completed_at", "완료일", "완료 시각"):
             schema["completed_at_prop"] = name
 

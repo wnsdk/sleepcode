@@ -16,7 +16,6 @@ test('summarizeExecutionResults builds task outcomes, costs, tokens, and reports
       status_prop: 'Status',
       status_type: 'status',
       cost_prop: 'Cost',
-      tokens_prop: 'Tokens',
       log_prop: 'Log',
       completed_at_prop: 'Completed At',
     },
@@ -33,18 +32,18 @@ test('summarizeExecutionResults builds task outcomes, costs, tokens, and reports
   assert.equal(summary.totalOutputTokens, 300);
   assert.equal(summary.reportText.includes('main report'), true);
   assert.equal(summary.reportText.includes('feature report'), true);
-  assert.equal(summary.reportText.includes('토큰 사용량'), true);
+  assert.equal(summary.reportText.includes('Cost (가중 토큰)'), true);
   assert.deepEqual(summary.pendingMergeWorkers.map((worker) => worker.name), ['feature']);
   assert.deepEqual(
     summary.taskResults.map((result) => ({
       id: result.task.id,
       status: result.newStatus,
       hasStatusProp: Boolean(result.props.Status),
-      tokens: result.props.Tokens.number,
+      cost: result.props.Cost.number,
     })),
     [
-      { id: 'a', status: 'Success', hasStatusProp: false, tokens: 650 },
-      { id: 'b', status: 'Failed', hasStatusProp: true, tokens: 650 },
+      { id: 'a', status: 'Success', hasStatusProp: false, cost: 650 },
+      { id: 'b', status: 'Failed', hasStatusProp: true, cost: 650 },
     ]
   );
 });

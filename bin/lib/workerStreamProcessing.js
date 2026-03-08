@@ -66,10 +66,13 @@ function processStreamEvent(ws, obj, onUpdate, pushLog) {
     }
 
     // Claude stream-json: 각 assistant 메시지의 message.usage에서 실시간 토큰 집계
+    // 캐시 토큰에 가중치를 적용하여 플랜 주간 한도 소모량에 비례하도록 계산
     const msgUsage = obj.message && obj.message.usage;
     if (msgUsage) {
-      const input = msgUsage.input_tokens || 0;
-      const output = msgUsage.output_tokens || 0;
+      const input = (msgUsage.input_tokens || 0) * 1.0
+        + (msgUsage.cache_creation_input_tokens || 0) * 1.25
+        + (msgUsage.cache_read_input_tokens || 0) * 0.1;
+      const output = (msgUsage.output_tokens || 0) * 1.0;
       if (input > 0 || output > 0) {
         ws.inputTokens = (ws.inputTokens || 0) + input;
         ws.outputTokens = (ws.outputTokens || 0) + output;
@@ -82,10 +85,13 @@ function processStreamEvent(ws, obj, onUpdate, pushLog) {
 
   if (msgType === 'result') {
     // Claude stream-json: result 이벤트의 usage로 최종 토큰 수 확정
+    // 캐시 토큰에 가중치를 적용하여 플랜 주간 한도 소모량에 비례하도록 계산
     const finalUsage = obj.usage;
     if (finalUsage) {
-      const input = finalUsage.input_tokens || 0;
-      const output = finalUsage.output_tokens || 0;
+      const input = (finalUsage.input_tokens || 0) * 1.0
+        + (finalUsage.cache_creation_input_tokens || 0) * 1.25
+        + (finalUsage.cache_read_input_tokens || 0) * 0.1;
+      const output = (finalUsage.output_tokens || 0) * 1.0;
       if (input > 0 || output > 0) {
         ws.inputTokens = input;
         ws.outputTokens = output;

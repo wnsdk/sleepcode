@@ -29,10 +29,16 @@ const EXPECTED_DB_PROPERTIES = {
   },
   'Run': { checkbox: {} },
   'Worker': { select: { options: [] } },
-  'Priority': { number: { format: 'number' } },
+  'Priority': {
+    number: { format: 'number' },
+    description: 'Higher number = executed first',
+  },
   'Log': { rich_text: {} },
   'Model': buildModelSelectProperty(),
-  'Tokens': { number: { format: 'number' } },
+  'Cost': {
+    number: { format: 'number' },
+    description: 'Weighted token cost. Claude: input×1.0 + cache_creation×1.25 + cache_read×0.1 + output×1.0',
+  },
   'Completed At': { date: {} },
 };
 

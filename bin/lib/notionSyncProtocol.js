@@ -23,7 +23,6 @@ const SCHEMA_KEYS = {
   MODEL_PROP: 'model_prop',
   MODEL_TYPE: 'model_type',
   COST_PROP: 'cost_prop',
-  TOKENS_PROP: 'tokens_prop',
   COMPLETED_AT_PROP: 'completed_at_prop',
 };
 

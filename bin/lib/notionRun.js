@@ -133,16 +133,11 @@ function buildFinalTaskProps({ schema, isDone, totalCost, totalTasks, totalInput
     }
   }
 
-  if (schema.cost_prop && totalCost > 0 && totalTasks > 0) {
-    const perTaskCost = totalCost / totalTasks;
-    props[schema.cost_prop] = { number: Math.round(perTaskCost * 10000) / 10000 };
-  }
-
-  if (schema.tokens_prop) {
+  if (schema.cost_prop) {
     const totalTokens = (totalInputTokens || 0) + (totalOutputTokens || 0);
     if (totalTokens > 0) {
       const perTaskTokens = totalTasks > 0 ? Math.round(totalTokens / totalTasks) : totalTokens;
-      props[schema.tokens_prop] = { number: perTaskTokens };
+      props[schema.cost_prop] = { number: perTaskTokens };
     }
   }
 
@@ -168,15 +163,15 @@ function buildExecutionReportText(workerStates, tokenInfo) {
     const totalOutput = tokenInfo.totalOutputTokens || 0;
     const totalTokens = totalInput + totalOutput;
     if (totalTokens > 0) {
-      const lines = ['## 토큰 사용량', ''];
-      lines.push(`- 입력 토큰: ${totalInput.toLocaleString()}`);
-      lines.push(`- 출력 토큰: ${totalOutput.toLocaleString()}`);
-      lines.push(`- **총 토큰: ${totalTokens.toLocaleString()}**`);
+      const lines = ['## Cost (가중 토큰)', ''];
+      lines.push(`- Input: ${totalInput.toLocaleString()}`);
+      lines.push(`- Output: ${totalOutput.toLocaleString()}`);
+      lines.push(`- **Total: ${totalTokens.toLocaleString()}**`);
 
       const entries = Object.entries(tokenInfo.tokensByProvider || {});
       if (entries.length > 1) {
         lines.push('');
-        lines.push('### 프로바이더별 토큰');
+        lines.push('### Provider');
         for (const [provider, tokens] of entries) {
           const provTotal = (tokens.input || 0) + (tokens.output || 0);
           lines.push(`- ${provider}: 입력 ${(tokens.input || 0).toLocaleString()} + 출력 ${(tokens.output || 0).toLocaleString()} = ${provTotal.toLocaleString()}`);

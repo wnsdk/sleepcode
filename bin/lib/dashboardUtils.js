@@ -47,9 +47,9 @@ function getTokensByProvider(workerStates) {
 function formatProviderTokens(workerStates, providerLabelFn) {
   const byProvider = getTokensByProvider(workerStates);
   const entries = Object.entries(byProvider);
-  if (entries.length === 0) return '토큰 0';
+  if (entries.length === 0) return 'Cost 0';
 
-  return '토큰 ' + entries
+  return 'Cost ' + entries
     .map(([provider, tokens]) => {
       const label = typeof providerLabelFn === 'function' ? providerLabelFn(provider) : provider;
       const total = tokens.input + tokens.output;

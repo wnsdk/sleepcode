@@ -17,7 +17,7 @@ function parseClaudeRatio(value) {
   return pct / 100;
 }
 
-function buildConfigToSave({ weeklyBudget = 0, budgetThreshold = 90, claudeRatio = null } = {}) {
+function buildConfigToSave({ weeklyBudget = 0, budgetThreshold = 90, claudeRatio = null, onAiLimit = null } = {}) {
   const configToSave = {};
   if (weeklyBudget > 0) {
     configToSave.weeklyBudget = weeklyBudget;
@@ -25,6 +25,9 @@ function buildConfigToSave({ weeklyBudget = 0, budgetThreshold = 90, claudeRatio
   }
   if (claudeRatio !== null) {
     configToSave.claudeRatio = claudeRatio;
+  }
+  if (onAiLimit && (onAiLimit === 'fail' || onAiLimit === 'wait')) {
+    configToSave.onAiLimit = onAiLimit;
   }
   return configToSave;
 }
@@ -95,6 +98,9 @@ function saveOptionalConfig(targetDir, options, { verbose = false } = {}) {
   }
   if (verbose && options.claudeRatio !== null) {
     console.log(`  ${C.green}✓${C.reset} .sleepcode/config.json       ${C.dim}← 비율: Claude ${Math.round(options.claudeRatio * 100)}% / Codex ${Math.round((1 - options.claudeRatio) * 100)}%${C.reset}`);
+  }
+  if (verbose && options.onAiLimit) {
+    console.log(`  ${C.green}✓${C.reset} .sleepcode/config.json       ${C.dim}← AI 한도 초과: ${options.onAiLimit}${C.reset}`);
   }
 
   return configToSave;
@@ -187,6 +193,7 @@ async function runNonInteractiveInit(targetDir, cliArgs, providerArg) {
       weeklyBudget: parseFloat(cliArgs.budget) || 0,
       budgetThreshold: parseInt(cliArgs.threshold, 10) || 90,
       claudeRatio: parseClaudeRatio(cliArgs.claudeRatio),
+      onAiLimit: cliArgs.onAiLimit || null,
     }
   );
 }
@@ -310,6 +317,9 @@ async function runInteractiveInit(targetDir, providerArg) {
       console.log(`  ${C.dim}→ Claude ${Math.round(claudeRatio * 100)}% / Codex ${Math.round((1 - claudeRatio) * 100)}%${C.reset}`);
     }
 
+    const aiLimitAnswer = await ask(rl, 'AI 한도 초과 시 대기 후 재시도할까요? (y/N, 기본 N=즉시 실패)', 'N');
+    const onAiLimit = aiLimitAnswer.toLowerCase() === 'y' ? 'wait' : 'fail';
+
     rl.close();
 
     generateProjectFiles(
@@ -333,6 +343,7 @@ async function runInteractiveInit(targetDir, providerArg) {
         weeklyBudget,
         budgetThreshold,
         claudeRatio,
+        onAiLimit,
       },
       { verboseConfig: true }
     );

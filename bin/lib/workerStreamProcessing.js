@@ -196,10 +196,34 @@ function getTerminalResultMeta(obj) {
   };
 }
 
+/**
+ * AI 한도(rate limit / overload / usage limit) 에러인지 판별.
+ * Claude CLI는 한도 초과 시 result 이벤트의 message 혹은 stderr에
+ * 아래 패턴 중 하나를 포함한 오류를 반환한다.
+ */
+function isAiLimitError(message) {
+  if (!message) return false;
+  const m = String(message).toLowerCase();
+  return (
+    m.includes('rate limit') ||
+    m.includes('rate_limit_error') ||
+    m.includes('overloaded') ||
+    m.includes('overloaded_error') ||
+    m.includes('usage limit') ||
+    m.includes('too many requests') ||
+    m.includes('quota exceeded') ||
+    m.includes(' 529') ||
+    m.includes('(529)') ||
+    m.includes(' 429') ||
+    m.includes('(429)')
+  );
+}
+
 module.exports = {
   CLAUDE_MODEL_WEIGHTS,
   getModelWeight,
   processStreamEvent,
   getTerminalResultMeta,
+  isAiLimitError,
   trimByWidth,
 };

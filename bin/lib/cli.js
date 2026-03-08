@@ -47,6 +47,7 @@ ${SLEEPCODE_BADGE}  v${pkg.version}
   --provider <name>    AI provider (claude, codex, auto)
   --claude-ratio <pct> Claude 사용 비율 (0-100, 예: 30 → Claude 30% / Codex 70%)
   --interval <sec>     폴링 간격 (초, 기본 30)
+  --on-ai-limit <mode> AI 한도 초과 시 동작 (fail|wait, 기본 fail)
   -c, --continue       이전 세션 이어서 실행 (토큰 절약)
   -f, --force          기존 .sleepcode/ 덮어쓰기
   -v, --version        버전 정보
@@ -86,6 +87,7 @@ function parseArgs(argv = process.argv) {
     else if (args[i] === '--provider' && args[i + 1]) parsed.provider = args[++i];
     else if (args[i] === '--claude-ratio' && args[i + 1]) parsed.claudeRatio = args[++i];
     else if (args[i] === '--interval' && args[i + 1]) parsed.interval = args[++i];
+    else if (args[i] === '--on-ai-limit' && args[i + 1]) parsed.onAiLimit = args[++i];
     else if (args[i] === '--continue' || args[i] === '-c') parsed.continue = true;
     else if (args[i] === '--force' || args[i] === '-f') parsed.force = true;
     else if (args[i] === '--help' || args[i] === '-h') {

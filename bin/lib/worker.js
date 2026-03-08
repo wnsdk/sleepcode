@@ -16,7 +16,8 @@ const {
   getWorkerDoneState,
   syncWorkerTaskProgress,
 } = require('./taskState');
-const { processStreamEvent, getTerminalResultMeta } = require('./workerStreamProcessing');
+const { processStreamEvent, getTerminalResultMeta, isAiLimitError } = require('./workerStreamProcessing');
+const { loadConfig } = require('./config');
 const { detectForbiddenGitWriteCommand, terminateProcessTree } = require('./workerGitOps');
 const { buildTaskCommitMessage, commitTaskNow } = require('./workerCommit');
 const { prepareTaskExecution } = require('./workerTaskPrep');
@@ -132,6 +133,12 @@ function spawnWorker(ws, py, onDone, onUpdate, pushLog, cliProvider, onTaskCompl
       return;
     }
     const { taskStartHead, promptsByProvider, taskPrompt } = prep;
+
+    // AI 한도 초과 시 동작 설정: 'fail'(기본) 또는 'wait'
+    const config = loadConfig(wtDir) || {};
+    const onAiLimit = config.onAiLimit || 'fail';
+    // 지수 백오프: 60s → 120s → 240s → ... (최대 3600s)
+    let aiLimitRetryCount = 0;
 
     logLine(`=== Task start (provider: ${ws.provider}, model: ${ws.model || 'default'}, difficulty: ${ws.difficulty || 'N/A'}) task: ${nextTask} ===`);
 
@@ -261,6 +268,19 @@ function spawnWorker(ws, py, onDone, onUpdate, pushLog, cliProvider, onTaskCompl
           logLine(`FALLBACK: ${provider} -> ${ws.fallbackProvider}`);
           onUpdate();
           runAttempt(ws.fallbackProvider, false);
+          return;
+        }
+
+        // AI 한도 초과 에러 처리: onAiLimit === 'wait'이면 대기 후 재시도
+        if (effectiveCode !== 0 && isAiLimitError(closeError) && onAiLimit === 'wait') {
+          const waitSeconds = Math.min(60 * Math.pow(2, aiLimitRetryCount), 3600);
+          aiLimitRetryCount += 1;
+          const waitMin = Math.round(waitSeconds / 60);
+          const waitLabel = waitSeconds >= 60 ? `${waitMin}분` : `${waitSeconds}초`;
+          pushLog(ws.name, `${C.yellow}[AI_LIMIT]${C.reset} AI 한도 초과 — ${waitLabel} 후 재시도 (${aiLimitRetryCount}회차)`);
+          logLine(`AI_LIMIT_WAIT: waitSeconds=${waitSeconds} retryCount=${aiLimitRetryCount} error=${closeError}`);
+          onUpdate();
+          setTimeout(() => runAttempt(provider, allowFallback), waitSeconds * 1000);
           return;
         }
 

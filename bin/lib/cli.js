@@ -1,6 +1,7 @@
 const path = require('path');
 const { C, SLEEPCODE_BADGE } = require('./constants');
-const COMMANDS = new Set(['init', 'help', 'version', 'run', 'parallel', 'usage', 'notion-update']);
+const COMMANDS = new Set(['init', 'help', 'version', 'run', 'usage', 'notion-update']);
+const LEGACY_COMMANDS = new Set(['parallel']);
 
 // ─── 도움말 / 버전 ───
 function showHelp() {
@@ -10,8 +11,7 @@ ${SLEEPCODE_BADGE}  v${pkg.version}
 
 사용법: sleepcode init [옵션]
        sleepcode [옵션]
-       sleepcode run [--continue]
-       sleepcode parallel [--setup|--clean|--merge|--status]
+       sleepcode run [--continue|--setup|--clean|--merge|--status]
        sleepcode usage
        sleepcode notion-update [--notion-key <key>] [--notion-db <id|url>]
 
@@ -21,14 +21,13 @@ ${SLEEPCODE_BADGE}  v${pkg.version}
   init             프로젝트 초기화
   help             도움말 보기
   version          버전 정보 보기
-  run              Notion DB 폴링 모드 (태스크 대기 → 실행 → 대기 반복)
-  parallel         @worker 섹션 기반 병렬 실행
+  run              sleepcode 실행 (기본 task_queue 또는 Notion 제어판, 항상 병렬 실행)
   usage            주간 사용량 확인
   notion-update    기존 Notion DB 컬럼을 최신 버전으로 업데이트
-  parallel --setup worktree 생성만 (실행하지 않음)
-  parallel --status 워커 상태 확인
-  parallel --merge 완료된 브랜치 자동 머지
-  parallel --clean worktree 정리
+  run --setup      worktree 생성만 (실행하지 않음)
+  run --status     워커 상태 확인
+  run --merge      완료된 브랜치 자동 머지
+  run --clean      worktree 정리
 
 옵션:
   --type <type>        프로젝트 타입 (spring-boot, react-native, nextjs, custom)
@@ -48,6 +47,10 @@ ${SLEEPCODE_BADGE}  v${pkg.version}
   --claude-ratio <pct> Claude 사용 비율 (0-100, 예: 30 → Claude 30% / Codex 70%)
   --interval <sec>     폴링 간격 (초, 기본 30)
   --on-ai-limit <mode> AI 한도 초과 시 동작 (fail|wait, 기본 fail)
+  --setup              worktree 생성만 수행
+  --status             현재 워커 상태 출력
+  --merge              완료된 브랜치 병합 수행
+  --clean              남은 worktree 정리
   -c, --continue       이전 세션 이어서 실행 (토큰 절약)
   -f, --force          기존 .sleepcode/ 덮어쓰기
   -v, --version        버전 정보
@@ -63,7 +66,8 @@ function showVersion() {
 // ─── CLI 인자 파싱 ───
 function parseCommand(argv = process.argv) {
   const firstArg = argv[2];
-  return COMMANDS.has(firstArg) ? firstArg : '';
+  if (COMMANDS.has(firstArg) || LEGACY_COMMANDS.has(firstArg)) return firstArg;
+  return '';
 }
 
 function parseArgs(argv = process.argv) {
@@ -88,6 +92,10 @@ function parseArgs(argv = process.argv) {
     else if (args[i] === '--claude-ratio' && args[i + 1]) parsed.claudeRatio = args[++i];
     else if (args[i] === '--interval' && args[i + 1]) parsed.interval = args[++i];
     else if (args[i] === '--on-ai-limit' && args[i + 1]) parsed.onAiLimit = args[++i];
+    else if (args[i] === '--setup') parsed.setup = true;
+    else if (args[i] === '--status') parsed.status = true;
+    else if (args[i] === '--merge') parsed.merge = true;
+    else if (args[i] === '--clean') parsed.clean = true;
     else if (args[i] === '--continue' || args[i] === '-c') parsed.continue = true;
     else if (args[i] === '--force' || args[i] === '-f') parsed.force = true;
     else if (args[i] === '--help' || args[i] === '-h') {

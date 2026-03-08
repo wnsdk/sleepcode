@@ -36,14 +36,14 @@ test('getCompletionNextSteps returns merge/clean guidance based on summary', () 
       done: [{ name: 'a' }],
       needsMerge: [{ name: 'a' }],
     }),
-    ['npx sleepcode parallel --merge', 'npx sleepcode parallel --clean']
+    ['npx sleepcode run --merge', 'npx sleepcode run --clean']
   );
   assert.deepEqual(
     getCompletionNextSteps({
       done: [{ name: 'a' }],
       needsMerge: [],
     }),
-    ['npx sleepcode parallel --clean']
+    ['npx sleepcode run --clean']
   );
 });
 

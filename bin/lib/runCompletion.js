@@ -101,7 +101,7 @@ function finalizeParallelWorkers({
   }
 
   if (hasConflicts) {
-    log(`${C.yellow}머지 충돌이 남아있어 워크트리를 유지합니다. 수동 해결 후 'npx sleepcode parallel --clean'으로 정리하세요.${C.reset}`);
+    log(`${C.yellow}머지 충돌이 남아있어 워크트리를 유지합니다. 수동 해결 후 'npx sleepcode run --clean'으로 정리하세요.${C.reset}`);
     return {
       cleaned: false,
       hasConflicts,

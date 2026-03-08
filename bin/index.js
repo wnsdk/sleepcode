@@ -8,7 +8,6 @@ const { showHelp, showVersion, parseArgs, parseCommand } = require('./lib/cli');
 const { loadConfig, saveConfig } = require('./lib/config');
 const { runInit } = require('./lib/init');
 const { runNotionUpdate } = require('./lib/notionUpdate');
-const { runParallel } = require('./lib/parallel');
 const { normalizeProvider } = require('./lib/provider');
 const { runWorker } = require('./lib/run');
 
@@ -18,8 +17,8 @@ async function main() {
   const providerArg = normalizeProvider(cliArgs.provider, '');
   const command = parseCommand();
 
-  // --on-ai-limit 옵션이 run/parallel 실행 시 전달된 경우 config.json에 즉시 반영
-  if (cliArgs.onAiLimit && (command === 'run' || command === 'parallel')) {
+  // --on-ai-limit 옵션이 run 실행 시 전달된 경우 config.json에 즉시 반영
+  if (cliArgs.onAiLimit && command === 'run') {
     const onAiLimitValue = cliArgs.onAiLimit === 'wait' ? 'wait' : 'fail';
     const currentConfig = loadConfig(targetDir) || {};
     if (currentConfig.onAiLimit !== onAiLimitValue) {
@@ -44,12 +43,15 @@ async function main() {
   }
 
   if (command === 'run') {
-    runWorker(providerArg);
+    runWorker(providerArg, cliArgs);
     return;
   }
 
   if (command === 'parallel') {
-    runParallel(process.argv.slice(3), providerArg);
+    console.error(`${C.red}'sleepcode parallel' 명령은 제거되었습니다.${C.reset}`);
+    console.log(`  ${C.cyan}npx sleepcode run${C.reset} ${C.dim}# 실행${C.reset}`);
+    console.log(`  ${C.cyan}npx sleepcode run --setup|--status|--merge|--clean${C.reset} ${C.dim}# 작업 관리${C.reset}`);
+    process.exit(1);
     return;
   }
 

@@ -8,7 +8,6 @@ const {
 const {
   buildExecutionPlan,
   prepareParallelExecution,
-  prepareSingleExecution,
 } = require('./runExecution');
 const {
   createActiveRunState,
@@ -43,7 +42,6 @@ function executeNotionTasks({
   createActiveRunStateFn = createActiveRunState,
   createRunTimestampFn = createRunTimestamp,
   prepareParallelExecutionFn = prepareParallelExecution,
-  prepareSingleExecutionFn = prepareSingleExecution,
   applyTaskRunUpdatesFn = applyTaskRunUpdates,
   getFirstTaskIdsByWorkerFn = getFirstTaskIdsByWorker,
 }) {
@@ -52,7 +50,7 @@ function executeNotionTasks({
 
   const timestamp = createRunTimestampFn();
   const executionPlan = buildExecutionPlanFn(tasks, { defaultWorker });
-  const { workerGroups, workerNames, useParallel } = executionPlan;
+  const { workerGroups, workerNames } = executionPlan;
 
   pushLog('SYSTEM', `${C.bold}▶ ${tasks.length}개 태스크 실행 시작${C.reset}`);
 
@@ -67,48 +65,29 @@ function executeNotionTasks({
     updatePage,
   });
 
-  if (useParallel) {
-    pushLog('SYSTEM', `${C.cyan}병렬 모드${C.reset}: ${workerNames.join(', ')}`);
-    const workerStates = prepareParallelExecutionFn({
-      targetDir,
-      runtimeTasksPath,
-      workerGroups,
-      timestamp,
-      logDir,
-      syncClaudeMd,
-      parseParallelTasks,
-      createWorktrees,
-      syncWorkerTaskProgress,
-    });
-
-    if (workerStates.length === 0) {
-      finishExecution(tasks, schema, []);
-      return;
-    }
-
-    setWorkerStates(workerStates);
-    setWatchPhase('executing');
-    for (const workerState of workerStates) {
-      spawnRunWorker(workerState);
-    }
-    return;
-  }
-
-  const allTasks = Object.values(workerGroups).flat();
-  pushLog('SYSTEM', `${C.cyan}단일 모드${C.reset}: ${allTasks.length}개 태스크`);
-  const workerState = prepareSingleExecutionFn({
+  pushLog('SYSTEM', `${C.cyan}병렬 실행${C.reset}: ${workerNames.join(', ')}`);
+  const workerStates = prepareParallelExecutionFn({
     targetDir,
     runtimeTasksPath,
     workerGroups,
-    logDir,
     timestamp,
+    logDir,
     syncClaudeMd,
+    parseParallelTasks,
+    createWorktrees,
     syncWorkerTaskProgress,
   });
 
-  setWorkerStates([workerState]);
+  if (workerStates.length === 0) {
+    finishExecution(tasks, schema, []);
+    return;
+  }
+
+  setWorkerStates(workerStates);
   setWatchPhase('executing');
-  spawnRunWorker(workerState);
+  for (const workerState of workerStates) {
+    spawnRunWorker(workerState);
+  }
 }
 
 function finishExecution({

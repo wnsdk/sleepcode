@@ -8,7 +8,6 @@ const {
   buildExecutionPlan,
   createDynamicWorkerState,
   prepareParallelExecution,
-  prepareSingleExecution,
 } = require('../bin/lib/runExecution');
 
 function withTempDir(prefix, fn) {
@@ -20,25 +19,23 @@ function withTempDir(prefix, fn) {
   }
 }
 
-test('buildExecutionPlan determines worker groups and parallel mode', () => {
+test('buildExecutionPlan determines worker groups for parallel execution', () => {
   const plan = buildExecutionPlan([
     { id: 'a', title: '메인', worker: '' },
     { id: 'b', title: '워커', worker: '@worker feature-a' },
   ]);
 
-  assert.equal(plan.useParallel, true);
   assert.deepEqual(plan.workerNames, ['main', 'feature-a']);
   assert.deepEqual(plan.workerGroups.main.map((task) => task.id), ['a']);
   assert.deepEqual(plan.workerGroups['feature-a'].map((task) => task.id), ['b']);
 });
 
-test('buildExecutionPlan uses defaultWorker and enables parallel mode', () => {
+test('buildExecutionPlan uses defaultWorker even for a single worker queue', () => {
   const plan = buildExecutionPlan([
     { id: 'a', title: '태스크1', worker: '' },
     { id: 'b', title: '태스크2', worker: '' },
   ], { defaultWorker: 'dev' });
 
-  assert.equal(plan.useParallel, true);
   assert.deepEqual(plan.workerNames, ['dev']);
   assert.deepEqual(plan.workerGroups.dev.map((task) => task.id), ['a', 'b']);
 });
@@ -70,34 +67,6 @@ test('prepareParallelExecution writes runtime queue and returns worker states', 
     assert.match(content, /## @worker bugfix/);
     assert.deepEqual(workerStates.map((worker) => worker.name), ['main', 'bugfix']);
     assert.deepEqual(syncProgressCalls, ['main', 'bugfix']);
-  });
-});
-
-test('prepareSingleExecution writes a sequential queue and returns main worker state', () => {
-  withTempDir('sleepcode-run-single-', (dir) => {
-    const runtimeTasksPath = path.join(dir, 'task_queue.md');
-    const syncCalls = [];
-    const workerState = prepareSingleExecution({
-      targetDir: dir,
-      runtimeTasksPath,
-      workerGroups: {
-        main: [{ id: 'a', title: '메인 태스크' }],
-      },
-      timestamp: '2026-03-07T10-00-00',
-      logDir: path.join(dir, 'logs'),
-      syncClaudeMd: () => {},
-      syncWorkerTaskProgress: (worker, _baseline, content) => {
-        syncCalls.push({ name: worker.name, content });
-      },
-    });
-
-    const content = fs.readFileSync(runtimeTasksPath, 'utf-8');
-    assert.match(content, /아래 태스크를 순서대로 진행하세요/);
-    assert.equal(workerState.name, 'main');
-    assert.equal(workerState.merged, true);
-    assert.equal(syncCalls.length, 1);
-    assert.equal(syncCalls[0].name, 'main');
-    assert.match(syncCalls[0].content, /메인 태스크/);
   });
 });
 

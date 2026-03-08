@@ -28,18 +28,18 @@ function summarizeWorkerOutcomes(workerStates) {
 function getCompletionNextSteps(summary) {
   if (summary.needsMerge.length > 0) {
     return [
-      'npx sleepcode parallel --merge',
-      'npx sleepcode parallel --clean',
+      'npx sleepcode run --merge',
+      'npx sleepcode run --clean',
     ];
   }
 
   if (summary.done.length > 0) {
-    return ['npx sleepcode parallel --clean'];
+    return ['npx sleepcode run --clean'];
   }
 
   return [
-    'npx sleepcode parallel --merge',
-    'npx sleepcode parallel --clean',
+    'npx sleepcode run --merge',
+    'npx sleepcode run --clean',
   ];
 }
 

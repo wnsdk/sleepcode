@@ -1,7 +1,16 @@
+const path = require('path');
+
 const { isOverBudget, recordCost } = require('./configBudget');
 const { loadConfig } = require('./config');
 const { syncClaudeMd } = require('./files');
-const { parseParallelTasks, createWorktrees, cleanupWorktrees, autoMergeWorktrees } = require('./parallel');
+const { parseEnvFile } = require('./utils');
+const {
+  parseParallelTasks,
+  createWorktrees,
+  cleanupWorktrees,
+  autoMergeWorktrees,
+  runTaskQueueCommand,
+} = require('./parallel');
 const { getWorkerDoneState, syncWorkerTaskProgress } = require('./taskState');
 const {
   parseTaskStatuses,
@@ -43,6 +52,21 @@ const {
   stopWatchTimers,
   stopWorkerProcesses,
 } = require('./runWatchControl');
+
+function hasTaskQueueManagementFlags(cliArgs = {}) {
+  return Boolean(cliArgs.setup || cliArgs.status || cliArgs.merge || cliArgs.clean);
+}
+
+function shouldUseNotionControlPlane(targetDir, cliArgs = {}, env = process.env, parseEnvFileFn = parseEnvFile) {
+  const envPath = path.join(targetDir, '.sleepcode', '.env');
+  const envMap = parseEnvFileFn(envPath);
+  const notionKey = cliArgs.notionKey || env.NOTION_API_KEY || envMap.NOTION_API_KEY;
+  const notionDb = cliArgs.notionDb || env.NOTION_DB_ID || envMap.NOTION_DB_ID;
+  const explicitNotionArgs = Boolean(cliArgs.notionKey || cliArgs.notionDb || cliArgs.notionFilter);
+
+  if (explicitNotionArgs) return true;
+  return Boolean(notionKey && notionDb);
+}
 
 function cmdWatch(cliProvider) {
   const setup = resolveRunSetupOrExit();
@@ -209,6 +233,25 @@ function cmdWatch(cliProvider) {
   watchRuntime.pollingController.start();
 }
 
+function runWorker(cliProvider, cliArgs = {}, options = {}) {
+  const targetDir = options.targetDir || process.cwd();
+  const env = options.env || process.env;
+  const parseEnvFileFn = options.parseEnvFileFn || parseEnvFile;
+  const runTaskQueueCommandFn = options.runTaskQueueCommandFn || runTaskQueueCommand;
+  const cmdWatchFn = options.cmdWatchFn || cmdWatch;
+
+  if (hasTaskQueueManagementFlags(cliArgs) || !shouldUseNotionControlPlane(targetDir, cliArgs, env, parseEnvFileFn)) {
+    return runTaskQueueCommandFn({ cliArgs, cliProvider, targetDir });
+  }
+
+  return cmdWatchFn(cliProvider);
+}
+
 module.exports = {
-  runWorker: cmdWatch,
+  runWorker,
+  _internals: {
+    cmdWatch,
+    hasTaskQueueManagementFlags,
+    shouldUseNotionControlPlane,
+  },
 };

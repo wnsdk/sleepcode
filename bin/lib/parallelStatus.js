@@ -4,7 +4,7 @@ const path = require('path');
 const { C } = require('./constants');
 const { progressBar } = require('./utils');
 const { getPersistedTaskProgress } = require('./taskState');
-const { MAIN_WORKER_NAME, parseParallelTasks } = require('./parallelTasks');
+const { MAIN_WORKER_NAME, parseTaskQueueWorkers } = require('./parallelTasks');
 const {
   getRuntimeMainTaskQueuePath,
   getRuntimeTaskQueuePath,
@@ -56,11 +56,11 @@ function buildParallelStatusRows({
 
 function showParallelStatus(targetDir) {
   const tasksPath = path.join(targetDir, '.sleepcode', 'task_queue.md');
-  const workers = parseParallelTasks(tasksPath);
+  const workers = parseTaskQueueWorkers(tasksPath);
 
   if (!workers) {
-    console.log(`${C.yellow}task_queue.md에 @worker 섹션이 없습니다.${C.reset}`);
-    console.log(`${C.dim}병렬 실행을 위해 task_queue.md에 ## @worker <name> 섹션을 추가하세요.${C.reset}`);
+    console.log(`${C.yellow}task_queue.md에 실행할 태스크가 없습니다.${C.reset}`);
+    console.log(`${C.dim}일반 태스크 목록 또는 ## @worker <name> 섹션을 추가하세요.${C.reset}`);
     return;
   }
 

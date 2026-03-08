@@ -51,7 +51,6 @@ test('executeNotionTasks prepares parallel workers, updates run state, and spawn
         feature: [{ id: 'b', title: '워커' }],
       },
       workerNames: ['main', 'feature'],
-      useParallel: true,
     }),
     applyTaskRunUpdatesFn: (args) => {
       calls.updates.push(args);
@@ -72,7 +71,7 @@ test('executeNotionTasks prepares parallel workers, updates run state, and spawn
   assert.deepEqual(calls.spawned, ['main', 'feature']);
   assert.deepEqual(calls.phase, ['executing']);
   assert.match(calls.logs[0][1], /2개 태스크 실행 시작/);
-  assert.match(calls.logs[1][1], /병렬 모드/);
+  assert.match(calls.logs[1][1], /병렬 실행/);
   assert.equal(calls.finished, undefined);
 });
 
@@ -100,7 +99,6 @@ test('executeNotionTasks finishes immediately when parallel execution creates no
     buildExecutionPlanFn: () => ({
       workerGroups: { main: [{ id: 'a', title: '메인' }] },
       workerNames: ['main'],
-      useParallel: true,
     }),
     createActiveRunStateFn: () => ({
       isExecuting: true,

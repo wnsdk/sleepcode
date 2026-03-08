@@ -35,7 +35,7 @@ sleepcode는 `.gitattributes`에 `task_queue/task_done`용 `merge=union` 규칙�
 ### 3. 실행
 
 ```bash
-# 1회 실행
+# 실행
 npx sleepcode run
 ```
 
@@ -64,11 +64,11 @@ npx sleepcode run
 **실행:**
 
 ```bash
-npx sleepcode parallel              # 병렬 실행 (실시간 대시보드 표시, 모든 워커 종료 후 일괄 머지)
-npx sleepcode parallel --setup      # worktree만 먼저 생성 (실행 전 확인용)
-npx sleepcode parallel --status     # 워커 상태 확인
-npx sleepcode parallel --merge      # 완료된 브랜치 자동 머지
-npx sleepcode parallel --clean      # worktree 정리
+npx sleepcode run                   # 병렬 실행 (실시간 대시보드 표시, 모든 워커 종료 후 일괄 머지)
+npx sleepcode run --setup           # worktree만 먼저 생성 (실행 전 확인용)
+npx sleepcode run --status          # 워커 상태 확인
+npx sleepcode run --merge           # 완료된 브랜치 자동 머지
+npx sleepcode run --clean           # worktree 정리
 ```
 
 ### 5. Notion 제어판 모드 (원격 태스크 관리)

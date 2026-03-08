@@ -12,11 +12,8 @@ const {
 function buildExecutionPlan(tasks, { defaultWorker } = {}) {
   const workerGroups = groupTasksByWorker(tasks, { defaultWorker });
   const workerNames = Object.keys(workerGroups);
-  const useParallel = workerNames.length > 1 ||
-    (workerNames.length === 1 && workerNames[0] !== 'main');
 
   return {
-    useParallel,
     workerGroups,
     workerNames,
   };
@@ -65,40 +62,6 @@ function prepareParallelExecution({
   return workerStates;
 }
 
-function prepareSingleExecution({
-  targetDir,
-  runtimeTasksPath,
-  workerGroups,
-  timestamp,
-  logDir,
-  syncClaudeMd,
-  syncWorkerTaskProgress,
-}) {
-  fs.writeFileSync(
-    runtimeTasksPath,
-    buildRuntimeTaskQueueContent(workerGroups, { parallel: false })
-  );
-
-  syncClaudeMd(targetDir);
-
-  const workerState = buildRunWorkerState({
-    workerInfo: {
-      name: 'main',
-      path: targetDir,
-      tasksPath: runtimeTasksPath,
-    },
-    targetDir,
-    logDir,
-    timestamp,
-    total: 0,
-    merged: true,
-  });
-
-  const taskQueueContent = fs.readFileSync(runtimeTasksPath, 'utf-8');
-  syncWorkerTaskProgress(workerState, null, taskQueueContent);
-  return workerState;
-}
-
 function createDynamicWorkerState({
   targetDir,
   workerName,
@@ -128,5 +91,4 @@ module.exports = {
   buildExecutionPlan,
   createDynamicWorkerState,
   prepareParallelExecution,
-  prepareSingleExecution,
 };

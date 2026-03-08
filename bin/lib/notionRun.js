@@ -24,31 +24,15 @@ function groupTasksByWorker(tasks, { defaultWorker } = {}) {
 }
 
 function buildRuntimeTaskQueueContent(workerGroups, options = {}) {
-  const isParallel = options.parallel !== false;
-
-  if (isParallel) {
-    const lines = ['# 작업 목록\n', 'task_queue.md는 backlog(읽기 전용)로 유지하세요.\n'];
-    for (const [worker, tasks] of Object.entries(workerGroups || {})) {
-      lines.push(`## @worker ${worker}`);
-      for (const task of tasks) {
-        lines.push(`- [ ] ${task.title} <!-- notion:${task.id} -->`);
-      }
-      lines.push('');
+  const lines = ['# 작업 목록\n', 'task_queue.md는 backlog(읽기 전용)로 유지하세요.\n'];
+  for (const [worker, tasks] of Object.entries(workerGroups || {})) {
+    lines.push(`## @worker ${worker}`);
+    for (const task of tasks) {
+      lines.push(`- [ ] ${task.title} <!-- notion:${task.id} -->`);
     }
-    return lines.join('\n');
+    lines.push('');
   }
-
-  const lines = [
-    '# 작업 목록\n',
-    '아래 태스크를 순서대로 진행하세요. task_queue.md는 backlog(읽기 전용)로 유지하세요.\n',
-    '---\n',
-  ];
-
-  for (const task of Object.values(workerGroups || {}).flat()) {
-    lines.push(`- [ ] ${task.title} <!-- notion:${task.id} -->`);
-  }
-
-  return lines.join('\n') + '\n';
+  return lines.join('\n');
 }
 
 function parseTaskStatuses(workerRefs, getWorkerDoneState) {

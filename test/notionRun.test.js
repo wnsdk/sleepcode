@@ -46,19 +46,17 @@ test('groupTasksByWorker uses defaultWorker when worker is empty', () => {
   assert.deepEqual(groups.dev.map((task) => task.id), ['2', '3']);
 });
 
-test('buildRuntimeTaskQueueContent renders parallel and single-mode queues', () => {
+test('buildRuntimeTaskQueueContent always renders worker-based parallel queues', () => {
   const workerGroups = {
     main: [{ id: 'n1', title: '메인 태스크' }],
     bugfix: [{ id: 'n2', title: '버그 수정' }],
   };
 
-  const parallelContent = buildRuntimeTaskQueueContent(workerGroups, { parallel: true });
-  const singleContent = buildRuntimeTaskQueueContent(workerGroups, { parallel: false });
+  const content = buildRuntimeTaskQueueContent(workerGroups);
 
-  assert.match(parallelContent, /## @worker main/);
-  assert.match(parallelContent, /- \[ \] 버그 수정 <!-- notion:n2 -->/);
-  assert.match(singleContent, /아래 태스크를 순서대로 진행하세요/);
-  assert.doesNotMatch(singleContent, /## @worker/);
+  assert.match(content, /## @worker main/);
+  assert.match(content, /## @worker bugfix/);
+  assert.match(content, /- \[ \] 버그 수정 <!-- notion:n2 -->/);
 });
 
 test('updateFirstPendingStatuses promotes the first unfinished task per worker', () => {

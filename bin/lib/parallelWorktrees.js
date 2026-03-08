@@ -3,7 +3,7 @@ const path = require('path');
 const { execSync } = require('child_process');
 
 const { C } = require('./constants');
-const { MAIN_WORKER_NAME, parseParallelTasks } = require('./parallelTasks');
+const { MAIN_WORKER_NAME, parseParallelTasks, parseTaskQueueWorkers } = require('./parallelTasks');
 const { showParallelStatus } = require('./parallelStatus');
 const {
   ensureRuntimeDirs,
@@ -33,7 +33,7 @@ function createWorktrees(targetDir, workers) {
       fs.writeFileSync(mainTasksPath, worker.tasks);
       const legacyMainWorktreePath = path.join(wtBase, MAIN_WORKER_NAME);
       if (fs.existsSync(legacyMainWorktreePath)) {
-        console.log(`  ${C.yellow}!${C.reset} legacy worktree '${MAIN_WORKER_NAME}' 감지 — ${C.cyan}npx sleepcode parallel --clean${C.reset} 권장`);
+        console.log(`  ${C.yellow}!${C.reset} legacy worktree '${MAIN_WORKER_NAME}' 감지 — ${C.cyan}npx sleepcode run --clean${C.reset} 권장`);
       }
       console.log(`  ${C.green}✓${C.reset} ${worker.name} ${C.dim}(${currentBranch})${C.reset} — ${worker.remaining}개 태스크 ${C.dim}[현재 브랜치]${C.reset}`);
       created.push({
@@ -166,5 +166,6 @@ module.exports = {
   isRuntimeOnlyStatusLine,
   normalizeStatusPathPart,
   parseParallelTasks,
+  parseTaskQueueWorkers,
   showParallelStatus,
 };

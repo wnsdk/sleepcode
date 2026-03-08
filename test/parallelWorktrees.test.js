@@ -7,6 +7,7 @@ const path = require('path');
 const {
   isRuntimeOnlyStatusLine,
   parseParallelTasks,
+  parseTaskQueueWorkers,
 } = require('../bin/lib/parallelWorktrees');
 
 function withTempDir(prefix, fn) {
@@ -50,6 +51,30 @@ test('parseParallelTasks extracts worker sections and remaining counts', () => {
       {
         name: 'bugfix',
         tasks: '# 작업 목록\n\n## @worker bugfix\n- [ ] 버그 수정\n',
+        remaining: 1,
+      },
+    ]);
+  });
+});
+
+test('parseTaskQueueWorkers promotes a plain queue to the main worker', () => {
+  withTempDir('sleepcode-parallel-', (dir) => {
+    const tasksPath = path.join(dir, 'task_queue.md');
+    fs.writeFileSync(
+      tasksPath,
+      [
+        '# 작업 목록',
+        '',
+        '- [ ] 로그인 화면 구현',
+        '- [x] 회원가입 API 연동',
+        '',
+      ].join('\n')
+    );
+
+    assert.deepEqual(parseTaskQueueWorkers(tasksPath), [
+      {
+        name: 'main',
+        tasks: '# 작업 목록\n\n## @worker main\n- [ ] 로그인 화면 구현\n- [x] 회원가입 API 연동\n',
         remaining: 1,
       },
     ]);

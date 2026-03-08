@@ -10,7 +10,7 @@ const {
 } = require('./parallelMergePlan');
 const {
   getMergeBlockingStatus,
-  parseParallelTasks,
+  parseTaskQueueWorkers,
 } = require('./parallelWorktrees');
 const {
   buildConflictResolutionPrompt,
@@ -62,10 +62,10 @@ function attemptMergeBranch(targetDir, currentBranch, branch, cliProvider) {
 
 function mergeWorktrees(targetDir, cliProvider) {
   const tasksPath = path.join(targetDir, '.sleepcode', 'task_queue.md');
-  const workers = parseParallelTasks(tasksPath);
+  const workers = parseTaskQueueWorkers(tasksPath);
 
   if (!workers) {
-    console.error(`${C.red}task_queue.md에 @worker 섹션이 없습니다.${C.reset}`);
+    console.error(`${C.red}task_queue.md에 병합할 워커 태스크가 없습니다.${C.reset}`);
     process.exit(1);
   }
 
@@ -149,7 +149,7 @@ function mergeWorktrees(targetDir, cliProvider) {
       console.log(`  ${C.cyan}git merge sleepcode/${name}${C.reset}  ${C.dim}# 충돌 해결 후 git commit${C.reset}`);
     }
     console.log(`\n${C.yellow}⚠ 충돌이 남아있으므로 워크트리를 정리하지 마세요.${C.reset}`);
-    console.log(`  ${C.dim}수동 머지 완료 후 'npx sleepcode parallel --clean'으로 정리하세요.${C.reset}`);
+    console.log(`  ${C.dim}수동 머지 완료 후 'npx sleepcode run --clean'으로 정리하세요.${C.reset}`);
   }
   if (results.skipped.length > 0) {
     console.log(`  ${C.dim}스킵: ${results.skipped.length} (${results.skipped.join(', ')})${C.reset}`);
@@ -157,7 +157,7 @@ function mergeWorktrees(targetDir, cliProvider) {
 
   if (results.conflicted.length === 0 && results.merged.length > 0) {
     console.log(`\n${C.green}${C.bold}모든 브랜치 머지 완료!${C.reset}`);
-    console.log(`  ${C.cyan}npx sleepcode parallel --clean${C.reset}  ${C.dim}# worktree 정리${C.reset}\n`);
+    console.log(`  ${C.cyan}npx sleepcode run --clean${C.reset}  ${C.dim}# worktree 정리${C.reset}\n`);
   }
 }
 

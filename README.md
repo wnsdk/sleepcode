@@ -9,11 +9,8 @@
 ## 사용법
 
 ```bash
-# 1회 실행
+# 실행
 npx sleepcode run
-
-# 병렬 실행 (여러 기능 동시 개발)
-npx sleepcode parallel
 ```
 
 ### 기본 흐름
@@ -26,7 +23,7 @@ npx sleepcode run      # 실행
 
 1. 프로젝트 루트에서 `npx sleepcode init` → 인터랙티브 초기화
 2. `.sleepcode/task_queue.md`에 작업 목록 작성 (또는 Notion DB에서 관리)
-3. `npx sleepcode run` → AI가 태스크를 순서대로 수행
+3. `npx sleepcode run` → AI가 항상 병렬 워커 모델로 태스크를 수행
 
 ### task_queue.md 작성
 
@@ -69,11 +66,11 @@ npx sleepcode run      # 실행
 `@worker main`은 별도 `sleepcode/main` 브랜치를 만들지 않고 현재 체크아웃된 브랜치(보통 `main`)에서 실행됩니다. 모든 워커가 종료된 것이 확인되면 완료된 브랜치들을 한꺼번에 병합하며, 충돌이 나면 기본 AI로 자동 해결과 merge commit까지 시도합니다.
 
 ```bash
-npx sleepcode parallel              # 병렬 실행
-npx sleepcode parallel --setup      # worktree만 생성 (실행 전 확인)
-npx sleepcode parallel --merge      # 완료된 브랜치 자동 머지
-npx sleepcode parallel --clean      # worktree 정리
-npx sleepcode parallel --status     # 워커 상태 확인
+npx sleepcode run                   # 병렬 실행
+npx sleepcode run --setup           # worktree만 생성 (실행 전 확인)
+npx sleepcode run --merge           # 완료된 브랜치 자동 머지
+npx sleepcode run --clean           # worktree 정리
+npx sleepcode run --status          # 워커 상태 확인
 ```
 
 ### 실시간 대시보드
@@ -180,12 +177,11 @@ claude --dangerously-skip-permissions
 |--------|------|
 | `npx sleepcode init` | 인터랙티브 초기화 |
 | `npx sleepcode` | `init`의 별칭 |
-| `npx sleepcode run` | 1회 실행 |
-| `npx sleepcode parallel` | 병렬 실행 (워커별 동시 개발) |
-| `npx sleepcode parallel --setup` | worktree만 생성 (실행 전 확인) |
-| `npx sleepcode parallel --merge` | 완료된 브랜치 자동 머지 |
-| `npx sleepcode parallel --clean` | worktree 정리 |
-| `npx sleepcode parallel --status` | 워커 상태 확인 |
+| `npx sleepcode run` | sleepcode 실행 (항상 병렬 실행) |
+| `npx sleepcode run --setup` | worktree만 생성 (실행 전 확인) |
+| `npx sleepcode run --merge` | 완료된 브랜치 자동 머지 |
+| `npx sleepcode run --clean` | worktree 정리 |
+| `npx sleepcode run --status` | 워커 상태 확인 |
 | `npx sleepcode usage` | 주간 사용량 확인 |
 | `npx sleepcode notion-update` | 기존 Notion DB 컬럼을 최신 버전으로 업데이트 |
 

@@ -243,7 +243,7 @@ ${C.bold}${C.green}완료!${C.reset} 다음 단계:
      ${C.dim}• .sleepcode/docs/ 에 기획서, 스크린샷 등 파일 추가${C.reset}
   ${taskStep}
   ${C.bold}4.${C.reset} 실행:
-     ${C.cyan}npx sleepcode run${C.reset}          ${C.dim}# 1회 실행${C.reset}
+     ${C.cyan}npx sleepcode run${C.reset}          ${C.dim}# 항상 병렬 실행${C.reset}
 `);
 }
 

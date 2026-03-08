@@ -7,6 +7,7 @@ const {
   copySleepcodeDirToWorktree,
   createWorktrees,
   parseParallelTasks,
+  parseTaskQueueWorkers,
   showParallelStatus,
 } = require('./parallelWorktrees');
 const {
@@ -15,12 +16,16 @@ const {
 } = require('./parallelMerge');
 const { runParallelWorkers } = require('./parallelRunner');
 
-function showParallelTaskFormatError() {
-  console.error(`${C.red}task_queue.md에 @worker 섹션이 없습니다.${C.reset}`);
+function showTaskQueueFormatError() {
+  console.error(`${C.red}task_queue.md에 실행할 태스크가 없습니다.${C.reset}`);
   console.log(`
-${C.bold}task_queue.md 병렬 포맷 예시:${C.reset}
+${C.bold}task_queue.md 예시:${C.reset}
 
   ${C.dim}# 작업 목록${C.reset}
+  ${C.dim}- [ ] 로그인 화면 구현${C.reset}
+  ${C.dim}- [ ] 회원가입 API 연동${C.reset}
+
+  ${C.dim}# 또는 워커별 분배${C.reset}
   ${C.cyan}## @worker feature-auth${C.reset}
   ${C.dim}- [ ] 로그인 화면 구현${C.reset}
   ${C.dim}- [ ] 회원가입 API 연동${C.reset}
@@ -31,8 +36,7 @@ ${C.bold}task_queue.md 병렬 포맷 예시:${C.reset}
 `);
 }
 
-function runParallel(subArgs, cliProvider) {
-  const targetDir = process.cwd();
+function runTaskQueueCommand({ cliArgs = {}, cliProvider, targetDir = process.cwd() } = {}) {
   const scDir = path.join(targetDir, '.sleepcode');
 
   if (!fs.existsSync(scDir)) {
@@ -40,10 +44,10 @@ function runParallel(subArgs, cliProvider) {
     process.exit(1);
   }
 
-  const isSetup = subArgs.includes('--setup');
-  const isClean = subArgs.includes('--clean');
-  const isStatus = subArgs.includes('--status');
-  const isMerge = subArgs.includes('--merge');
+  const isSetup = Boolean(cliArgs.setup);
+  const isClean = Boolean(cliArgs.clean);
+  const isStatus = Boolean(cliArgs.status);
+  const isMerge = Boolean(cliArgs.merge);
 
   if (isStatus) {
     showParallelStatus(targetDir);
@@ -63,13 +67,13 @@ function runParallel(subArgs, cliProvider) {
   }
 
   const tasksPath = path.join(scDir, 'task_queue.md');
-  const workers = parseParallelTasks(tasksPath);
+  const workers = parseTaskQueueWorkers(tasksPath);
   if (!workers) {
-    showParallelTaskFormatError();
+    showTaskQueueFormatError();
     process.exit(1);
   }
 
-  console.log(`\n${C.bold}병렬 워커 설정${C.reset} — ${workers.length}개 워커 감지\n`);
+  console.log(`\n${C.bold}실행 워커 설정${C.reset} — ${workers.length}개 워커 감지\n`);
 
   const created = createWorktrees(targetDir, workers);
   if (created.length === 0) {
@@ -83,9 +87,9 @@ function runParallel(subArgs, cliProvider) {
     console.log(`
 ${C.bold}다음 단계:${C.reset}
 
-  ${C.cyan}npx sleepcode parallel --status${C.reset}  ${C.dim}# 워커 상태 확인${C.reset}
-  ${C.cyan}npx sleepcode parallel${C.reset}           ${C.dim}# 병렬 실행${C.reset}
-  ${C.cyan}npx sleepcode parallel --clean${C.reset}   ${C.dim}# worktree 정리${C.reset}
+  ${C.cyan}npx sleepcode run --status${C.reset}  ${C.dim}# 워커 상태 확인${C.reset}
+  ${C.cyan}npx sleepcode run${C.reset}           ${C.dim}# 실행${C.reset}
+  ${C.cyan}npx sleepcode run --clean${C.reset}   ${C.dim}# worktree 정리${C.reset}
 `);
     return;
   }
@@ -100,7 +104,8 @@ module.exports = {
   createWorktrees,
   mergeWorktrees,
   parseParallelTasks,
-  runParallel,
+  parseTaskQueueWorkers,
+  runTaskQueueCommand,
   runParallelWorkers,
   showParallelStatus,
 };

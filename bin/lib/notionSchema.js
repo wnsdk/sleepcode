@@ -129,6 +129,8 @@ async function syncNotionDbSchema(apiKey, dbId) {
     }
 
     if (expectedType === existingType) {
+      let needsUpdate = false;
+
       if (expectedType === 'select') {
         const expectedOptions = config.select?.options || [];
         if (expectedOptions.length > 0) {
@@ -136,10 +138,20 @@ async function syncNotionDbSchema(apiKey, dbId) {
           const nextOptions = mergeSelectOptions(currentOptions, expectedOptions);
           if (optionsSignature(currentOptions) !== optionsSignature(nextOptions)) {
             updateProps[existingEntry.name] = { select: { options: nextOptions } };
-            updated.push(name);
+            needsUpdate = true;
           }
         }
       }
+
+      if (config.description != null && config.description !== (existingProp.description || '')) {
+        updateProps[existingEntry.name] = {
+          ...(updateProps[existingEntry.name] || {}),
+          description: config.description,
+        };
+        needsUpdate = true;
+      }
+
+      if (needsUpdate) updated.push(name);
       continue;
     }
 

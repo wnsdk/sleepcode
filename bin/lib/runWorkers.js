@@ -20,13 +20,13 @@ function appendTasksToQueueContent(content, tasks) {
   return `${base}\n${extraLines.join('\n')}\n`;
 }
 
-function splitTasksByWorkerPresence(tasks, existingWorkerNames) {
+function splitTasksByWorkerPresence(tasks, existingWorkerNames, { defaultWorker } = {}) {
   const existingNames = new Set(existingWorkerNames || []);
   const existingGroups = {};
   const newGroups = {};
 
   for (const task of tasks || []) {
-    const workerName = normalizeWorkerName(task.worker);
+    const workerName = normalizeWorkerName(task.worker, defaultWorker);
     const target = existingNames.has(workerName) ? existingGroups : newGroups;
     if (!target[workerName]) target[workerName] = [];
     target[workerName].push(task);

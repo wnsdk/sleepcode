@@ -32,6 +32,17 @@ test('buildExecutionPlan determines worker groups and parallel mode', () => {
   assert.deepEqual(plan.workerGroups['feature-a'].map((task) => task.id), ['b']);
 });
 
+test('buildExecutionPlan uses defaultWorker and enables parallel mode', () => {
+  const plan = buildExecutionPlan([
+    { id: 'a', title: '태스크1', worker: '' },
+    { id: 'b', title: '태스크2', worker: '' },
+  ], { defaultWorker: 'dev' });
+
+  assert.equal(plan.useParallel, true);
+  assert.deepEqual(plan.workerNames, ['dev']);
+  assert.deepEqual(plan.workerGroups.dev.map((task) => task.id), ['a', 'b']);
+});
+
 test('prepareParallelExecution writes runtime queue and returns worker states', () => {
   withTempDir('sleepcode-run-exec-', (dir) => {
     const runtimeTasksPath = path.join(dir, 'task_queue.md');

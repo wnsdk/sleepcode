@@ -28,6 +28,7 @@ function addTasksDuringExecution({
   spawnRunWorker,
   scheduleRender,
   pushLog,
+  defaultWorker,
   trackDynamicTaskIdsFn = trackDynamicTaskIds,
   splitTasksByWorkerPresenceFn = splitTasksByWorkerPresence,
   appendWorkerTasksFn = appendWorkerTasks,
@@ -39,7 +40,8 @@ function addTasksDuringExecution({
 
   const { existingGroups: tasksForExisting, newGroups: tasksForNew } = splitTasksByWorkerPresenceFn(
     newTasks,
-    currentWorkerStates.map((workerState) => workerState.name)
+    currentWorkerStates.map((workerState) => workerState.name),
+    { defaultWorker }
   );
 
   for (const [workerName, tasks] of Object.entries(tasksForExisting)) {

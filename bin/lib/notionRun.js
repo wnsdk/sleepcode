@@ -8,14 +8,14 @@ const {
   buildStatusProps,
 } = require('./notionSync');
 
-function normalizeWorkerName(worker) {
-  return String(worker || '').trim().replace(/^@worker\s*/i, '').trim() || 'main';
+function normalizeWorkerName(worker, defaultWorker) {
+  return String(worker || '').trim().replace(/^@worker\s*/i, '').trim() || (defaultWorker || 'main');
 }
 
-function groupTasksByWorker(tasks) {
+function groupTasksByWorker(tasks, { defaultWorker } = {}) {
   const workerGroups = {};
   for (const task of tasks || []) {
-    const workerKey = normalizeWorkerName(task.worker);
+    const workerKey = normalizeWorkerName(task.worker, defaultWorker);
     if (!workerGroups[workerKey]) workerGroups[workerKey] = [];
     workerGroups[workerKey].push(task);
   }
@@ -103,10 +103,10 @@ function updateTaskModel({ taskEntry, schema, model, updatePage }) {
   return updatePage(taskEntry.notionId, modelProps);
 }
 
-function updateFirstPendingStatuses({ schema, tasks, taskStatuses, notionInProgressIds, updatePage }) {
+function updateFirstPendingStatuses({ schema, tasks, taskStatuses, notionInProgressIds, updatePage, defaultWorker }) {
   if (!schema || !tasks || tasks.length === 0) return;
 
-  const workerGroups = groupTasksByWorker(tasks);
+  const workerGroups = groupTasksByWorker(tasks, { defaultWorker });
   for (const workerTasks of Object.values(workerGroups)) {
     for (const task of workerTasks) {
       if (taskStatuses[task.id]) continue;

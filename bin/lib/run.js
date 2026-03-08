@@ -1,4 +1,5 @@
 const { isOverBudget, recordCost } = require('./configBudget');
+const { loadConfig } = require('./config');
 const { syncClaudeMd } = require('./files');
 const { parseParallelTasks, createWorktrees, cleanupWorktrees, autoMergeWorktrees } = require('./parallel');
 const { getWorkerDoneState, syncWorkerTaskProgress } = require('./taskState');
@@ -57,6 +58,9 @@ function cmdWatch(cliProvider) {
     runtimeTasksPath,
     targetDir,
   } = setup;
+
+  const config = loadConfig(targetDir) || {};
+  const defaultWorker = config.defaultWorker || undefined;
 
   const runState = createRunStateStore();
   const watchRuntime = createRunWatchRuntime({
@@ -142,6 +146,7 @@ function cmdWatch(cliProvider) {
       parseParallelTasks,
       createWorktrees,
       syncWorkerTaskProgress,
+      defaultWorker,
       buildExecutionPlanFn: buildExecutionPlan,
       createActiveRunStateFn: createActiveRunState,
       createRunTimestampFn: createRunTimestamp,
@@ -197,6 +202,7 @@ function cmdWatch(cliProvider) {
       spawnRunWorker,
       scheduleRender,
       pushLog: watchPushLog,
+      defaultWorker,
       applyTaskRunUpdatesFn: applyTaskRunUpdates,
     });
   }

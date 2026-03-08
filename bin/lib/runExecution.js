@@ -9,8 +9,8 @@ const {
   buildWorkerTaskQueueContent,
 } = require('./runWorkers');
 
-function buildExecutionPlan(tasks) {
-  const workerGroups = groupTasksByWorker(tasks);
+function buildExecutionPlan(tasks, { defaultWorker } = {}) {
+  const workerGroups = groupTasksByWorker(tasks, { defaultWorker });
   const workerNames = Object.keys(workerGroups);
   const useParallel = workerNames.length > 1 ||
     (workerNames.length === 1 && workerNames[0] !== 'main');

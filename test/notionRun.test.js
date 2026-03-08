@@ -21,6 +21,18 @@ test('groupTasksByWorker normalizes worker names and defaults to main', () => {
   assert.deepEqual(groups.main.map((task) => task.id), ['3']);
 });
 
+test('groupTasksByWorker uses defaultWorker when worker is empty', () => {
+  const groups = groupTasksByWorker([
+    { id: '1', title: 'A', worker: '@worker feature-auth' },
+    { id: '2', title: 'B', worker: '' },
+    { id: '3', title: 'C', worker: '' },
+  ], { defaultWorker: 'dev' });
+
+  assert.deepEqual(Object.keys(groups), ['feature-auth', 'dev']);
+  assert.deepEqual(groups['feature-auth'].map((task) => task.id), ['1']);
+  assert.deepEqual(groups.dev.map((task) => task.id), ['2', '3']);
+});
+
 test('buildRuntimeTaskQueueContent renders parallel and single-mode queues', () => {
   const workerGroups = {
     main: [{ id: 'n1', title: '메인 태스크' }],

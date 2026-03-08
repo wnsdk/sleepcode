@@ -38,6 +38,7 @@ function executeNotionTasks({
   parseParallelTasks,
   createWorktrees,
   syncWorkerTaskProgress,
+  defaultWorker,
   buildExecutionPlanFn = buildExecutionPlan,
   createActiveRunStateFn = createActiveRunState,
   createRunTimestampFn = createRunTimestamp,
@@ -50,7 +51,7 @@ function executeNotionTasks({
   setRunState(runState);
 
   const timestamp = createRunTimestampFn();
-  const executionPlan = buildExecutionPlanFn(tasks);
+  const executionPlan = buildExecutionPlanFn(tasks, { defaultWorker });
   const { workerGroups, workerNames, useParallel } = executionPlan;
 
   pushLog('SYSTEM', `${C.bold}▶ ${tasks.length}개 태스크 실행 시작${C.reset}`);

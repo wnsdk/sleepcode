@@ -21,14 +21,21 @@ function ensureNotionSyncScript(
   } = {}
 ) {
   const syncScript = path.join(targetDir, SYNC_SCRIPT_REL_PATH);
-  if (existsSync(syncScript)) return syncScript;
 
   if (!existsSync(templatePath)) {
+    if (existsSync(syncScript)) return syncScript;
     throw new Error('notion_sync.py를 찾을 수 없습니다.');
   }
 
+  const templateContent = readFileSync(templatePath, 'utf-8').replace(/\r\n/g, '\n');
+
+  if (existsSync(syncScript)) {
+    const deployedContent = readFileSync(syncScript, 'utf-8').replace(/\r\n/g, '\n');
+    if (deployedContent === templateContent) return syncScript;
+  }
+
   mkdirSync(path.dirname(syncScript), { recursive: true });
-  writeFileSync(syncScript, readFileSync(templatePath, 'utf-8').replace(/\r\n/g, '\n'));
+  writeFileSync(syncScript, templateContent);
   if (!IS_WIN) chmodSync(syncScript, 0o755);
   return syncScript;
 }

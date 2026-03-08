@@ -144,8 +144,9 @@ async function syncNotionDbSchema(apiKey, dbId) {
       }
 
       if (config.description != null && config.description !== (existingProp.description || '')) {
+        const typePayload = updateProps[existingEntry.name] || { [expectedType]: {} };
         updateProps[existingEntry.name] = {
-          ...(updateProps[existingEntry.name] || {}),
+          ...typePayload,
           description: config.description,
         };
         needsUpdate = true;

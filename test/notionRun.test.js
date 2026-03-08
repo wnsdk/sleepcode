@@ -1,13 +1,26 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
+const fs = require('fs');
+const os = require('os');
+const path = require('path');
 
 const {
   buildExecutionReportText,
   buildFinalTaskProps,
   buildRuntimeTaskQueueContent,
   groupTasksByWorker,
+  parseTaskStatuses,
   updateFirstPendingStatuses,
 } = require('../bin/lib/notionRun');
+
+function withTempDir(prefix, fn) {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), prefix));
+  try {
+    return fn(dir);
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+}
 
 test('groupTasksByWorker normalizes worker names and defaults to main', () => {
   const groups = groupTasksByWorker([
@@ -74,6 +87,38 @@ test('updateFirstPendingStatuses promotes the first unfinished task per worker',
       { pageId: 'next-worker', props: { Status: { status: { name: 'Running' } } } },
     ]
   );
+});
+
+test('parseTaskStatuses honors allDoneSet so merged completions stay completed', () => {
+  withTempDir('sleepcode-notion-run-', (dir) => {
+    const tasksPath = path.join(dir, '.sleepcode', 'task_queue.md');
+    const firstTaskId = '123e4567-e89b-12d3-a456-426614174000';
+    const secondTaskId = '123e4567-e89b-12d3-a456-426614174001';
+    fs.mkdirSync(path.dirname(tasksPath), { recursive: true });
+    fs.writeFileSync(
+      tasksPath,
+      [
+        '# 작업 목록',
+        '',
+        `- [ ] 첫 번째 작업 <!-- notion:${firstTaskId} -->`,
+        `- [ ] 두 번째 작업 <!-- notion:${secondTaskId} -->`,
+        '',
+      ].join('\n')
+    );
+
+    const statuses = parseTaskStatuses(
+      [{ path: dir, tasksPath }],
+      () => ({
+        allDoneSet: new Set([`notion:${firstTaskId}`]),
+        doneSet: new Set(),
+      })
+    );
+
+    assert.deepEqual(statuses, {
+      [firstTaskId]: true,
+      [secondTaskId]: false,
+    });
+  });
 });
 
 test('buildFinalTaskProps and buildExecutionReportText summarize results', () => {

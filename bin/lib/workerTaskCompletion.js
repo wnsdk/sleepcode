@@ -48,7 +48,7 @@ async function handleTaskCompletion({
     commitResult = finalCode === 0
       ? commitTaskNow(wtDir, nextTaskEntry, taskStartHead, {
         doneFilePath: ws.doneFilePath,
-        dedupeSet: updatedDoneState.doneSet,
+        dedupeSet: updatedDoneState.allDoneSet || updatedDoneState.rawDoneSet || updatedDoneState.doneSet,
       })
       : { committed: false, reason: 'runtime_cleanup_failed', error: finalError };
 
@@ -96,7 +96,10 @@ async function handleTaskCompletion({
   }
 
   // 미완료 태스크가 남아있으면 다음 태스크 실행
-  const remaining = getNextPendingTask(updatedContent, updatedDoneState.doneSet);
+  const remaining = getNextPendingTask(
+    updatedContent,
+    updatedDoneState.allDoneSet || updatedDoneState.rawDoneSet || updatedDoneState.doneSet
+  );
   const shouldContinue = remaining && finalCode === 0;
 
   return { finalCode, finalError, shouldContinue };

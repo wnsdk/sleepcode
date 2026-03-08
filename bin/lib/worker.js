@@ -116,7 +116,8 @@ function spawnWorker(ws, py, onDone, onUpdate, pushLog, cliProvider, onTaskCompl
 
     // 미완료 태스크가 없으면 완료 처리
     const doneState = getWorkerDoneState(ws, wtDir);
-    const nextTaskEntry = getNextPendingTaskEntry(taskQueueText, doneState.doneSet);
+    const completedTaskKeys = doneState.allDoneSet || doneState.rawDoneSet || doneState.doneSet;
+    const nextTaskEntry = getNextPendingTaskEntry(taskQueueText, completedTaskKeys);
     const nextTask = nextTaskEntry ? nextTaskEntry.title : null;
     if (!nextTaskEntry) {
       finalize(0);

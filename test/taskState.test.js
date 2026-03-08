@@ -4,8 +4,9 @@ const fs = require('fs');
 const os = require('os');
 const path = require('path');
 
-const { buildTaskKey } = require('../bin/lib/utils');
+const { buildTaskKey, getNextPendingTaskEntry } = require('../bin/lib/utils');
 const {
+  getWorkerDoneState,
   getPersistedTaskProgress,
   syncWorkerTaskProgress,
 } = require('../bin/lib/taskState');
@@ -73,5 +74,40 @@ test('syncWorkerTaskProgress counts only current-run completions beyond the base
 
     assert.equal(ws.done, 1);
     assert.equal(ws.total, 2);
+  });
+});
+
+test('getWorkerDoneState keeps previously completed tasks out of the pending queue after restart', () => {
+  withTempDir('sleepcode-taskstate-', (dir) => {
+    const tasksPath = path.join(dir, '.sleepcode', 'task_queue.md');
+    const doneDir = path.join(dir, '.sleepcode', 'task_done');
+    const mainDoneFilePath = path.join(doneDir, 'main.md');
+    const workerDoneFilePath = path.join(doneDir, 'sleepcode_feature-a.md');
+
+    fs.mkdirSync(doneDir, { recursive: true });
+    fs.writeFileSync(
+      tasksPath,
+      [
+        '# 작업 목록',
+        '',
+        '- [ ] 로그인 화면 구현',
+        '- [ ] 결제 API 연결',
+        '',
+      ].join('\n')
+    );
+    fs.writeFileSync(mainDoneFilePath, '# 완료 기록\n\n- [x] 로그인 화면 구현\n');
+
+    const ws = {
+      path: dir,
+      tasksPath,
+      doneFilePath: workerDoneFilePath,
+    };
+
+    const state = getWorkerDoneState(ws);
+    const nextTask = getNextPendingTaskEntry(fs.readFileSync(tasksPath, 'utf-8'), state.allDoneSet);
+
+    assert.deepEqual([...state.currentRunDoneSet], []);
+    assert.deepEqual([...state.allDoneSet], [buildTaskKey('로그인 화면 구현', null)]);
+    assert.equal(nextTask && nextTask.title, '결제 API 연결');
   });
 });

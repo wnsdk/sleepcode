@@ -8,6 +8,7 @@ const {
   buildTaskKey,
   countTasks,
   extractTaskItems,
+  readTaskDoneSet,
   readCurrentRunTaskDoneSet,
 } = require('../bin/lib/utils');
 
@@ -81,6 +82,36 @@ test('readCurrentRunTaskDoneSet excludes baseline entries and includes runtime a
       [
         buildTaskKey('이번 런 완료', '12345678-1234-1234-1234-1234567890ab'),
         buildTaskKey('메모리 완료 태스크', null),
+      ].sort()
+    );
+    assert.deepEqual(
+      [...state.allDoneSet].sort(),
+      [
+        buildTaskKey('예전 완료 태스크', null),
+        buildTaskKey('이번 런 완료', '12345678-1234-1234-1234-1234567890ab'),
+      ].sort()
+    );
+  });
+});
+
+test('readTaskDoneSet aggregates merged branch logs across task_done files', () => {
+  withTempDir('sleepcode-utils-', (dir) => {
+    const doneDir = path.join(dir, '.sleepcode', 'task_done');
+    const featureDoneFilePath = path.join(doneDir, 'sleepcode_feature-a.md');
+    const targetDoneFilePath = path.join(doneDir, 'sleepcode_feature-b.md');
+
+    fs.mkdirSync(doneDir, { recursive: true });
+    fs.writeFileSync(path.join(doneDir, 'main.md'), '# 완료 기록\n\n- [x] 메인 완료 태스크\n');
+    fs.writeFileSync(featureDoneFilePath, '# 완료 기록\n\n- [x] 워커 완료 태스크\n');
+
+    const state = readTaskDoneSet(dir, targetDoneFilePath);
+
+    assert.equal(state.doneFilePath, targetDoneFilePath);
+    assert.deepEqual(
+      [...state.doneSet].sort(),
+      [
+        buildTaskKey('메인 완료 태스크', null),
+        buildTaskKey('워커 완료 태스크', null),
       ].sort()
     );
   });

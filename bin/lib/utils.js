@@ -100,6 +100,34 @@ function getTaskDoneFilePath(targetDir, branchName) {
   return path.join(targetDir, '.sleepcode', 'task_done', `${branch}.md`);
 }
 
+function listTaskDoneFiles(targetDir, preferredDoneFilePath = null) {
+  const resolvedPreferredPath = preferredDoneFilePath || getTaskDoneFilePath(targetDir);
+  const doneDir = path.join(targetDir, '.sleepcode', 'task_done');
+  const doneFiles = [];
+  const seen = new Set();
+
+  if (fs.existsSync(doneDir)) {
+    const entries = fs.readdirSync(doneDir, { withFileTypes: true })
+      .filter((entry) => entry.isFile() && entry.name.toLowerCase().endsWith('.md'))
+      .map((entry) => path.join(doneDir, entry.name))
+      .sort((a, b) => a.localeCompare(b));
+
+    for (const filePath of entries) {
+      seen.add(filePath);
+      doneFiles.push(filePath);
+    }
+  }
+
+  if (resolvedPreferredPath && fs.existsSync(resolvedPreferredPath) && !seen.has(resolvedPreferredPath)) {
+    doneFiles.push(resolvedPreferredPath);
+  }
+
+  return {
+    doneFilePath: resolvedPreferredPath,
+    doneFiles,
+  };
+}
+
 function parseTaskBody(taskBody) {
   const src = String(taskBody || '').trim();
   if (!src) return null;
@@ -147,24 +175,26 @@ function extractTaskItems(content) {
 }
 
 function readTaskDoneSet(targetDir, doneFilePath) {
-  const donePath = doneFilePath || getTaskDoneFilePath(targetDir);
+  const { doneFilePath: donePath, doneFiles } = listTaskDoneFiles(targetDir, doneFilePath);
   const doneSet = new Set();
 
-  if (!fs.existsSync(donePath)) {
-    return { doneFilePath: donePath, doneSet };
+  if (doneFiles.length === 0) {
+    return { doneFilePath: donePath, doneFiles, doneSet };
   }
 
-  const lines = fs.readFileSync(donePath, 'utf-8').split('\n');
-  for (const line of lines) {
-    const trimmed = line.trimStart();
-    const match = trimmed.match(DONE_LINE_RE);
-    if (!match) continue;
-    const parsed = parseTaskBody(match[1]);
-    if (!parsed) continue;
-    doneSet.add(buildTaskKey(parsed.title, parsed.notionId));
+  for (const filePath of doneFiles) {
+    const lines = fs.readFileSync(filePath, 'utf-8').split('\n');
+    for (const line of lines) {
+      const trimmed = line.trimStart();
+      const match = trimmed.match(DONE_LINE_RE);
+      if (!match) continue;
+      const parsed = parseTaskBody(match[1]);
+      if (!parsed) continue;
+      doneSet.add(buildTaskKey(parsed.title, parsed.notionId));
+    }
   }
 
-  return { doneFilePath: donePath, doneSet };
+  return { doneFilePath: donePath, doneFiles, doneSet };
 }
 
 function buildEffectiveDoneSet(doneSet, baselineDoneSet = null, extraDoneSet = null) {
@@ -188,10 +218,14 @@ function buildEffectiveDoneSet(doneSet, baselineDoneSet = null, extraDoneSet = n
 
 function readCurrentRunTaskDoneSet(targetDir, doneFilePath, baselineDoneSet = null, extraDoneSet = null) {
   const state = readTaskDoneSet(targetDir, doneFilePath);
+  const currentRunDoneSet = buildEffectiveDoneSet(state.doneSet, baselineDoneSet, extraDoneSet);
   return {
     doneFilePath: state.doneFilePath,
+    doneFiles: state.doneFiles,
     rawDoneSet: state.doneSet,
-    doneSet: buildEffectiveDoneSet(state.doneSet, baselineDoneSet, extraDoneSet),
+    allDoneSet: state.doneSet,
+    currentRunDoneSet,
+    doneSet: currentRunDoneSet,
   };
 }
 

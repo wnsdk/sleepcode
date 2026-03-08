@@ -67,10 +67,11 @@ function parseTaskStatuses(workerRefs, getWorkerDoneState) {
       const doneState = typeof ref === 'string'
         ? { doneSet: new Set() }
         : getWorkerDoneState(ref);
+      const completedTaskKeys = doneState.allDoneSet || doneState.rawDoneSet || doneState.doneSet || new Set();
       const tasks = extractTaskItems(content);
       for (const task of tasks) {
         if (!task.notionId) continue;
-        statuses[task.notionId] = task.checked || doneState.doneSet.has(task.key);
+        statuses[task.notionId] = Boolean(statuses[task.notionId] || task.checked || completedTaskKeys.has(task.key));
       }
     } catch {}
   }

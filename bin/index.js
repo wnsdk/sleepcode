@@ -1,5 +1,7 @@
 #!/usr/bin/env node
 
+const fs = require('fs');
+const path = require('path');
 const { C } = require('./lib/constants');
 const { showUsage } = require('./lib/configBudget');
 const { showHelp, showVersion, parseArgs, parseCommand } = require('./lib/cli');
@@ -59,6 +61,31 @@ async function main() {
   if (command === 'notion-update') {
     await runNotionUpdate(targetDir, cliArgs);
     return;
+  }
+
+  // 명령어 없이 config 전용 플래그만 전달된 경우: .sleepcode/가 이미 존재하면 init 없이 config만 업데이트
+  if (!command) {
+    const CONFIG_FLAG_TRANSFORMS = {
+      onAiLimit: v => (v === 'wait' ? 'wait' : 'fail'),
+      budget: v => parseFloat(v),
+      threshold: v => parseInt(v, 10),
+      interval: v => parseInt(v, 10),
+      provider: () => providerArg,
+      claudeRatio: v => parseInt(v, 10),
+    };
+    const hasConfigFlags = Object.keys(CONFIG_FLAG_TRANSFORMS).some(k => cliArgs[k] !== undefined);
+    if (hasConfigFlags && fs.existsSync(path.join(targetDir, '.sleepcode'))) {
+      const currentConfig = loadConfig(targetDir) || {};
+      const updates = {};
+      for (const [k, transform] of Object.entries(CONFIG_FLAG_TRANSFORMS)) {
+        if (cliArgs[k] !== undefined) updates[k] = transform(cliArgs[k]);
+      }
+      saveConfig(targetDir, { ...currentConfig, ...updates });
+      for (const [k, v] of Object.entries(updates)) {
+        console.log(`${C.dim}[config] ${k} → ${v}${C.reset}`);
+      }
+      return;
+    }
   }
 
   await runInit(targetDir, cliArgs, providerArg);

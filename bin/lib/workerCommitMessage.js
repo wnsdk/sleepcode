@@ -1,7 +1,10 @@
 /**
  * 태스크 제목 → git commit 메시지 생성.
- * 한글 후행 표현 제거, prefix 추론, subject 정규화.
+ * AI(claude)를 통해 실제 변경 diff 기반으로 커밋 메시지를 생성한다.
+ * AI 호출 실패 시 제목 정규화 방식으로 fallback.
  */
+
+const { execSync, execFileSync } = require('child_process');
 
 function normalizeCommitSubject(taskTitle) {
   let subject = String(taskTitle || '')
@@ -108,8 +111,76 @@ function inferCommitPrefix(taskTitle, stagedFiles = []) {
   return 'feat';
 }
 
-function buildTaskCommitMessage(taskEntry, stagedFiles = []) {
+function getStagedDiff(targetDir) {
+  try {
+    return execFileSync('git', ['diff', '--cached'], {
+      cwd: targetDir,
+      stdio: ['ignore', 'pipe', 'pipe'],
+    }).toString();
+  } catch {
+    return '';
+  }
+}
+
+const MAX_DIFF_CHARS = 8000;
+
+function truncateDiff(diff) {
+  if (diff.length <= MAX_DIFF_CHARS) return diff;
+  return diff.slice(0, MAX_DIFF_CHARS) + '\n... (truncated)';
+}
+
+function generateCommitMessageWithAI(taskTitle, stagedFiles, targetDir) {
+  const diff = getStagedDiff(targetDir);
+  if (!diff.trim()) return null;
+
+  const filesStr = stagedFiles.join('\n');
+  const prompt = `You are a git commit message generator. Generate a concise conventional commit message for the following staged changes.
+
+Task context (what was requested, for reference only): ${taskTitle}
+
+Staged files:
+${filesStr}
+
+Git diff:
+${truncateDiff(diff)}
+
+Rules:
+- Format: type(scope?): subject
+- Types: feat, fix, refactor, docs, test, chore, style, perf, ci
+- Subject: imperative mood, lowercase, max 72 chars, no trailing period
+- Describe what was ACTUALLY changed in the code, not what was requested
+- Output ONLY the single-line commit message, nothing else`;
+
+  try {
+    const result = execSync('claude -p --output-format text', {
+      input: prompt,
+      stdio: ['pipe', 'pipe', 'pipe'],
+      timeout: 60000,
+      maxBuffer: 1024 * 1024,
+      encoding: 'utf-8',
+    }).trim();
+
+    // Validate: must look like a conventional commit
+    if (result && /^[a-z]+(\([^)]+\))?:\s+\S/.test(result)) {
+      // Take only first line
+      return result.split(/\r?\n/)[0].trim();
+    }
+  } catch {
+    // AI unavailable or failed — fallback below
+  }
+
+  return null;
+}
+
+function buildTaskCommitMessage(taskEntry, stagedFiles = [], targetDir = null) {
   const taskTitle = taskEntry && taskEntry.title ? taskEntry.title : '';
+
+  if (targetDir) {
+    const aiMessage = generateCommitMessageWithAI(taskTitle, stagedFiles, targetDir);
+    if (aiMessage) return aiMessage;
+  }
+
+  // Fallback: normalize task title
   const subject = normalizeCommitSubject(taskTitle);
   const prefix = inferCommitPrefix(subject, stagedFiles);
   return `${prefix}: ${subject}`;

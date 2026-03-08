@@ -208,7 +208,7 @@ function commitTaskNow(targetDir, taskEntry, startHead, options = null) {
     });
   }
 
-  const msg = buildTaskCommitMessage(taskEntry, stageResult.stagedFiles);
+  const msg = buildTaskCommitMessage(taskEntry, stageResult.stagedFiles, targetDir);
   try {
     execFileSync('git', ['commit', '-m', msg], {
       cwd: targetDir,

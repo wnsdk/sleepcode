@@ -27,11 +27,13 @@ function handleTaskCompletedEvent({
     return { handled: true, updated: false };
   }
 
+  const worker = payload.worker || null;
   const updated = updateTaskCompletion({
     taskEntry,
     schema,
     notionCompletedIds,
     updatePage,
+    worker,
   });
 
   if (taskEntry.notionId && updated !== null && typeof pushLog === 'function') {

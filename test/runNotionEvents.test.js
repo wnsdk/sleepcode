@@ -65,6 +65,30 @@ test('handleTaskCompletedEvent marks tasks as success when notion update succeed
   assert.equal(logs.some((message) => message.includes('배포 → Success')), true);
 });
 
+test('handleTaskCompletedEvent includes cost when worker has token info', () => {
+  const notionCompletedIds = new Set();
+  const updates = [];
+
+  handleTaskCompletedEvent({
+    payload: {
+      taskEntry: { title: 'Cost 태스크', notionId: 'notion-cost' },
+      commit: { committed: true },
+      worker: { inputTokens: 800, outputTokens: 200 },
+    },
+    schema: { status_prop: 'Status', status_type: 'status', cost_prop: 'Cost' },
+    notionCompletedIds,
+    updatePage: (pageId, props) => {
+      updates.push({ pageId, props });
+      return true;
+    },
+    pushLog: () => {},
+  });
+
+  assert.equal(updates.length, 1);
+  assert.equal(updates[0].props.Cost.number, 1000);
+  assert.equal(notionCompletedIds.has('notion-cost'), true);
+});
+
 test('handleTaskStartedEvent updates model information and logs the result', () => {
   const logs = [];
   const updates = [];

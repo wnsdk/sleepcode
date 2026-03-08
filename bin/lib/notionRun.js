@@ -77,10 +77,10 @@ function parseTaskStatuses(workerRefs, getWorkerDoneState) {
   return statuses;
 }
 
-function updateTaskCompletion({ taskEntry, schema, notionCompletedIds, updatePage }) {
+function updateTaskCompletion({ taskEntry, schema, notionCompletedIds, updatePage, worker }) {
   if (!taskEntry || !taskEntry.notionId) return false;
   if (!schema) return false;
-  if (!schema.status_prop && !schema.completed_at_prop) return null;
+  if (!schema.status_prop && !schema.completed_at_prop && !schema.cost_prop) return null;
   if (notionCompletedIds.has(taskEntry.notionId)) return true;
 
   const props = {};
@@ -88,6 +88,13 @@ function updateTaskCompletion({ taskEntry, schema, notionCompletedIds, updatePag
   if (statusProps) Object.assign(props, statusProps);
   const completedAtProps = buildCompletedAtProp(schema);
   if (completedAtProps) Object.assign(props, completedAtProps);
+
+  if (schema.cost_prop && worker) {
+    const totalTokens = (worker.inputTokens || 0) + (worker.outputTokens || 0);
+    if (totalTokens > 0) {
+      props[schema.cost_prop] = { number: Math.round(totalTokens) };
+    }
+  }
 
   if (Object.keys(props).length === 0) return false;
 

@@ -35,7 +35,7 @@ const EXPECTED_DB_PROPERTIES = {
   },
   'Model': buildModelSelectProperty(),
   'Cost': {
-    number: { format: 'number' },
+    number: { format: 'number_with_commas' },
     description: 'Weighted token cost (Sonnet=1x). Cache: creation×1.25, read×0.1. Model: Opus×1.67, Sonnet×1.0, Haiku×0.33',
   },
   'Completed At': { date: {} },
@@ -140,6 +140,18 @@ async function syncNotionDbSchema(apiKey, dbId) {
             updateProps[existingEntry.name] = { select: { options: nextOptions } };
             needsUpdate = true;
           }
+        }
+      }
+
+      if (expectedType === 'number') {
+        const expectedFormat = config.number?.format;
+        const currentFormat = existingProp.number?.format;
+        if (expectedFormat && expectedFormat !== currentFormat) {
+          updateProps[existingEntry.name] = {
+            ...(updateProps[existingEntry.name] || {}),
+            number: { format: expectedFormat },
+          };
+          needsUpdate = true;
         }
       }
 

@@ -33,7 +33,6 @@ const EXPECTED_DB_PROPERTIES = {
     number: { format: 'number' },
     description: 'Higher number = executed first',
   },
-  'Log': { rich_text: {} },
   'Model': buildModelSelectProperty(),
   'Cost': {
     number: { format: 'number' },

@@ -39,11 +39,12 @@ test('summarizeExecutionResults builds task outcomes, costs, tokens, and reports
       id: result.task.id,
       status: result.newStatus,
       hasStatusProp: Boolean(result.props.Status),
-      cost: result.props.Cost.number,
+      hasCost: Boolean(result.props.Cost),
+      cost: result.props.Cost ? result.props.Cost.number : null,
     })),
     [
-      { id: 'a', status: 'Success', hasStatusProp: false, cost: 650 },
-      { id: 'b', status: 'Failed', hasStatusProp: true, cost: 650 },
+      { id: 'a', status: 'Success', hasStatusProp: false, hasCost: false, cost: null },
+      { id: 'b', status: 'Failed', hasStatusProp: true, hasCost: true, cost: 650 },
     ]
   );
 });

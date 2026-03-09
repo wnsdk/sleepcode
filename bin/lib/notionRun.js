@@ -130,7 +130,7 @@ function buildFinalTaskProps({ schema, isDone, totalCost, totalTasks, totalInput
     }
   }
 
-  if (schema.cost_prop) {
+  if (!alreadyCompleted && schema.cost_prop) {
     const totalTokens = (totalInputTokens || 0) + (totalOutputTokens || 0);
     if (totalTokens > 0) {
       const perTaskTokens = totalTasks > 0 ? Math.round(totalTokens / totalTasks) : totalTokens;
@@ -138,7 +138,7 @@ function buildFinalTaskProps({ schema, isDone, totalCost, totalTasks, totalInput
     }
   }
 
-  if (schema.log_prop) {
+  if (!alreadyCompleted && schema.log_prop) {
     const perTaskCost = totalTasks > 0 ? totalCost / totalTasks : 0;
     props[schema.log_prop] = {
       rich_text: [{

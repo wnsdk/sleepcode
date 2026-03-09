@@ -16,3 +16,4 @@
 - [x] 노션 db에 설정한 difficulty값과는 상관없이 항상 task의 난이도를 실행시에 ai 돌려서 결정하는 문제 수정
 - [x] 노션 업데이트 실패시 에러로그가 그 어디에서도 안보이는 문제 수정
 - [x] sleepcode run 했을 때 터미널 UI의 Content Pane에만 스크롤바를 추가해줘
+- [x] package.json 에서 버전을 적당히 올려줘

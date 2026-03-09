@@ -61,6 +61,7 @@ test('createNotionSyncClient delegates to the bridge and returns safe results', 
   assert.equal(client.syncScript, 'C:\\workspace\\sleepcode\\.sleepcode\\scripts\\notion_sync.py');
   assert.deepEqual(client.poll(), { tasks: [], schema: {} });
   assert.equal(client.updatePage('page-1', { Status: { status: { name: 'Running' } } }), true);
+  assert.equal(client.getLastUpdateError(), '');
   assert.equal(client.appendContent('page-1', 'report text'), true);
   assert.equal(calls.length, 1);
   assert.equal(calls[0].pythonCommand, 'python3');
@@ -88,5 +89,22 @@ test('createNotionSyncClient converts bridge failures into poll/update/append fa
 
   assert.deepEqual(client.poll(), { error: 'poll_failed', message: 'stderr message' });
   assert.equal(client.updatePage('page-1', { Status: { status: { name: 'Running' } } }), false);
+  assert.equal(client.getLastUpdateError(), 'update failed');
   assert.equal(client.appendContent('page-1', 'report text'), false);
+});
+
+test('createNotionSyncClient stores bridge-reported update error details', () => {
+  const client = createNotionSyncClient({
+    targetDir: 'C:\\workspace\\sleepcode',
+    pythonCommand: 'python3',
+    createNotionSyncBridgeFn: () => ({
+      scriptPath: 'C:\\workspace\\sleepcode\\.sleepcode\\scripts\\notion_sync.py',
+      poll: () => ({ tasks: [], schema: {} }),
+      updatePage: () => ({ ok: false, error: 'property Model does not exist' }),
+      appendContent: () => {},
+    }),
+  });
+
+  assert.equal(client.updatePage('page-1', { Model: { select: { name: 'gpt-5.3-codex' } } }), false);
+  assert.equal(client.getLastUpdateError(), 'property Model does not exist');
 });

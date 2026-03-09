@@ -20,6 +20,11 @@ function createRunNotionBindings({
   const poll = () => notionSync.poll();
   const updatePage = (pageId, props) => notionSync.updatePage(pageId, props);
   const appendContent = (pageId, text) => notionSync.appendContent(pageId, text);
+  const getUpdateError = () => (
+    notionSync && typeof notionSync.getLastUpdateError === 'function'
+      ? notionSync.getLastUpdateError()
+      : ''
+  );
 
   return {
     appendContent,
@@ -30,6 +35,7 @@ function createRunNotionBindings({
         notionCompletedIds: getNotionCompletedIds(),
         appendContent,
         updatePage,
+        getUpdateError,
         pushLog,
       });
     },
@@ -38,6 +44,7 @@ function createRunNotionBindings({
         payload,
         schema: getCurrentSchema(),
         updatePage,
+        getUpdateError,
         pushLog,
       });
     },

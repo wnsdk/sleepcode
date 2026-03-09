@@ -79,10 +79,12 @@ test('createRunNotionBindings passes current schema and completion state to noti
   assert.equal(completionCalls[0].notionCompletedIds, completedIds);
   assert.equal(typeof completionCalls[0].appendContent, 'function');
   assert.equal(typeof completionCalls[0].updatePage, 'function');
+  assert.equal(typeof completionCalls[0].getUpdateError, 'function');
   assert.equal(startCalls.length, 1);
   assert.equal(startCalls[0].payload.id, 'task-2');
   assert.equal(startCalls[0].schema, schema);
   assert.equal(typeof startCalls[0].updatePage, 'function');
+  assert.equal(typeof startCalls[0].getUpdateError, 'function');
 });
 
 test('createRunNotionBindings updates the next pending task using live task state', () => {

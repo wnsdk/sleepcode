@@ -129,6 +129,45 @@ test('handleTaskStartedEvent updates model information and logs the result', () 
   assert.equal(logs.some((message) => message.includes('Model 업데이트: 모델 선택 → claude-sonnet')), true);
 });
 
+test('handleTaskStartedEvent includes update failure details in logs', () => {
+  const logs = [];
+
+  const result = handleTaskStartedEvent({
+    payload: {
+      taskEntry: { title: '모델 선택', notionId: 'notion-2' },
+      model: 'gpt-5.3-codex',
+    },
+    schema: { model_prop: 'Model', model_type: 'select' },
+    updatePage: () => false,
+    getUpdateError: () => 'property Model is invalid',
+    pushLog: (message) => logs.push(message),
+  });
+
+  assert.equal(result.handled, true);
+  assert.equal(result.updated, false);
+  assert.equal(logs.some((message) => message.includes('Model 업데이트 실패 (property Model is invalid)')), true);
+});
+
+test('handleTaskCompletedEvent includes update failure details in logs', () => {
+  const logs = [];
+
+  const result = handleTaskCompletedEvent({
+    payload: {
+      taskEntry: { title: '배포', notionId: 'notion-1' },
+      commit: { committed: true },
+    },
+    schema: { status_prop: 'Status', status_type: 'status' },
+    notionCompletedIds: new Set(),
+    updatePage: () => false,
+    getUpdateError: () => 'property Status is invalid',
+    pushLog: (message) => logs.push(message),
+  });
+
+  assert.equal(result.handled, true);
+  assert.equal(result.updated, false);
+  assert.equal(logs.some((message) => message.includes('Notion 업데이트 실패 (property Status is invalid)')), true);
+});
+
 test('syncNextPendingTaskStatus promotes the next unfinished task per worker', () => {
   withTempDir('sleepcode-run-notion-', (dir) => {
     const doneTaskId = '123e4567-e89b-12d3-a456-426614174000';

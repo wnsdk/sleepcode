@@ -12,6 +12,7 @@ function handleTaskCompletedEvent({
   notionCompletedIds,
   updatePage,
   appendContent,
+  getUpdateError,
   pushLog,
 }) {
   process.stderr.write(`[notion:debug] handleTaskCompletedEvent 진입\n`);
@@ -59,7 +60,9 @@ function handleTaskCompletedEvent({
     if (updated) {
       pushLog(`${C.green}✓${C.reset} ${taskEntry.title} → Success`);
     } else {
-      pushLog(`${C.yellow}⚠${C.reset} ${taskEntry.title} → Notion 업데이트 실패`);
+      const reason = typeof getUpdateError === 'function' ? String(getUpdateError() || '').trim() : '';
+      const detail = reason ? ` (${reason})` : '';
+      pushLog(`${C.yellow}⚠${C.reset} ${taskEntry.title} → Notion 업데이트 실패${detail}`);
     }
   }
 
@@ -70,6 +73,7 @@ function handleTaskStartedEvent({
   payload,
   schema,
   updatePage,
+  getUpdateError,
   pushLog,
 }) {
   const taskEntry = payload && payload.taskEntry ? payload.taskEntry : null;
@@ -89,7 +93,9 @@ function handleTaskStartedEvent({
     if (ok) {
       pushLog(`${C.dim}Model 업데이트: ${taskEntry.title} → ${model}${C.reset}`);
     } else {
-      pushLog(`${C.yellow}⚠${C.reset} ${taskEntry.title} → Model 업데이트 실패`);
+      const reason = typeof getUpdateError === 'function' ? String(getUpdateError() || '').trim() : '';
+      const detail = reason ? ` (${reason})` : '';
+      pushLog(`${C.yellow}⚠${C.reset} ${taskEntry.title} → Model 업데이트 실패${detail}`);
     }
   }
 

@@ -2,6 +2,7 @@ const ANSI_RE = /\x1b\[[0-9;]*m/g;
 const ANSI_SEQ_RE = /\x1b\[([0-9;]*)m/;
 const CONT_INDENT = '      ';
 const CONT_WIDTH = CONT_INDENT.length;
+const SCROLLBAR_THUMB = '█';
 
 /**
  * ANSI 이스케이프를 제외한 시각적 너비를 계산한다.
@@ -132,14 +133,47 @@ function createDashboardLogs({
   }
 
   function getMaxContentWidth() {
-    return Math.max(20, (stdout.columns || 80) - 2);
+    return Math.max(20, (stdout.columns || 80) - 3);
+  }
+
+  function getScrollbarMetrics(logRows = getLogRows()) {
+    if (logRows <= 0 || logBuffer.length <= logRows) {
+      return null;
+    }
+
+    const totalLines = logBuffer.length;
+    const maxOffset = totalLines - logRows;
+    const viewportStart = Math.max(0, totalLines - logRows - logScroll);
+    const thumbSize = Math.max(1, Math.floor((logRows * logRows) / totalLines));
+    const thumbTravel = Math.max(0, logRows - thumbSize);
+    const thumbTop = maxOffset === 0
+      ? 0
+      : Math.round((viewportStart * thumbTravel) / maxOffset);
+
+    return {
+      thumbSize,
+      thumbTop,
+      trackHeight: logRows,
+    };
+  }
+
+  function renderScrollbar(logRows) {
+    const columns = stdout.columns || 80;
+    const metrics = getScrollbarMetrics(logRows);
+    const scrollbarColumn = columns;
+
+    for (let i = 0; i < logRows; i++) {
+      const row = getDashboardHeight() + 1 + i;
+      const withinThumb = metrics
+        ? i >= metrics.thumbTop && i < metrics.thumbTop + metrics.thumbSize
+        : false;
+      stdout.write(`\x1b[${row};${scrollbarColumn}H${withinThumb ? SCROLLBAR_THUMB : ' '}`);
+    }
   }
 
   function appendLogToScreen(line) {
     if (!isAltScreenActive() || logScroll > 0) return;
-    const rows = stdout.rows || 24;
-    stdout.write(`\x1b[${rows};1H`);
-    stdout.write(`\n  ${line}\x1b[K`);
+    renderLogs(true);
   }
 
   function renderLogs(force = false) {
@@ -159,6 +193,7 @@ function createDashboardLogs({
       stdout.write(`\x1b[${getDashboardHeight() + 1 + i};1H`);
       stdout.write(`  ${line}\x1b[K`);
     }
+    renderScrollbar(logRows);
     stdout.write('\x1b[1;1H');
   }
 
@@ -232,6 +267,7 @@ function createDashboardLogs({
     getLogRows,
     getLogScroll: () => logScroll,
     getMaxLogScroll,
+    getScrollbarMetrics,
     handleScroll,
     isScrolled,
     pushLog,

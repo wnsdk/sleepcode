@@ -72,6 +72,54 @@ test('pushLog wraps long lines into multiple buffer entries', () => {
 
   const buffer = logs.getLogBuffer();
   assert.ok(buffer.length > 1, `should be wrapped into multiple lines, got ${buffer.length}`);
-  // First line should be 48 chars + reset
-  assert.equal(buffer[0], 'x'.repeat(48) + '\x1b[0m');
+  // First line should be 47 chars + reset because the content pane reserves 1 column for the scrollbar.
+  assert.equal(buffer[0], 'x'.repeat(47) + '\x1b[0m');
+});
+
+test('renderLogs draws a scrollbar only inside the content pane when logs overflow', () => {
+  const writes = [];
+  const stdout = {
+    rows: 8,
+    columns: 20,
+    write(chunk) {
+      writes.push(chunk);
+    },
+  };
+  const logs = createDashboardLogs({
+    getDashboardHeight: () => 3,
+    isAltScreenActive: () => true,
+    formatLogLine: (_name, msg) => msg,
+    stdout,
+    maxBuffer: 200,
+  });
+
+  for (let i = 0; i < 8; i++) {
+    logs.pushLog('test', `line-${i}`);
+  }
+
+  writes.length = 0;
+  logs.renderLogs(true);
+
+  const scrollbarWrites = writes.filter((chunk) => /\x1b\[(4|5|6|7|8);20H./.test(chunk));
+  assert.equal(scrollbarWrites.length, 5);
+  assert.ok(scrollbarWrites.some((chunk) => chunk.endsWith('█')));
+});
+
+test('getScrollbarMetrics returns null when the content fits in the viewport', () => {
+  const logs = createDashboardLogs({
+    getDashboardHeight: () => 3,
+    isAltScreenActive: () => true,
+    formatLogLine: (_name, msg) => msg,
+    stdout: {
+      rows: 8,
+      columns: 20,
+      write() {},
+    },
+    maxBuffer: 200,
+  });
+
+  logs.pushLog('test', 'one');
+  logs.pushLog('test', 'two');
+
+  assert.equal(logs.getScrollbarMetrics(), null);
 });

@@ -175,6 +175,7 @@ function extractTaskItems(content) {
       checked: match[1].toLowerCase() === 'x',
       title: parsed.title,
       notionId: parsed.notionId,
+      difficulty: parsed.difficulty,
       key: buildTaskKey(parsed.title, parsed.notionId),
       raw: trimmed,
     });

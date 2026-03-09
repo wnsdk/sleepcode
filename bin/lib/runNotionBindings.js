@@ -27,8 +27,15 @@ function createRunNotionBindings({
           ? String(notionSync.getLastUpdateError() || '').trim()
           : ''
       );
-      const detail = error ? ` (${error})` : '';
-      pushLog(`${C.yellow}⚠${C.reset} [Notion] 페이지 업데이트 실패: ${pageId}${detail}`);
+      let propsDetail = '';
+      try { propsDetail = JSON.stringify(props); } catch {}
+      pushLog(`${C.yellow}⚠${C.reset} [Notion] 페이지 업데이트 실패: ${pageId}`);
+      if (propsDetail) {
+        pushLog(`${C.dim}  props: ${propsDetail}${C.reset}`);
+      }
+      if (error) {
+        pushLog(`${C.dim}  error: ${error}${C.reset}`);
+      }
     }
     return ok;
   };

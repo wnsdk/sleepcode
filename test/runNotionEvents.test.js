@@ -145,7 +145,8 @@ test('handleTaskStartedEvent includes update failure details in logs', () => {
 
   assert.equal(result.handled, true);
   assert.equal(result.updated, false);
-  assert.equal(logs.some((message) => message.includes('Model 업데이트 실패 (property Model is invalid)')), true);
+  assert.equal(logs.some((message) => message.includes('Model 업데이트 실패')), true);
+  assert.equal(logs.some((message) => message.includes('error: property Model is invalid')), true);
 });
 
 test('handleTaskCompletedEvent includes update failure details in logs', () => {
@@ -165,7 +166,8 @@ test('handleTaskCompletedEvent includes update failure details in logs', () => {
 
   assert.equal(result.handled, true);
   assert.equal(result.updated, false);
-  assert.equal(logs.some((message) => message.includes('Notion 업데이트 실패 (property Status is invalid)')), true);
+  assert.equal(logs.some((message) => message.includes('Notion 업데이트 실패')), true);
+  assert.equal(logs.some((message) => message.includes('error: property Status is invalid')), true);
 });
 
 test('syncNextPendingTaskStatus promotes the next unfinished task per worker', () => {

@@ -63,7 +63,9 @@ test('createRunNotionBindings logs low-level notion update errors to the dashboa
   });
 
   assert.equal(bindings.updatePage('page-1', { Model: { select: { name: 'gpt-5.2-codex' } } }), false);
-  assert.equal(logs.some((message) => message.includes('[Notion] 페이지 업데이트 실패: page-1 (API 오류 (400): invalid select option)')), true);
+  assert.equal(logs.some((message) => message.includes('[Notion] 페이지 업데이트 실패: page-1')), true);
+  assert.equal(logs.some((message) => message.includes('props:') && message.includes('Model')), true);
+  assert.equal(logs.some((message) => message.includes('error: API 오류 (400): invalid select option')), true);
 });
 
 test('createRunNotionBindings passes current schema and completion state to notion event handlers', () => {

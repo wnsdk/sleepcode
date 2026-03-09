@@ -61,8 +61,10 @@ function handleTaskCompletedEvent({
       pushLog(`${C.green}✓${C.reset} ${taskEntry.title} → Success`);
     } else {
       const reason = typeof getUpdateError === 'function' ? String(getUpdateError() || '').trim() : '';
-      const detail = reason ? ` (${reason})` : '';
-      pushLog(`${C.yellow}⚠${C.reset} ${taskEntry.title} → Notion 업데이트 실패${detail}`);
+      pushLog(`${C.yellow}⚠${C.reset} ${taskEntry.title} → Notion 업데이트 실패`);
+      if (reason) {
+        pushLog(`${C.dim}  error: ${reason}${C.reset}`);
+      }
     }
   }
 
@@ -94,8 +96,10 @@ function handleTaskStartedEvent({
       pushLog(`${C.dim}Model 업데이트: ${taskEntry.title} → ${model}${C.reset}`);
     } else {
       const reason = typeof getUpdateError === 'function' ? String(getUpdateError() || '').trim() : '';
-      const detail = reason ? ` (${reason})` : '';
-      pushLog(`${C.yellow}⚠${C.reset} ${taskEntry.title} → Model 업데이트 실패${detail}`);
+      pushLog(`${C.yellow}⚠${C.reset} ${taskEntry.title} → Model 업데이트 실패`);
+      if (reason) {
+        pushLog(`${C.dim}  error: ${reason}${C.reset}`);
+      }
     }
   }
 

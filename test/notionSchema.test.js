@@ -1,7 +1,17 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 
-const { summarizeSchemaChanges } = require('../bin/lib/notionSchema');
+const {
+  EXPECTED_DB_PROPERTIES,
+  summarizeSchemaChanges,
+} = require('../bin/lib/notionSchema');
+
+test('EXPECTED_DB_PROPERTIES includes Difficulty as a 1-5 select field', () => {
+  assert.deepEqual(
+    EXPECTED_DB_PROPERTIES.Difficulty.select.options.map((option) => option.name),
+    ['1', '2', '3', '4', '5']
+  );
+});
 
 test('summarizeSchemaChanges captures added, updated, and skipped columns', () => {
   assert.deepEqual(

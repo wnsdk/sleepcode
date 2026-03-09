@@ -19,6 +19,7 @@ const SCHEMA_KEYS = {
   WORKER_PROP: 'worker_prop',
   RUN_PROP: 'run_prop',
   PRIORITY_PROP: 'priority_prop',
+  DIFFICULTY_PROP: 'difficulty_prop',
   LOG_PROP: 'log_prop',
   MODEL_PROP: 'model_prop',
   MODEL_TYPE: 'model_type',

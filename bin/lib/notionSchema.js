@@ -33,6 +33,18 @@ const EXPECTED_DB_PROPERTIES = {
     number: { format: 'number' },
     description: 'Higher number = executed first',
   },
+  'Difficulty': {
+    select: {
+      options: [
+        { name: '1', color: 'gray' },
+        { name: '2', color: 'green' },
+        { name: '3', color: 'yellow' },
+        { name: '4', color: 'orange' },
+        { name: '5', color: 'red' },
+      ],
+    },
+    description: 'Task difficulty override (1-5). When set, sleepcode uses this value before auto-assessment.',
+  },
   'Model': buildModelSelectProperty(),
   'Cost': {
     number: { format: 'number_with_commas' },

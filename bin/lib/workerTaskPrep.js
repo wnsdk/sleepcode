@@ -3,10 +3,27 @@ const {
   resolveProviderPlan,
   providerLabel,
   assessTaskDifficulty,
+  buildDifficultyAssessment,
+  normalizeDifficulty,
   DEFAULT_PROVIDER_MODELS,
   buildExecutionPrompt,
 } = require('./provider');
 const { getHeadCommit, formatExecError } = require('./workerGitOps');
+const { normalizeTaskTitle } = require('./utils');
+
+function findTaskMetadata(taskEntry, taskEntries = [], normalizeTaskTitleFn = normalizeTaskTitle) {
+  if (!taskEntry || !Array.isArray(taskEntries) || taskEntries.length === 0) return null;
+
+  const notionId = String(taskEntry.notionId || '').trim().toLowerCase();
+  if (notionId) {
+    const byId = taskEntries.find((item) => String(item && item.id ? item.id : '').trim().toLowerCase() === notionId);
+    if (byId) return byId;
+  }
+
+  const normalizedTitle = normalizeTaskTitleFn(taskEntry.title || '');
+  if (!normalizedTitle) return null;
+  return taskEntries.find((item) => normalizeTaskTitleFn(item && item.title ? item.title : '') === normalizedTitle) || null;
+}
 
 /**
  * 다음 태스크 실행 전에 provider, 난이도, 모델을 선택하고 프롬프트를 빌드한다.
@@ -22,10 +39,17 @@ function prepareTaskExecution({
   nextTaskEntry,
   pushLog,
   onUpdate,
+  resolveProviderPlanFn = resolveProviderPlan,
+  assessTaskDifficultyFn = assessTaskDifficulty,
+  buildDifficultyAssessmentFn = buildDifficultyAssessment,
+  normalizeDifficultyFn = normalizeDifficulty,
+  buildExecutionPromptFn = buildExecutionPrompt,
+  getHeadCommitFn = getHeadCommit,
+  normalizeTaskTitleFn = normalizeTaskTitle,
 }) {
   // provider 선택 (ratio 기반)
   try {
-    const plan = resolveProviderPlan(ws.targetDir || wtDir, cliProvider);
+    const plan = resolveProviderPlanFn(ws.targetDir || wtDir, cliProvider);
     ws.provider = plan.selected;
     ws.fallbackProvider = plan.fallback;
     if (plan.ratioSelected) {
@@ -40,11 +64,17 @@ function prepareTaskExecution({
 
   // 난이도 평가
   try {
-    const assessment = assessTaskDifficulty(nextTask, ws.targetDir || wtDir, ws.provider);
+    const taskMetadata = findTaskMetadata(nextTaskEntry, ws.taskEntries, normalizeTaskTitleFn);
+    const notionDifficulty = normalizeDifficultyFn(taskMetadata && taskMetadata.difficulty, null);
+    const assessment = notionDifficulty == null
+      ? assessTaskDifficultyFn(nextTask, ws.targetDir || wtDir, ws.provider)
+      : buildDifficultyAssessmentFn(notionDifficulty, ws.provider);
+    const sourceLabel = notionDifficulty == null ? '' : ' [Notion]';
+
     ws.difficulty = assessment.difficulty;
     ws.difficultyLabel = assessment.label;
     ws.model = assessment.model;
-    pushLog(ws.name, `${C.cyan}[DIFFICULTY]${C.reset} ${assessment.label} (${assessment.difficulty}/5) → ${assessment.model}`);
+    pushLog(ws.name, `${C.cyan}[DIFFICULTY]${C.reset} ${assessment.label} (${assessment.difficulty}/5)${sourceLabel} → ${assessment.model}`);
   } catch {
     ws.difficulty = 3;
     ws.difficultyLabel = '★★★☆☆';
@@ -55,7 +85,7 @@ function prepareTaskExecution({
   // git HEAD 캡처
   let taskStartHead;
   try {
-    taskStartHead = getHeadCommit(wtDir);
+    taskStartHead = getHeadCommitFn(wtDir);
   } catch (e) {
     return { error: `git head unavailable: ${formatExecError(e)}` };
   }
@@ -64,10 +94,13 @@ function prepareTaskExecution({
   const taskPrompt = buildTaskPrompt(nextTaskEntry);
   const promptsByProvider = {
     [PROVIDERS.CLAUDE]: taskPrompt,
-    [PROVIDERS.CODEX]: buildExecutionPrompt(wtDir, taskPrompt, PROVIDERS.CODEX),
+    [PROVIDERS.CODEX]: buildExecutionPromptFn(wtDir, taskPrompt, PROVIDERS.CODEX),
   };
 
   return { taskStartHead, promptsByProvider, taskPrompt };
 }
 
-module.exports = { prepareTaskExecution };
+module.exports = {
+  findTaskMetadata,
+  prepareTaskExecution,
+};

@@ -47,7 +47,15 @@ function getFirstTaskIdsByWorker(workerGroups) {
   return firstTaskIds;
 }
 
-function buildRunWorkerState({ workerInfo, targetDir, logDir, timestamp, total = 0, merged = false }) {
+function buildRunWorkerState({
+  workerInfo,
+  targetDir,
+  logDir,
+  timestamp,
+  total = 0,
+  merged = false,
+  taskEntries = [],
+}) {
   return {
     ...workerInfo,
     targetDir,
@@ -60,6 +68,7 @@ function buildRunWorkerState({ workerInfo, targetDir, logDir, timestamp, total =
     outputTokens: 0,
     merged,
     reportLines: [],
+    taskEntries: Array.isArray(taskEntries) ? [...taskEntries] : [],
     _proc: null,
     logFile: path.join(logDir, `run_${workerInfo.name}_${timestamp}.log`),
   };
@@ -126,6 +135,8 @@ function appendWorkerTasks({
   try {
     const existingContent = fs.existsSync(tasksPath) ? fs.readFileSync(tasksPath, 'utf-8') : '';
     const nextContent = appendTasksToQueueContent(existingContent, tasks);
+    if (!Array.isArray(workerState.taskEntries)) workerState.taskEntries = [];
+    workerState.taskEntries.push(...(tasks || []));
     applyTaskRunUpdates({
       tasks,
       schema,

@@ -152,8 +152,9 @@ test('appendWorkerTasks appends queue content and syncs worker progress', () => 
     const syncCalls = [];
     let onSuccessCalled = 0;
 
+    const workerState = { name: 'main', path: dir, tasksPath, taskEntries: [] };
     const result = appendWorkerTasks({
-      workerState: { name: 'main', path: dir, tasksPath },
+      workerState,
       tasks: [{ id: 'a', title: '새 태스크' }],
       schema: { status_prop: 'Status', status_type: 'status', run_prop: 'Run' },
       firstRunningTaskIds: new Set(['a']),
@@ -169,6 +170,7 @@ test('appendWorkerTasks appends queue content and syncs worker progress', () => 
     assert.equal(result.ok, true);
     assert.equal(onSuccessCalled, 1);
     assert.deepEqual(trackedTasks.map((task) => task.id), ['a']);
+    assert.deepEqual(workerState.taskEntries.map((task) => task.id), ['a']);
     assert.deepEqual([...notionInProgressIds], ['a']);
     assert.deepEqual(updates.map((update) => update.pageId), ['a']);
     assert.equal(syncCalls.length, 1);

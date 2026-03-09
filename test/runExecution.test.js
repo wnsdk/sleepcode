@@ -66,6 +66,8 @@ test('prepareParallelExecution writes runtime queue and returns worker states', 
     assert.match(content, /## @worker main/);
     assert.match(content, /## @worker bugfix/);
     assert.deepEqual(workerStates.map((worker) => worker.name), ['main', 'bugfix']);
+    assert.deepEqual(workerStates[0].taskEntries.map((task) => task.id), ['a']);
+    assert.deepEqual(workerStates[1].taskEntries.map((task) => task.id), ['b']);
     assert.deepEqual(syncProgressCalls, ['main', 'bugfix']);
   });
 });
@@ -104,6 +106,7 @@ test('createDynamicWorkerState builds a running worker from a created worktree',
   assert.equal(result.name, 'feature-a');
   assert.equal(result.total, 1);
   assert.equal(result.merged, false);
+  assert.deepEqual(result.taskEntries.map((task) => task.id), ['a']);
   assert.match(capturedWorkers[0].tasks, /## @worker feature-a/);
   assert.match(capturedWorkers[0].tasks, /새 태스크/);
 });

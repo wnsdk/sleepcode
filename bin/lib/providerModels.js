@@ -40,6 +40,12 @@ const NOTION_MODEL_OPTION_COLORS = {
   [PROVIDERS.CODEX]: 'blue',
 };
 
+function normalizeDifficulty(value, fallback = 3) {
+  const num = parseInt(value, 10);
+  if (num >= 1 && num <= 5) return num;
+  return fallback;
+}
+
 function collectUniqueModels(items) {
   const seen = new Set();
   const models = [];
@@ -108,9 +114,24 @@ function pickCodexModelByDifficulty(difficulty) {
   return candidates.find((m) => available.has(m)) || null;
 }
 
-function assessTaskDifficulty(taskContent, targetDir, provider) {
-  const modelMap = provider === PROVIDERS.CODEX ? DIFFICULTY_MODELS_CODEX : DIFFICULTY_MODELS;
+function resolveModelForDifficulty(difficulty, provider) {
+  const normalizedDifficulty = normalizeDifficulty(difficulty, 3);
+  if (provider === PROVIDERS.CODEX) {
+    return pickCodexModelByDifficulty(normalizedDifficulty) || DEFAULT_PROVIDER_MODELS[PROVIDERS.CODEX];
+  }
+  return DIFFICULTY_MODELS[normalizedDifficulty] || DEFAULT_PROVIDER_MODELS[PROVIDERS.CLAUDE];
+}
 
+function buildDifficultyAssessment(difficulty, provider) {
+  const normalizedDifficulty = normalizeDifficulty(difficulty, 3);
+  return {
+    difficulty: normalizedDifficulty,
+    model: resolveModelForDifficulty(normalizedDifficulty, provider),
+    label: DIFFICULTY_LABELS[normalizedDifficulty],
+  };
+}
+
+function assessTaskDifficulty(taskContent, targetDir, provider) {
   const prompt = `You are a task difficulty assessor. Rate the following software development task on a scale of 1-5:
 
 1 = Trivial (typo fix, config change, simple text update)
@@ -136,34 +157,20 @@ Reply with ONLY a single number (1-5), nothing else.`;
       }
     ).toString().trim();
 
-    const num = parseInt(result, 10);
-    const difficulty = (num >= 1 && num <= 5) ? num : 3;
-    const model = provider === PROVIDERS.CODEX
-      ? pickCodexModelByDifficulty(difficulty)
-      : modelMap[difficulty];
-    return {
-      difficulty,
-      model,
-      label: DIFFICULTY_LABELS[difficulty],
-    };
+    return buildDifficultyAssessment(result, provider);
   } catch {
-    const fallbackDifficulty = 3;
-    const fallbackModel = provider === PROVIDERS.CODEX
-      ? pickCodexModelByDifficulty(fallbackDifficulty)
-      : modelMap[fallbackDifficulty];
-    return {
-      difficulty: fallbackDifficulty,
-      model: fallbackModel,
-      label: DIFFICULTY_LABELS[fallbackDifficulty],
-    };
+    return buildDifficultyAssessment(3, provider);
   }
 }
 
 module.exports = {
   assessTaskDifficulty,
+  buildDifficultyAssessment,
   DEFAULT_PROVIDER_MODELS,
   DIFFICULTY_LABELS,
   DIFFICULTY_MODELS,
   DIFFICULTY_MODELS_CODEX,
   NOTION_MODEL_OPTIONS,
+  normalizeDifficulty,
+  resolveModelForDifficulty,
 };

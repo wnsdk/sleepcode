@@ -52,6 +52,7 @@ function prepareParallelExecution({
     logDir,
     timestamp,
     total: 0,
+    taskEntries: workerGroups[workerInfo.name] || [],
     merged: false,
   }));
 
@@ -83,6 +84,7 @@ function createDynamicWorkerState({
     logDir,
     timestamp,
     total: tasks.length,
+    taskEntries: tasks,
     merged: false,
   });
 }

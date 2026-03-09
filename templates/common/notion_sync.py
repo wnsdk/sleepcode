@@ -225,6 +225,7 @@ def get_watch_schema(api_key, db_id):
         "worker_prop": None,
         "run_prop": None,
         "priority_prop": None,
+        "difficulty_prop": None,
         "log_prop": None,
         "model_prop": None,
         "model_type": None,
@@ -247,6 +248,8 @@ def get_watch_schema(api_key, db_id):
             schema["run_prop"] = name
         elif ptype == "number" and lname in ("priority", "우선순위"):
             schema["priority_prop"] = name
+        elif ptype in ("select", "number") and lname in ("difficulty", "난이도"):
+            schema["difficulty_prop"] = name
         elif ptype == "rich_text" and lname in ("log", "로그"):
             schema["log_prop"] = name
         elif ptype in ("rich_text", "select") and lname in ("model", "모델") and not schema["model_prop"]:
@@ -287,6 +290,31 @@ def extract_status_value(page, prop_name, prop_type):
         s = page.get("properties", {}).get(prop_name, {}).get("select")
         return s.get("name", "") if s else ""
     return ""
+
+
+def extract_difficulty(page, prop_name):
+    """Difficulty 프로퍼티에서 1-5 값만 추출"""
+    if not prop_name:
+        return None
+
+    prop = page.get("properties", {}).get(prop_name, {})
+    ptype = prop.get("type")
+
+    raw = None
+    if ptype == "select":
+        select = prop.get("select")
+        raw = select.get("name", "") if select else ""
+    elif ptype == "number":
+        raw = prop.get("number")
+
+    try:
+        value = int(raw)
+    except (TypeError, ValueError):
+        return None
+
+    if 1 <= value <= 5:
+        return value
+    return None
 
 
 # ─── POLL: Notion DB 폴링 (Watch 모드용) ───
@@ -355,6 +383,10 @@ def poll_tasks(api_key, db_id, notion_filter=None):
                 .get("number", 0)
                 or 0
             )
+        if schema["difficulty_prop"]:
+            difficulty = extract_difficulty(page, schema["difficulty_prop"])
+            if difficulty is not None:
+                task["difficulty"] = difficulty
 
         tasks.append(task)
 

@@ -72,6 +72,7 @@ function buildRunWorkerState({
     merged,
     reportLines: [],
     currentTaskReportLines: [],
+    currentTaskCostRecorded: false,
     taskEntries: Array.isArray(taskEntries) ? [...taskEntries] : [],
     _proc: null,
     logFile: path.join(logDir, `run_${workerInfo.name}_${timestamp}.log`),

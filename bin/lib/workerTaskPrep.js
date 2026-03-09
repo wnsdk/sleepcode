@@ -29,6 +29,7 @@ function resetCurrentTaskState(ws, taskEntry) {
   ws.currentTask = taskEntry && taskEntry.title ? taskEntry.title : '';
   ws.currentTaskEntry = taskEntry || null;
   ws.currentTaskReportLines = [];
+  ws.currentTaskCostRecorded = false;
   ws.inputTokens = 0;
   ws.outputTokens = 0;
   ws.cost = 0;

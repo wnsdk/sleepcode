@@ -10,3 +10,4 @@
 - [x] package.json의 버전을 적절한 값으로 수정하고 npm publish까지 진행해줘. <!-- notion:31bad790-3b5d-80fd-988e-cd501c48546f -->
 - [x] 슬립코드 사용자 입장에서, 노션 db 스키마에 'difficulty' 컬럼을 추가해줘(1부터 5까지만 선택 가능해야됨). 그리고 sleepcode run으로 task를 실행하기 전 그 task의 난이도를 결정할 때, 노션 db에 그 task의 difficulty 컬럼에 값이 채워져 있을경우 그 값을 바로 갖다쓰도록 해줘.
 - [x] task가 완료 된 후 노션 DB의 해당 task의 페이지에 AI Report 같은거 쓰고 있잖아. 여기에 버그 있음: 다른 task들의 AI Report 내용들을 포함하여 AI Report가 작성되는 문제 수정
+- [x] Codex도 모델별 가격표 기반 환산 로직을 넣어줘

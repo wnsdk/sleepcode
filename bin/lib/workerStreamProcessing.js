@@ -1,8 +1,9 @@
 const fs = require('fs');
 const path = require('path');
-const { C } = require('./constants');
+const { C, PROVIDERS } = require('./constants');
 const { visualWidth } = require('./utils');
 const { recordCost } = require('./configBudget');
+const { calculateOpenAICostFromUsage } = require('./openaiPricing');
 const { syncWorkerTaskProgress } = require('./taskState');
 
 // 모델별 Cost 가중치 (Sonnet 기준 1.0 정규화)
@@ -53,6 +54,36 @@ function setTaskCost(ws, cost) {
 
   ws.totalCost = Math.max(0, (ws.totalCost || 0) + (nextCost - prevCost));
   ws.cost = nextCost;
+}
+
+function detectOpenAIServiceTier(obj, usage = {}) {
+  return (
+    obj.service_tier
+    || obj.serviceTier
+    || usage.service_tier
+    || usage.serviceTier
+    || (obj.response && (obj.response.service_tier || obj.response.serviceTier))
+    || ''
+  );
+}
+
+function estimateCodexCostFromUsage(ws, usage, obj = {}) {
+  if (!ws || ws.provider !== PROVIDERS.CODEX) return null;
+  const estimate = calculateOpenAICostFromUsage(ws.model, usage, {
+    serviceTier: detectOpenAIServiceTier(obj, usage),
+  });
+  if (!estimate || estimate.cost <= 0) return null;
+  return estimate;
+}
+
+function finalizeTaskCostRecord(ws) {
+  if (!ws || ws.currentTaskCostRecorded || !ws.targetDir || !(ws.cost > 0)) return;
+  recordCost(ws.targetDir, ws.cost, 'parallel', ws.name, {
+    provider: ws.provider,
+    inputTokens: ws.inputTokens || 0,
+    outputTokens: ws.outputTokens || 0,
+  });
+  ws.currentTaskCostRecorded = true;
 }
 
 function processStreamEvent(ws, obj, onUpdate, pushLog) {
@@ -137,19 +168,20 @@ function processStreamEvent(ws, obj, onUpdate, pushLog) {
       if (input > 0 || output > 0) {
         setTaskTokenTotals(ws, input, output);
       }
+
+      if (ws.provider === PROVIDERS.CODEX && !(obj.cost_usd > 0) && !(ws.cost > 0)) {
+        const estimate = estimateCodexCostFromUsage(ws, finalUsage, obj);
+        if (estimate) {
+          setTaskCost(ws, estimate.cost);
+        }
+      }
     }
 
     const cost = obj.cost_usd;
     if (cost != null) {
       setTaskCost(ws, cost);
-      if (ws.targetDir) {
-        recordCost(ws.targetDir, cost, 'parallel', ws.name, {
-          provider: ws.provider,
-          inputTokens: ws.inputTokens || 0,
-          outputTokens: ws.outputTokens || 0,
-        });
-      }
     }
+    finalizeTaskCostRecord(ws);
 
     const tasksPath2 = ws.tasksPath || path.join(ws.path, '.sleepcode', 'task_queue.md');
     if (fs.existsSync(tasksPath2)) {
@@ -199,6 +231,12 @@ function processStreamEvent(ws, obj, onUpdate, pushLog) {
         (ws.outputTokens || 0) + outputTokens
       );
       pushLog(ws.name, `${C.dim}[TOKENS] in:${inputTokens} out:${outputTokens} total:${totalTokens}${C.reset}`);
+      onUpdate();
+    }
+
+    const estimate = estimateCodexCostFromUsage(ws, usage, obj);
+    if (estimate) {
+      setTaskCost(ws, (ws.cost || 0) + estimate.cost);
       onUpdate();
     }
   }

@@ -27,6 +27,7 @@ function createWorkerStates(targetDir, workerInfos, logsDir, timestamp) {
     totalOutputTokens: 0,
     reportLines: [],
     currentTaskReportLines: [],
+    currentTaskCostRecorded: false,
     provider: null,
     fallbackProvider: null,
     _proc: null,

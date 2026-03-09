@@ -11,6 +11,7 @@ function handleTaskCompletedEvent({
   schema,
   notionCompletedIds,
   updatePage,
+  appendContent,
   pushLog,
 }) {
   process.stderr.write(`[notion:debug] handleTaskCompletedEvent 진입\n`);
@@ -23,13 +24,23 @@ function handleTaskCompletedEvent({
   process.stderr.write(`[notion:debug] handleTaskCompletedEvent: task="${taskEntry.title}" notionId=${taskEntry.notionId || 'none'}\n`);
 
   const commit = payload && payload.commit ? payload.commit : null;
+  const reportText = payload && payload.reportText ? String(payload.reportText) : '';
+  let reportAppended = null;
+
+  if (taskEntry.notionId && reportText.trim() && typeof appendContent === 'function') {
+    reportAppended = appendContent(taskEntry.notionId, reportText);
+    if (!reportAppended && typeof pushLog === 'function') {
+      pushLog(`${C.yellow}⚠${C.reset} ${taskEntry.title} → AI Report 기록 실패`);
+    }
+  }
+
   if (!commit || !commit.committed) {
     const reason = commit && commit.reason ? commit.reason : 'unknown';
     process.stderr.write(`[notion:debug] handleTaskCompletedEvent: commit 실패 reason=${reason}\n`);
     if (typeof pushLog === 'function') {
       pushLog(`${C.red}✗${C.reset} ${taskEntry.title} → commit 실패 (${reason})`);
     }
-    return { handled: true, updated: false };
+    return { handled: true, updated: false, reportAppended };
   }
 
   process.stderr.write(`[notion:debug] handleTaskCompletedEvent: commit OK, schema=${!!schema}, updatePage=${typeof updatePage}\n`);
@@ -52,7 +63,7 @@ function handleTaskCompletedEvent({
     }
   }
 
-  return { handled: true, updated };
+  return { handled: true, updated, reportAppended };
 }
 
 function handleTaskStartedEvent({

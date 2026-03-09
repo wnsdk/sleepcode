@@ -7,6 +7,7 @@ const path = require('path');
 const {
   buildExecutionReportText,
   buildFinalTaskProps,
+  buildTaskExecutionReportText,
   buildRuntimeTaskQueueContent,
   groupTasksByWorker,
   parseTaskStatuses,
@@ -163,4 +164,17 @@ test('buildExecutionReportText includes token summary when tokenInfo provided', 
   assert.match(report, /Input:/);
   assert.match(report, /Output:/);
   assert.match(report, /Total:/);
+});
+
+test('buildTaskExecutionReportText keeps a single task report isolated', () => {
+  const report = buildTaskExecutionReportText({
+    reportLines: ['현재 태스크 보고'],
+    inputTokens: 120,
+    outputTokens: 30,
+    provider: 'claude',
+  });
+
+  assert.match(report, /현재 태스크 보고/);
+  assert.doesNotMatch(report, /다른 태스크/);
+  assert.match(report, /Total: 150/);
 });

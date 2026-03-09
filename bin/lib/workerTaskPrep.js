@@ -25,6 +25,15 @@ function findTaskMetadata(taskEntry, taskEntries = [], normalizeTaskTitleFn = no
   return taskEntries.find((item) => normalizeTaskTitleFn(item && item.title ? item.title : '') === normalizedTitle) || null;
 }
 
+function resetCurrentTaskState(ws, taskEntry) {
+  ws.currentTask = taskEntry && taskEntry.title ? taskEntry.title : '';
+  ws.currentTaskEntry = taskEntry || null;
+  ws.currentTaskReportLines = [];
+  ws.inputTokens = 0;
+  ws.outputTokens = 0;
+  ws.cost = 0;
+}
+
 /**
  * 다음 태스크 실행 전에 provider, 난이도, 모델을 선택하고 프롬프트를 빌드한다.
  *
@@ -61,6 +70,8 @@ function prepareTaskExecution({
   } catch (e) {
     return { error: e.message };
   }
+
+  resetCurrentTaskState(ws, nextTaskEntry);
 
   // 난이도 평가
   try {
@@ -103,4 +114,5 @@ function prepareTaskExecution({
 module.exports = {
   findTaskMetadata,
   prepareTaskExecution,
+  resetCurrentTaskState,
 };

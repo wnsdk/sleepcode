@@ -182,6 +182,25 @@ function buildExecutionReportText(workerStates, tokenInfo) {
   return parts.join('\n\n---\n\n');
 }
 
+function buildTaskExecutionReportText({ reportLines, inputTokens, outputTokens, provider } = {}) {
+  const tokensByProvider = {};
+  if (provider && ((inputTokens || 0) > 0 || (outputTokens || 0) > 0)) {
+    tokensByProvider[provider] = {
+      input: inputTokens || 0,
+      output: outputTokens || 0,
+    };
+  }
+
+  return buildExecutionReportText(
+    [{ reportLines: Array.isArray(reportLines) ? reportLines : [] }],
+    {
+      totalInputTokens: inputTokens || 0,
+      totalOutputTokens: outputTokens || 0,
+      tokensByProvider,
+    }
+  );
+}
+
 module.exports = {
   normalizeWorkerName,
   groupTasksByWorker,
@@ -192,4 +211,5 @@ module.exports = {
   updateFirstPendingStatuses,
   buildFinalTaskProps,
   buildExecutionReportText,
+  buildTaskExecutionReportText,
 };

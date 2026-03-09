@@ -35,12 +35,34 @@ function trimByWidth(text, width) {
   return src.slice(0, cut) + '...';
 }
 
+function setTaskTokenTotals(ws, inputTokens, outputTokens) {
+  const nextInput = Math.max(0, Number(inputTokens) || 0);
+  const nextOutput = Math.max(0, Number(outputTokens) || 0);
+  const prevInput = Math.max(0, Number(ws.inputTokens) || 0);
+  const prevOutput = Math.max(0, Number(ws.outputTokens) || 0);
+
+  ws.totalInputTokens = Math.max(0, (ws.totalInputTokens || 0) + (nextInput - prevInput));
+  ws.totalOutputTokens = Math.max(0, (ws.totalOutputTokens || 0) + (nextOutput - prevOutput));
+  ws.inputTokens = nextInput;
+  ws.outputTokens = nextOutput;
+}
+
+function setTaskCost(ws, cost) {
+  const nextCost = Math.max(0, Number(cost) || 0);
+  const prevCost = Math.max(0, Number(ws.cost) || 0);
+
+  ws.totalCost = Math.max(0, (ws.totalCost || 0) + (nextCost - prevCost));
+  ws.cost = nextCost;
+}
+
 function processStreamEvent(ws, obj, onUpdate, pushLog) {
   const msgType = obj.type;
 
   const appendReport = (text) => {
     const body = (text || '').trim();
     if (!body) return;
+    if (!ws.currentTaskReportLines) ws.currentTaskReportLines = [];
+    ws.currentTaskReportLines.push(body);
     if (!ws.reportLines) ws.reportLines = [];
     ws.reportLines.push(body);
     pushLog(ws.name, `${C.dim}${trimByWidth(body, 132)}${C.reset}`);
@@ -90,8 +112,11 @@ function processStreamEvent(ws, obj, onUpdate, pushLog) {
         + (msgUsage.cache_read_input_tokens || 0) * 0.1) * mw.input;
       const output = (msgUsage.output_tokens || 0) * mw.output;
       if (input > 0 || output > 0) {
-        ws.inputTokens = (ws.inputTokens || 0) + input;
-        ws.outputTokens = (ws.outputTokens || 0) + output;
+        setTaskTokenTotals(
+          ws,
+          (ws.inputTokens || 0) + input,
+          (ws.outputTokens || 0) + output
+        );
         onUpdate();
       }
     }
@@ -110,14 +135,13 @@ function processStreamEvent(ws, obj, onUpdate, pushLog) {
         + (finalUsage.cache_read_input_tokens || 0) * 0.1) * mw.input;
       const output = (finalUsage.output_tokens || 0) * mw.output;
       if (input > 0 || output > 0) {
-        ws.inputTokens = input;
-        ws.outputTokens = output;
+        setTaskTokenTotals(ws, input, output);
       }
     }
 
     const cost = obj.cost_usd;
     if (cost != null) {
-      ws.cost = cost;
+      setTaskCost(ws, cost);
       if (ws.targetDir) {
         recordCost(ws.targetDir, cost, 'parallel', ws.name, {
           provider: ws.provider,
@@ -169,8 +193,11 @@ function processStreamEvent(ws, obj, onUpdate, pushLog) {
     const outputTokens = usage.output_tokens || usage.completion_tokens || 0;
     const totalTokens = usage.total_tokens || (inputTokens + outputTokens);
     if (totalTokens > 0) {
-      ws.inputTokens = (ws.inputTokens || 0) + inputTokens;
-      ws.outputTokens = (ws.outputTokens || 0) + outputTokens;
+      setTaskTokenTotals(
+        ws,
+        (ws.inputTokens || 0) + inputTokens,
+        (ws.outputTokens || 0) + outputTokens
+      );
       pushLog(ws.name, `${C.dim}[TOKENS] in:${inputTokens} out:${outputTokens} total:${totalTokens}${C.reset}`);
       onUpdate();
     }
@@ -223,6 +250,8 @@ module.exports = {
   CLAUDE_MODEL_WEIGHTS,
   getModelWeight,
   processStreamEvent,
+  setTaskCost,
+  setTaskTokenTotals,
   getTerminalResultMeta,
   isAiLimitError,
   trimByWidth,

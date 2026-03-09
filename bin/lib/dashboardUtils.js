@@ -38,8 +38,8 @@ function getTokensByProvider(workerStates) {
   for (const worker of workerStates || []) {
     const provider = worker.provider || 'unknown';
     if (!byProvider[provider]) byProvider[provider] = { input: 0, output: 0 };
-    byProvider[provider].input += worker.inputTokens || 0;
-    byProvider[provider].output += worker.outputTokens || 0;
+    byProvider[provider].input += (worker.totalInputTokens ?? worker.inputTokens) || 0;
+    byProvider[provider].output += (worker.totalOutputTokens ?? worker.outputTokens) || 0;
   }
   return byProvider;
 }

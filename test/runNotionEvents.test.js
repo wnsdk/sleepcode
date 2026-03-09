@@ -21,13 +21,19 @@ function withTempDir(prefix, fn) {
 
 test('handleTaskCompletedEvent logs commit failures before notion updates', () => {
   const logs = [];
+  const appends = [];
   const result = handleTaskCompletedEvent({
     payload: {
       taskEntry: { title: '리팩토링', notionId: 'notion-1' },
       commit: { committed: false, reason: 'nothing_to_commit' },
+      reportText: 'task report',
     },
     schema: { status_prop: 'Status', status_type: 'status' },
     notionCompletedIds: new Set(),
+    appendContent: (pageId, text) => {
+      appends.push({ pageId, text });
+      return true;
+    },
     updatePage: () => {
       throw new Error('should not update');
     },
@@ -36,6 +42,7 @@ test('handleTaskCompletedEvent logs commit failures before notion updates', () =
 
   assert.equal(result.handled, true);
   assert.equal(result.updated, false);
+  assert.deepEqual(appends, [{ pageId: 'notion-1', text: 'task report' }]);
   assert.equal(logs.some((message) => message.includes('commit 실패 (nothing_to_commit)')), true);
 });
 
@@ -43,14 +50,20 @@ test('handleTaskCompletedEvent marks tasks as success when notion update succeed
   const logs = [];
   const notionCompletedIds = new Set();
   const updates = [];
+  const appends = [];
 
   const result = handleTaskCompletedEvent({
     payload: {
       taskEntry: { title: '배포', notionId: 'notion-1' },
       commit: { committed: true },
+      reportText: '배포 report',
     },
     schema: { status_prop: 'Status', status_type: 'status' },
     notionCompletedIds,
+    appendContent: (pageId, text) => {
+      appends.push({ pageId, text });
+      return true;
+    },
     updatePage: (pageId, props) => {
       updates.push({ pageId, props });
       return true;
@@ -62,6 +75,7 @@ test('handleTaskCompletedEvent marks tasks as success when notion update succeed
   assert.equal(result.updated, true);
   assert.equal(notionCompletedIds.has('notion-1'), true);
   assert.equal(updates.length, 1);
+  assert.deepEqual(appends, [{ pageId: 'notion-1', text: '배포 report' }]);
   assert.equal(logs.some((message) => message.includes('배포 → Success')), true);
 });
 

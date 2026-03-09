@@ -16,17 +16,26 @@ function summarizeExecutionResults({
   const taskCompletion = typeof getTaskCompletion === 'function'
     ? (getTaskCompletion(workers) || {})
     : {};
-  const totalCost = workers.reduce((sum, worker) => sum + (worker.cost || 0), 0);
-  const totalInputTokens = workers.reduce((sum, worker) => sum + (worker.inputTokens || 0), 0);
-  const totalOutputTokens = workers.reduce((sum, worker) => sum + (worker.outputTokens || 0), 0);
+  const totalCost = workers.reduce(
+    (sum, worker) => sum + ((worker.totalCost ?? worker.cost) || 0),
+    0
+  );
+  const totalInputTokens = workers.reduce(
+    (sum, worker) => sum + ((worker.totalInputTokens ?? worker.inputTokens) || 0),
+    0
+  );
+  const totalOutputTokens = workers.reduce(
+    (sum, worker) => sum + ((worker.totalOutputTokens ?? worker.outputTokens) || 0),
+    0
+  );
 
   // 프로바이더별 토큰 집계
   const tokensByProvider = {};
   for (const worker of workers) {
     const provider = worker.provider || 'unknown';
     if (!tokensByProvider[provider]) tokensByProvider[provider] = { input: 0, output: 0 };
-    tokensByProvider[provider].input += worker.inputTokens || 0;
-    tokensByProvider[provider].output += worker.outputTokens || 0;
+    tokensByProvider[provider].input += (worker.totalInputTokens ?? worker.inputTokens) || 0;
+    tokensByProvider[provider].output += (worker.totalOutputTokens ?? worker.outputTokens) || 0;
   }
 
   return {

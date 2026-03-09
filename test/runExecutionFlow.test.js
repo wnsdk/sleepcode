@@ -188,8 +188,7 @@ test('finishExecution updates notion state, records cost, resets idle state, and
 
   assert.equal(pageUpdates.length, 1);
   assert.equal(pageUpdates[0][0], 'task-1');
-  assert.equal(contentAppends.length, 1);
-  assert.equal(contentAppends[0][0], 'task-1');
+  assert.equal(contentAppends.length, 0);
   assert.equal(costCalls.length, 1);
   assert.deepEqual(costCalls[0], ['C:\\workspace\\sleepcode', 123, 'run']);
   assert.equal(finalizeCalls.length, 1);
@@ -200,8 +199,7 @@ test('finishExecution updates notion state, records cost, resets idle state, and
   assert.equal(pollOnceCalls, 1);
   assert.match(logs[0][1], /실행 완료/);
   assert.match(logs[1][1], /첫 태스크 → Done/);
-  assert.match(logs[2][1], /보고 기록 완료/);
-  assert.match(logs[3][1], /폴링 재개/);
+  assert.match(logs[2][1], /폴링 재개/);
 });
 
 test('finishExecution skips repoll scheduling when graceful shutdown is active', () => {

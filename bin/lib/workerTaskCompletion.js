@@ -1,5 +1,6 @@
 const fs = require('fs');
 const { C } = require('./constants');
+const { buildTaskExecutionReportText } = require('./notionRun');
 const { getNextPendingTask } = require('./utils');
 const { getWorkerDoneState, syncWorkerTaskProgress } = require('./taskState');
 const { commitTaskNow } = require('./workerCommit');
@@ -71,10 +72,17 @@ async function handleTaskCompletion({
   if (typeof onTaskCompleted === 'function') {
     process.stderr.write(`[notion:debug] onTaskCompleted 콜백 호출: task="${nextTaskEntry ? nextTaskEntry.title : 'null'}" commit=${commitResult ? commitResult.committed : 'null'}\n`);
     try {
+      const reportText = buildTaskExecutionReportText({
+        reportLines: ws.currentTaskReportLines,
+        inputTokens: ws.inputTokens,
+        outputTokens: ws.outputTokens,
+        provider: ws.provider,
+      });
       await Promise.resolve(onTaskCompleted({
         worker: ws,
         taskEntry: nextTaskEntry,
         commit: commitResult,
+        reportText,
       }));
     } catch (e) {
       process.stderr.write(`[notion:debug] onTaskCompleted 콜백 에러: ${e.message}\n`);

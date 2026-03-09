@@ -28,6 +28,7 @@ function createRunNotionBindings({
         payload,
         schema: getCurrentSchema(),
         notionCompletedIds: getNotionCompletedIds(),
+        appendContent,
         updatePage,
         pushLog,
       });

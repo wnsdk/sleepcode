@@ -77,6 +77,7 @@ test('createRunNotionBindings passes current schema and completion state to noti
   assert.equal(completionCalls[0].payload.id, 'task-1');
   assert.equal(completionCalls[0].schema, schema);
   assert.equal(completionCalls[0].notionCompletedIds, completedIds);
+  assert.equal(typeof completionCalls[0].appendContent, 'function');
   assert.equal(typeof completionCalls[0].updatePage, 'function');
   assert.equal(startCalls.length, 1);
   assert.equal(startCalls[0].payload.id, 'task-2');

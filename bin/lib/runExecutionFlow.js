@@ -138,14 +138,6 @@ function finishExecution({
     pushLog('SYSTEM', `${icon} ${result.task.title} → ${result.newStatus}`);
   }
 
-  if (completion.reportText.trim()) {
-    for (const task of notionTasks) {
-      process.stderr.write(`[notion:debug] finishExecution appendContent: ${task.id}\n`);
-      appendContent(task.id, completion.reportText);
-    }
-    pushLog('SYSTEM', `${C.dim}Notion 페이지에 보고 기록 완료${C.reset}`);
-  }
-
   if (completion.totalCost > 0) {
     // 프로바이더별로 나눠서 기록
     const byProvider = completion.tokensByProvider || {};

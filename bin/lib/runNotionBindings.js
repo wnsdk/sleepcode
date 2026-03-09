@@ -1,3 +1,4 @@
+const { C } = require('./constants');
 const {
   handleTaskCompletedEvent,
   handleTaskStartedEvent,
@@ -18,7 +19,19 @@ function createRunNotionBindings({
   syncNextPendingTaskStatusFn = syncNextPendingTaskStatus,
 }) {
   const poll = () => notionSync.poll();
-  const updatePage = (pageId, props) => notionSync.updatePage(pageId, props);
+  const updatePage = (pageId, props) => {
+    const ok = notionSync.updatePage(pageId, props);
+    if (!ok && typeof pushLog === 'function') {
+      const error = (
+        notionSync && typeof notionSync.getLastUpdateError === 'function'
+          ? String(notionSync.getLastUpdateError() || '').trim()
+          : ''
+      );
+      const detail = error ? ` (${error})` : '';
+      pushLog(`${C.yellow}⚠${C.reset} [Notion] 페이지 업데이트 실패: ${pageId}${detail}`);
+    }
+    return ok;
+  };
   const appendContent = (pageId, text) => notionSync.appendContent(pageId, text);
   const getUpdateError = () => (
     notionSync && typeof notionSync.getLastUpdateError === 'function'

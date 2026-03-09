@@ -28,11 +28,13 @@ DONE_DIR = ".sleepcode/task_done"
 STATE_FILE = ".sleepcode/.notion_state.json"
 NOTION_API = "https://api.notion.com/v1"
 NOTION_VERSION = "2022-06-28"
+LAST_API_ERROR_MESSAGE = ""
 
 # ─── Notion API 헬퍼 ───
 
 
 def api_request(method, endpoint, api_key, body=None):
+    global LAST_API_ERROR_MESSAGE
     url = f"{NOTION_API}{endpoint}"
     data = json.dumps(body).encode() if body else None
     req = urllib.request.Request(url, data=data, method=method)
@@ -41,13 +43,16 @@ def api_request(method, endpoint, api_key, body=None):
     req.add_header("Content-Type", "application/json")
     try:
         with urllib.request.urlopen(req) as resp:
+            LAST_API_ERROR_MESSAGE = ""
             return json.loads(resp.read().decode())
     except urllib.error.HTTPError as e:
         body_text = e.read().decode() if e.fp else ""
-        print(f"[notion_sync] API 오류 ({e.code}): {body_text}", file=sys.stderr)
+        LAST_API_ERROR_MESSAGE = f"API 오류 ({e.code}): {body_text}"
+        print(f"[notion_sync] {LAST_API_ERROR_MESSAGE}", file=sys.stderr)
         return None
     except urllib.error.URLError as e:
-        print(f"[notion_sync] 네트워크 오류: {e.reason}", file=sys.stderr)
+        LAST_API_ERROR_MESSAGE = f"네트워크 오류: {e.reason}"
+        print(f"[notion_sync] {LAST_API_ERROR_MESSAGE}", file=sys.stderr)
         return None
 
 
@@ -480,6 +485,7 @@ def enqueue(api_key, db_id, notion_filter=None):
 
 def update_page(api_key, page_id):
     """페이지 프로퍼티 업데이트 — stdin에서 Notion API 프로퍼티 JSON 읽기"""
+    global LAST_API_ERROR_MESSAGE
     props_json = sys.stdin.read().strip()
     if not props_json:
         print(json.dumps({"ok": False, "error": "no input"}), file=sys.stderr)
@@ -494,7 +500,8 @@ def update_page(api_key, page_id):
     if result:
         print(json.dumps({"ok": True}))
     else:
-        print(json.dumps({"ok": False, "error": "update failed"}))
+        error_message = LAST_API_ERROR_MESSAGE or "update failed"
+        print(json.dumps({"ok": False, "error": error_message}, ensure_ascii=False))
 
 
 # ─── APPEND-CONTENT: 페이지 본문에 보고 텍스트 추가 ───

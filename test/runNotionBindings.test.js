@@ -44,6 +44,28 @@ test('createRunNotionBindings delegates notion client methods and ui refresh', (
   ]);
 });
 
+test('createRunNotionBindings logs low-level notion update errors to the dashboard', () => {
+  const logs = [];
+  const bindings = createRunNotionBindings({
+    notionSync: {
+      poll: () => ({}),
+      updatePage: () => false,
+      getLastUpdateError: () => 'API 오류 (400): invalid select option',
+      appendContent: () => true,
+    },
+    getCurrentSchema: () => null,
+    getCurrentNotionTasks: () => [],
+    getNotionCompletedIds: () => new Set(),
+    notionInProgressIds: new Set(),
+    getWorkerDoneState: () => ({}),
+    flushRender: () => {},
+    pushLog: (message) => logs.push(message),
+  });
+
+  assert.equal(bindings.updatePage('page-1', { Model: { select: { name: 'gpt-5.2-codex' } } }), false);
+  assert.equal(logs.some((message) => message.includes('[Notion] 페이지 업데이트 실패: page-1 (API 오류 (400): invalid select option)')), true);
+});
+
 test('createRunNotionBindings passes current schema and completion state to notion event handlers', () => {
   const completionCalls = [];
   const startCalls = [];

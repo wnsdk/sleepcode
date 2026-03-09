@@ -1,7 +1,7 @@
 const fs = require('fs');
 const path = require('path');
 
-const { extractTaskItems } = require('./utils');
+const { buildTaskMetadataSuffix, extractTaskItems } = require('./utils');
 const {
   buildCompletedAtProp,
   buildCommitProp,
@@ -28,7 +28,7 @@ function buildRuntimeTaskQueueContent(workerGroups, options = {}) {
   for (const [worker, tasks] of Object.entries(workerGroups || {})) {
     lines.push(`## @worker ${worker}`);
     for (const task of tasks) {
-      lines.push(`- [ ] ${task.title} <!-- notion:${task.id} -->`);
+      lines.push(`- [ ] ${task.title}${buildTaskMetadataSuffix(task)}`);
     }
     lines.push('');
   }

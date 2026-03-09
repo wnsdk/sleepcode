@@ -6,6 +6,7 @@ const { C } = require('./constants');
 const TASK_LINE_RE = /^- \[([ xX])\]\s+(.+?)\s*$/;
 const DONE_LINE_RE = /^- \[x\]\s+(.+?)\s*$/i;
 const NOTION_TAG_RE = /\s*<!--\s*notion:([a-f0-9-]+)\s*-->\s*$/i;
+const DIFFICULTY_TAG_RE = /\s*<!--\s*difficulty:([1-5])\s*-->\s*$/i;
 
 // ─── 유틸 ───
 function ask(rl, question, defaultVal) {
@@ -129,13 +130,21 @@ function listTaskDoneFiles(targetDir, preferredDoneFilePath = null) {
 }
 
 function parseTaskBody(taskBody) {
-  const src = String(taskBody || '').trim();
+  let src = String(taskBody || '').trim();
   if (!src) return null;
+  let difficulty = null;
+
+  const difficultyMatch = src.match(DIFFICULTY_TAG_RE);
+  if (difficultyMatch) {
+    difficulty = parseInt(difficultyMatch[1], 10);
+    src = src.slice(0, difficultyMatch.index).trim();
+  }
+
   const notionMatch = src.match(NOTION_TAG_RE);
   const notionId = notionMatch ? notionMatch[1].toLowerCase() : null;
   const title = notionMatch ? src.slice(0, notionMatch.index).trim() : src;
   if (!title) return null;
-  return { title, notionId };
+  return { title, notionId, difficulty };
 }
 
 function buildTaskKey(title, notionId) {
@@ -250,6 +259,19 @@ function appendTaskDone(targetDir, taskEntry, doneFilePath, dedupeSet = null) {
   return true;
 }
 
+function buildTaskMetadataSuffix(taskEntry) {
+  const suffixes = [];
+  const notionId = String(taskEntry && taskEntry.notionId ? taskEntry.notionId : taskEntry && taskEntry.id ? taskEntry.id : '').trim();
+  if (notionId) suffixes.push(`<!-- notion:${notionId} -->`);
+
+  const difficulty = parseInt(taskEntry && taskEntry.difficulty, 10);
+  if (difficulty >= 1 && difficulty <= 5) {
+    suffixes.push(`<!-- difficulty:${difficulty} -->`);
+  }
+
+  return suffixes.length > 0 ? ` ${suffixes.join(' ')}` : '';
+}
+
 /** task_queue.md에서 코드 블록 내부를 제외한 실제 태스크만 카운트 */
 function countTasks(content, doneSet = null) {
   const items = extractTaskItems(content);
@@ -346,6 +368,7 @@ module.exports = {
   buildEffectiveDoneSet,
   readCurrentRunTaskDoneSet,
   appendTaskDone,
+  buildTaskMetadataSuffix,
   countTasks,
   getNextPendingTaskEntry,
   getNextPendingTask,

@@ -1,6 +1,6 @@
 const fs = require('fs');
 
-const { countTasks, extractTaskItems } = require('./utils');
+const { buildTaskMetadataSuffix, countTasks, extractTaskItems } = require('./utils');
 
 const MAIN_WORKER_NAME = 'main';
 
@@ -47,8 +47,7 @@ function parseTaskQueueWorkers(tasksPath) {
   const counts = countTasks(content);
   const lines = [`## @worker ${MAIN_WORKER_NAME}`];
   for (const task of items) {
-    const notionTag = task.notionId ? ` <!-- notion:${task.notionId} -->` : '';
-    lines.push(`- [${task.checked ? 'x' : ' '}] ${task.title}${notionTag}`);
+    lines.push(`- [${task.checked ? 'x' : ' '}] ${task.title}${buildTaskMetadataSuffix(task)}`);
   }
   lines.push('');
 

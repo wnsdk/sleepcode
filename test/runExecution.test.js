@@ -48,7 +48,7 @@ test('prepareParallelExecution writes runtime queue and returns worker states', 
       targetDir: dir,
       runtimeTasksPath,
       workerGroups: {
-        main: [{ id: 'a', title: '메인 태스크' }],
+        main: [{ id: 'a', title: '메인 태스크', difficulty: 5 }],
         bugfix: [{ id: 'b', title: '버그 수정' }],
       },
       timestamp: '2026-03-07T10-00-00',
@@ -65,6 +65,7 @@ test('prepareParallelExecution writes runtime queue and returns worker states', 
     const content = fs.readFileSync(runtimeTasksPath, 'utf-8');
     assert.match(content, /## @worker main/);
     assert.match(content, /## @worker bugfix/);
+    assert.match(content, /<!-- notion:a --> <!-- difficulty:5 -->/);
     assert.deepEqual(workerStates.map((worker) => worker.name), ['main', 'bugfix']);
     assert.deepEqual(workerStates[0].taskEntries.map((task) => task.id), ['a']);
     assert.deepEqual(workerStates[1].taskEntries.map((task) => task.id), ['b']);

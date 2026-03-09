@@ -3,9 +3,10 @@ const path = require('path');
 
 const { buildStatusProps } = require('./notionSync');
 const { buildRuntimeTaskQueueContent, normalizeWorkerName } = require('./notionRun');
+const { buildTaskMetadataSuffix } = require('./utils');
 
 function buildTaskQueueLine(task) {
-  return `- [ ] ${task.title} <!-- notion:${task.id} -->`;
+  return `- [ ] ${task.title}${buildTaskMetadataSuffix(task)}`;
 }
 
 function appendTasksToQueueContent(content, tasks) {

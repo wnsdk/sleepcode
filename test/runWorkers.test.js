@@ -41,31 +41,31 @@ test('splitTasksByWorkerPresence separates existing and new worker buckets', () 
 
 test('appendTasksToQueueContent appends notion task lines with trailing newline', () => {
   const content = appendTasksToQueueContent('# 작업 목록\n', [
-    { id: 'a1', title: '첫 번째 태스크' },
+    { id: 'a1', title: '첫 번째 태스크', difficulty: 5 },
     { id: 'a2', title: '두 번째 태스크' },
   ]);
 
-  assert.match(content, /- \[ \] 첫 번째 태스크 <!-- notion:a1 -->/);
+  assert.match(content, /- \[ \] 첫 번째 태스크 <!-- notion:a1 --> <!-- difficulty:5 -->/);
   assert.match(content, /- \[ \] 두 번째 태스크 <!-- notion:a2 -->/);
   assert.equal(content.endsWith('\n'), true);
 });
 
 test('appendTasksToQueueContent does not add a leading blank line for empty files', () => {
   const content = appendTasksToQueueContent('', [
-    { id: 'a1', title: '첫 번째 태스크' },
+    { id: 'a1', title: '첫 번째 태스크', difficulty: 3 },
   ]);
 
   assert.equal(content.startsWith('\n'), false);
-  assert.equal(content, '- [ ] 첫 번째 태스크 <!-- notion:a1 -->\n');
+  assert.equal(content, '- [ ] 첫 번째 태스크 <!-- notion:a1 --> <!-- difficulty:3 -->\n');
 });
 
 test('buildWorkerTaskQueueContent renders a single worker section', () => {
   const content = buildWorkerTaskQueueContent('feature-a', [
-    { id: 'a1', title: '워커 태스크' },
+    { id: 'a1', title: '워커 태스크', difficulty: 4 },
   ]);
 
   assert.match(content, /## @worker feature-a/);
-  assert.match(content, /- \[ \] 워커 태스크 <!-- notion:a1 -->/);
+  assert.match(content, /- \[ \] 워커 태스크 <!-- notion:a1 --> <!-- difficulty:4 -->/);
 });
 
 test('getFirstTaskIdsByWorker picks the first task per worker group', () => {

@@ -76,8 +76,13 @@ function prepareTaskExecution({
 
   // 난이도 평가
   try {
-    const taskMetadata = findTaskMetadata(nextTaskEntry, ws.taskEntries, normalizeTaskTitleFn);
-    const notionDifficulty = normalizeDifficultyFn(taskMetadata && taskMetadata.difficulty, null);
+    const directDifficulty = normalizeDifficultyFn(nextTaskEntry && nextTaskEntry.difficulty, null);
+    const taskMetadata = directDifficulty == null
+      ? findTaskMetadata(nextTaskEntry, ws.taskEntries, normalizeTaskTitleFn)
+      : null;
+    const notionDifficulty = directDifficulty == null
+      ? normalizeDifficultyFn(taskMetadata && taskMetadata.difficulty, null)
+      : directDifficulty;
     const assessment = notionDifficulty == null
       ? assessTaskDifficultyFn(nextTask, ws.targetDir || wtDir, ws.provider)
       : buildDifficultyAssessmentFn(notionDifficulty, ws.provider);

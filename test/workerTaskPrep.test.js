@@ -85,6 +85,48 @@ test('prepareTaskExecution uses notion difficulty before AI assessment', () => {
   assert.equal(result.promptsByProvider[PROVIDERS.CODEX], 'codex:task prompt');
 });
 
+test('prepareTaskExecution prefers difficulty serialized on the runtime task entry', () => {
+  const { lines, pushLog } = collectLogMessages();
+  let assessCalled = false;
+  const ws = {
+    name: 'main',
+    targetDir: '/tmp/sleepcode',
+    taskEntries: [],
+  };
+
+  const result = prepareTaskExecution({
+    ws,
+    wtDir: '/tmp/sleepcode',
+    nextTask: '런타임 직렬화 태스크',
+    cliProvider: '',
+    buildTaskPrompt: () => 'task prompt',
+    nextTaskEntry: { title: '런타임 직렬화 태스크', notionId: 'task-1', difficulty: 5 },
+    pushLog,
+    onUpdate: () => {},
+    resolveProviderPlanFn: () => ({
+      selected: PROVIDERS.CODEX,
+      fallback: PROVIDERS.CLAUDE,
+    }),
+    assessTaskDifficultyFn: () => {
+      assessCalled = true;
+      return { difficulty: 1, label: '★☆☆☆☆', model: 'wrong-model' };
+    },
+    buildDifficultyAssessmentFn: (difficulty) => ({
+      difficulty,
+      label: '★★★★★',
+      model: 'gpt-5.1-codex-max',
+    }),
+    buildExecutionPromptFn: (_wtDir, taskPrompt, provider) => `${provider}:${taskPrompt}`,
+    getHeadCommitFn: () => 'ghi789',
+  });
+
+  assert.equal(result.error, undefined);
+  assert.equal(assessCalled, false);
+  assert.equal(ws.difficulty, 5);
+  assert.equal(ws.model, 'gpt-5.1-codex-max');
+  assert.match(lines.join('\n'), /\[Notion\]/);
+});
+
 test('prepareTaskExecution falls back to AI assessment when notion difficulty is absent', () => {
   const { lines, pushLog } = collectLogMessages();
   let assessCalled = 0;

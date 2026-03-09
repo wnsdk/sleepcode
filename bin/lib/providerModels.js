@@ -18,8 +18,8 @@ const DIFFICULTY_MODELS_CODEX = {
   1: ['gpt-5.1-codex-mini', 'gpt-5-codex-mini', 'gpt-5.2-codex', 'gpt-5.3-codex'],
   2: ['gpt-5.1-codex-mini', 'gpt-5-codex-mini', 'gpt-5.2-codex', 'gpt-5.3-codex'],
   3: ['gpt-5.2-codex', 'gpt-5.3-codex', 'gpt-5.1-codex-max'],
-  4: ['gpt-5.3-codex', 'gpt-5.1-codex-max', 'gpt-5.4'],
-  5: ['gpt-5.1-codex-max', 'gpt-5.3-codex', 'gpt-5.4'],
+  4: ['gpt-5.4', 'gpt-5.3-codex', 'gpt-5.1-codex-max'],
+  5: ['gpt-5.4', 'gpt-5.1-codex-max', 'gpt-5.3-codex'],
 };
 
 const DEFAULT_PROVIDER_MODELS = {

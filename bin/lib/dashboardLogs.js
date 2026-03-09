@@ -1,3 +1,117 @@
+const ANSI_RE = /\x1b\[[0-9;]*m/g;
+const ANSI_SEQ_RE = /\x1b\[([0-9;]*)m/;
+const CONT_INDENT = '      ';
+const CONT_WIDTH = CONT_INDENT.length;
+
+/**
+ * ANSI 이스케이프를 제외한 시각적 너비를 계산한다.
+ * CJK / 전각 문자는 2칸으로 센다.
+ */
+function measureVisualWidth(str) {
+  const plain = str.replace(ANSI_RE, '');
+  let w = 0;
+  for (const ch of plain) {
+    const cp = ch.codePointAt(0);
+    if (
+      (cp >= 0x1100 && cp <= 0x115F) ||
+      (cp >= 0x2E80 && cp <= 0x303E) ||
+      (cp >= 0x3040 && cp <= 0x33BF) ||
+      (cp >= 0x3400 && cp <= 0x4DBF) ||
+      (cp >= 0x4E00 && cp <= 0xA4CF) ||
+      (cp >= 0xAC00 && cp <= 0xD7AF) ||
+      (cp >= 0xF900 && cp <= 0xFAFF) ||
+      (cp >= 0xFE30 && cp <= 0xFE6F) ||
+      (cp >= 0xFF01 && cp <= 0xFF60) ||
+      (cp >= 0xFFE0 && cp <= 0xFFE6) ||
+      (cp >= 0x20000 && cp <= 0x2FA1F)
+    ) {
+      w += 2;
+    } else {
+      w += 1;
+    }
+  }
+  return w;
+}
+
+function charWidth(cp) {
+  if (
+    (cp >= 0x1100 && cp <= 0x115F) ||
+    (cp >= 0x2E80 && cp <= 0x303E) ||
+    (cp >= 0x3040 && cp <= 0x33BF) ||
+    (cp >= 0x3400 && cp <= 0x4DBF) ||
+    (cp >= 0x4E00 && cp <= 0xA4CF) ||
+    (cp >= 0xAC00 && cp <= 0xD7AF) ||
+    (cp >= 0xF900 && cp <= 0xFAFF) ||
+    (cp >= 0xFE30 && cp <= 0xFE6F) ||
+    (cp >= 0xFF01 && cp <= 0xFF60) ||
+    (cp >= 0xFFE0 && cp <= 0xFFE6) ||
+    (cp >= 0x20000 && cp <= 0x2FA1F)
+  ) {
+    return 2;
+  }
+  return 1;
+}
+
+/**
+ * 긴 로그 줄을 터미널 너비에 맞게 여러 줄로 나눈다.
+ * ANSI 색상 상태를 줄 경계에서 유지한다.
+ */
+function wrapLogLine(line, maxWidth) {
+  if (maxWidth <= 0 || measureVisualWidth(line) <= maxWidth) {
+    return [line];
+  }
+
+  const result = [];
+  let current = '';
+  let width = 0;
+  let limit = maxWidth;
+  let ansiStack = [];
+  let i = 0;
+
+  while (i < line.length) {
+    // ANSI escape sequence
+    if (line[i] === '\x1b' && i + 1 < line.length && line[i + 1] === '[') {
+      let end = i + 2;
+      while (end < line.length && line[end] !== 'm') end++;
+      if (end < line.length) {
+        const seq = line.slice(i, end + 1);
+        current += seq;
+        const match = seq.match(ANSI_SEQ_RE);
+        if (match) {
+          const code = match[1];
+          if (code === '0' || code === '') {
+            ansiStack = [];
+          } else {
+            ansiStack.push(seq);
+          }
+        }
+        i = end + 1;
+        continue;
+      }
+    }
+
+    const cp = line.codePointAt(i);
+    const ch = String.fromCodePoint(cp);
+    const cw = charWidth(cp);
+
+    if (width + cw > limit) {
+      current += '\x1b[0m';
+      result.push(current);
+      const restore = ansiStack.length > 0 ? ansiStack.join('') : '';
+      current = CONT_INDENT + restore;
+      width = CONT_WIDTH;
+      limit = maxWidth;
+    }
+
+    current += ch;
+    width += cw;
+    i += ch.length;
+  }
+
+  if (current) result.push(current);
+  return result;
+}
+
 function createDashboardLogs({
   getDashboardHeight,
   isAltScreenActive,
@@ -15,6 +129,10 @@ function createDashboardLogs({
 
   function getMaxLogScroll() {
     return Math.max(0, logBuffer.length - getLogRows());
+  }
+
+  function getMaxContentWidth() {
+    return Math.max(20, (stdout.columns || 80) - 2);
   }
 
   function appendLogToScreen(line) {
@@ -46,12 +164,18 @@ function createDashboardLogs({
 
   function pushLog(workerName, message) {
     const line = formatLogLine(workerName, message);
-    logBuffer.push(line);
-    if (logBuffer.length > maxBuffer) logBuffer.shift();
-    if (logScroll > 0) {
-      logScroll = Math.min(logScroll + 1, getMaxLogScroll());
+    const maxWidth = getMaxContentWidth();
+    const wrapped = wrapLogLine(line, maxWidth);
+
+    for (const wLine of wrapped) {
+      logBuffer.push(wLine);
     }
-    appendLogToScreen(line);
+    while (logBuffer.length > maxBuffer) logBuffer.shift();
+
+    if (logScroll > 0) {
+      logScroll = Math.min(logScroll + wrapped.length, getMaxLogScroll());
+    }
+    appendLogToScreen(wrapped[wrapped.length - 1]);
     return line;
   }
 
@@ -115,4 +239,4 @@ function createDashboardLogs({
   };
 }
 
-module.exports = { createDashboardLogs };
+module.exports = { createDashboardLogs, measureVisualWidth, wrapLogLine };

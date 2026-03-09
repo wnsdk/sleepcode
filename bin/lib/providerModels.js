@@ -1,7 +1,7 @@
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
-const { execSync } = require('child_process');
+const { spawn } = require('child_process');
 const { PROVIDERS } = require('./constants');
 
 // 난이도별 Claude 모델 매핑
@@ -131,7 +131,11 @@ function buildDifficultyAssessment(difficulty, provider) {
   };
 }
 
-function assessTaskDifficulty(taskContent, targetDir, provider) {
+function assessTaskDifficulty(taskContent, targetDir, provider, {
+  spawnFn = spawn,
+  setTimeoutFn = setTimeout,
+  clearTimeoutFn = clearTimeout,
+} = {}) {
   const prompt = `You are a task difficulty assessor. Rate the following software development task on a scale of 1-5:
 
 1 = Trivial (typo fix, config change, simple text update)
@@ -145,22 +149,57 @@ ${taskContent}
 
 Reply with ONLY a single number (1-5), nothing else.`;
 
-  try {
-    const result = execSync(
-      'claude -p --output-format text --model claude-haiku-4-5-20251001',
-      {
-        input: prompt,
-        cwd: targetDir,
-        stdio: ['pipe', 'pipe', 'pipe'],
-        timeout: 30000,
-        maxBuffer: 1024 * 1024,
-      }
-    ).toString().trim();
+  return new Promise((resolve) => {
+    let settled = false;
+    let timeoutId = null;
+    let stdout = '';
 
-    return buildDifficultyAssessment(result, provider);
-  } catch {
-    return buildDifficultyAssessment(3, provider);
-  }
+    const finish = (result) => {
+      if (settled) return;
+      settled = true;
+      if (timeoutId) clearTimeoutFn(timeoutId);
+      resolve(buildDifficultyAssessment(result, provider));
+    };
+
+    try {
+      const proc = spawnFn(
+        'claude',
+        ['-p', '--output-format', 'text', '--model', 'claude-haiku-4-5-20251001'],
+        {
+          cwd: targetDir,
+          stdio: ['pipe', 'pipe', 'pipe'],
+          shell: true,
+        }
+      );
+
+      timeoutId = setTimeoutFn(() => {
+        try {
+          proc.kill('SIGTERM');
+        } catch {}
+        finish(3);
+      }, 30000);
+
+      proc.stdout.on('data', (chunk) => {
+        stdout += chunk.toString();
+      });
+
+      proc.stderr.on('data', () => {});
+
+      proc.on('error', () => finish(3));
+      proc.on('close', (code) => {
+        if (code !== 0) {
+          finish(3);
+          return;
+        }
+        finish(stdout.trim());
+      });
+
+      proc.stdin.write(prompt);
+      proc.stdin.end();
+    } catch {
+      finish(3);
+    }
+  });
 }
 
 module.exports = {

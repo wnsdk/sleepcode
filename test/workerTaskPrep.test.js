@@ -34,7 +34,7 @@ test('findTaskMetadata prefers notion id and falls back to title', () => {
   assert.equal(findTaskMetadata({ title: '없는 작업', notionId: '' }, taskEntries), null);
 });
 
-test('prepareTaskExecution uses notion difficulty before AI assessment', () => {
+test('prepareTaskExecution uses notion difficulty before AI assessment', async () => {
   const { lines, pushLog } = collectLogMessages();
   let assessCalled = false;
   let onUpdateCalled = 0;
@@ -44,7 +44,7 @@ test('prepareTaskExecution uses notion difficulty before AI assessment', () => {
     taskEntries: [{ id: 'task-1', title: '노션 태스크', difficulty: 5 }],
   };
 
-  const result = prepareTaskExecution({
+  const result = await prepareTaskExecution({
     ws,
     wtDir: '/tmp/sleepcode',
     nextTask: '노션 태스크',
@@ -85,7 +85,7 @@ test('prepareTaskExecution uses notion difficulty before AI assessment', () => {
   assert.equal(result.promptsByProvider[PROVIDERS.CODEX], 'codex:task prompt');
 });
 
-test('prepareTaskExecution prefers difficulty serialized on the runtime task entry', () => {
+test('prepareTaskExecution prefers difficulty serialized on the runtime task entry', async () => {
   const { lines, pushLog } = collectLogMessages();
   let assessCalled = false;
   const ws = {
@@ -94,7 +94,7 @@ test('prepareTaskExecution prefers difficulty serialized on the runtime task ent
     taskEntries: [],
   };
 
-  const result = prepareTaskExecution({
+  const result = await prepareTaskExecution({
     ws,
     wtDir: '/tmp/sleepcode',
     nextTask: '런타임 직렬화 태스크',
@@ -127,7 +127,7 @@ test('prepareTaskExecution prefers difficulty serialized on the runtime task ent
   assert.match(lines.join('\n'), /\[Notion\]/);
 });
 
-test('prepareTaskExecution falls back to AI assessment when notion difficulty is absent', () => {
+test('prepareTaskExecution falls back to AI assessment when notion difficulty is absent', async () => {
   const { lines, pushLog } = collectLogMessages();
   let assessCalled = 0;
   const ws = {
@@ -136,7 +136,7 @@ test('prepareTaskExecution falls back to AI assessment when notion difficulty is
     taskEntries: [{ id: 'task-1', title: '노션 태스크', difficulty: '' }],
   };
 
-  const result = prepareTaskExecution({
+  const result = await prepareTaskExecution({
     ws,
     wtDir: '/tmp/sleepcode',
     nextTask: '노션 태스크',
@@ -165,5 +165,6 @@ test('prepareTaskExecution falls back to AI assessment when notion difficulty is
   assert.equal(ws.provider, PROVIDERS.CODEX);
   assert.equal(ws.difficulty, 2);
   assert.equal(ws.model, 'gpt-5.1-codex-mini');
+  assert.match(lines.join('\n'), /평가 중/);
   assert.doesNotMatch(lines.join('\n'), /\[Notion\]/);
 });

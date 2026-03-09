@@ -110,7 +110,7 @@ function spawnWorker(ws, py, onDone, onUpdate, pushLog, cliProvider, onTaskCompl
   }
 
   /** 태스크 1개를 실행하는 내부 함수. 완료 후 다음 태스크가 있으면 재귀 호출. */
-  function runNextTask() {
+  async function runNextTask() {
     const taskQueueText = fs.existsSync(tasksPath) ? fs.readFileSync(tasksPath, 'utf-8') : '';
 
     if (!taskQueueText.trim()) {
@@ -130,10 +130,18 @@ function spawnWorker(ws, py, onDone, onUpdate, pushLog, cliProvider, onTaskCompl
       return;
     }
 
-    const prep = prepareTaskExecution({
-      ws, wtDir, nextTask, cliProvider,
-      buildTaskPrompt, nextTaskEntry, pushLog, onUpdate,
-    });
+    let prep;
+    try {
+      prep = await prepareTaskExecution({
+        ws, wtDir, nextTask, cliProvider,
+        buildTaskPrompt, nextTaskEntry, pushLog, onUpdate,
+      });
+    } catch (error) {
+      const message = error && error.message ? error.message : 'task preparation failed';
+      pushLog(ws.name, `${C.red}[ERROR] ${message}${C.reset}`);
+      finalize(1, message);
+      return;
+    }
     if (prep.error) {
       pushLog(ws.name, `${C.red}[ERROR] ${prep.error}${C.reset}`);
       finalize(1, prep.error);
@@ -299,7 +307,10 @@ function spawnWorker(ws, py, onDone, onUpdate, pushLog, cliProvider, onTaskCompl
 
         if (result.shouldContinue) {
           pushLog(ws.name, `${C.cyan}[NEXT]${C.reset} 다음 태스크로 이동`);
-          runNextTask();
+          runNextTask().catch((error) => {
+            const message = error && error.message ? error.message : 'next task failed';
+            finalize(1, message);
+          });
           return;
         }
 
@@ -325,7 +336,10 @@ function spawnWorker(ws, py, onDone, onUpdate, pushLog, cliProvider, onTaskCompl
   }
 
   // 첫 번째 태스크 실행 시작
-  runNextTask();
+  runNextTask().catch((error) => {
+    const message = error && error.message ? error.message : 'worker run failed';
+    finalize(1, message);
+  });
 }
 
 module.exports = {

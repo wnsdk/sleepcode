@@ -38,9 +38,9 @@ function resetCurrentTaskState(ws, taskEntry) {
 /**
  * 다음 태스크 실행 전에 provider, 난이도, 모델을 선택하고 프롬프트를 빌드한다.
  *
- * Returns { taskStartHead, promptsByProvider, taskPrompt } or null on failure.
+ * Returns Promise<{ taskStartHead, promptsByProvider, taskPrompt }|{ error: string }>.
  */
-function prepareTaskExecution({
+async function prepareTaskExecution({
   ws,
   wtDir,
   nextTask,
@@ -83,8 +83,12 @@ function prepareTaskExecution({
     const notionDifficulty = directDifficulty == null
       ? normalizeDifficultyFn(taskMetadata && taskMetadata.difficulty, null)
       : directDifficulty;
+    if (notionDifficulty == null) {
+      pushLog(ws.name, `${C.dim}[DIFFICULTY] 평가 중...${C.reset}`);
+      onUpdate();
+    }
     const assessment = notionDifficulty == null
-      ? assessTaskDifficultyFn(nextTask, ws.targetDir || wtDir, ws.provider)
+      ? await Promise.resolve(assessTaskDifficultyFn(nextTask, ws.targetDir || wtDir, ws.provider))
       : buildDifficultyAssessmentFn(notionDifficulty, ws.provider);
     const sourceLabel = notionDifficulty == null ? '' : ' [Notion]';
 

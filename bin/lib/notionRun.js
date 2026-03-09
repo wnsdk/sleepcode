@@ -5,6 +5,7 @@ const { buildTaskMetadataSuffix, extractTaskItems } = require('./utils');
 const {
   buildCompletedAtProp,
   buildCommitProp,
+  buildDifficultyProp,
   buildModelProp,
   buildStatusProps,
 } = require('./notionSync');
@@ -93,11 +94,15 @@ function updateTaskCompletion({ taskEntry, schema, notionCompletedIds, updatePag
   return ok;
 }
 
-function updateTaskModel({ taskEntry, schema, model, updatePage }) {
+function updateTaskModel({ taskEntry, schema, model, difficulty, updatePage }) {
   if (!taskEntry || !taskEntry.notionId || !schema) return false;
+  const props = {};
   const modelProps = buildModelProp(schema, model);
-  if (!modelProps) return false;
-  return updatePage(taskEntry.notionId, modelProps);
+  if (modelProps) Object.assign(props, modelProps);
+  const difficultyProps = buildDifficultyProp(schema, difficulty);
+  if (difficultyProps) Object.assign(props, difficultyProps);
+  if (Object.keys(props).length === 0) return false;
+  return updatePage(taskEntry.notionId, props);
 }
 
 function updateFirstPendingStatuses({ schema, tasks, taskStatuses, notionInProgressIds, updatePage, defaultWorker }) {

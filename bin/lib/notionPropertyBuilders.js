@@ -39,9 +39,17 @@ function buildCommitProp(schema, commitId) {
   return { [schema.commit_prop]: { rich_text: [{ text: { content: String(commitId) } }] } };
 }
 
+function buildDifficultyProp(schema, difficulty) {
+  if (!schema || !schema.difficulty_prop) return null;
+  const value = parseInt(difficulty, 10);
+  if (!(value >= 1 && value <= 5)) return null;
+  return { [schema.difficulty_prop]: { select: { name: String(value) } } };
+}
+
 module.exports = {
   buildCompletedAtProp,
   buildCommitProp,
+  buildDifficultyProp,
   buildModelProp,
   buildStatusProps,
 };

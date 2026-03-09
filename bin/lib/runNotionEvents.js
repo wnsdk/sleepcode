@@ -80,10 +80,12 @@ function handleTaskStartedEvent({
 }) {
   const taskEntry = payload && payload.taskEntry ? payload.taskEntry : null;
   const model = payload && payload.model ? payload.model : '';
+  const difficulty = payload && payload.difficulty != null ? payload.difficulty : null;
   const ok = updateTaskModel({
     taskEntry,
     schema,
     model,
+    difficulty,
     updatePage,
   });
 

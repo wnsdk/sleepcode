@@ -2,6 +2,7 @@ const { createNotionSyncBridge, ensureNotionSyncScript } = require('./notionSync
 const {
   buildCompletedAtProp,
   buildCommitProp,
+  buildDifficultyProp,
   buildModelProp,
   buildStatusProps,
 } = require('./notionPropertyBuilders');
@@ -69,6 +70,7 @@ module.exports = {
   buildStatusProps,
   buildCompletedAtProp,
   buildCommitProp,
+  buildDifficultyProp,
   buildModelProp,
   createNotionSyncClient,
 };

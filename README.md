@@ -71,6 +71,7 @@ npx sleepcode run --setup           # worktree만 생성 (실행 전 확인)
 npx sleepcode run --merge           # 완료된 브랜치 자동 머지
 npx sleepcode run --clean           # worktree 정리
 npx sleepcode run --status          # 워커 상태 확인
+npx sleepcode run --stop-worker bugfix  # 특정 워커 즉시 종료
 ```
 
 ### 실시간 대시보드
@@ -182,6 +183,7 @@ claude --dangerously-skip-permissions
 | `npx sleepcode run --merge` | 완료된 브랜치 자동 머지 |
 | `npx sleepcode run --clean` | worktree 정리 |
 | `npx sleepcode run --status` | 워커 상태 확인 |
+| `npx sleepcode run --stop-worker <name>` | 실행 중인 특정 워커 즉시 종료 |
 | `npx sleepcode usage` | 주간 사용량 확인 |
 | `npx sleepcode notion-update` | 기존 Notion DB 컬럼을 최신 버전으로 업데이트 |
 

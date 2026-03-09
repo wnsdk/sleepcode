@@ -14,6 +14,7 @@ const {
   autoMergeWorktrees,
   mergeWorktrees,
 } = require('./parallelMerge');
+const { requestParallelWorkerStop } = require('./parallelRunnerControl');
 const { runParallelWorkers } = require('./parallelRunner');
 
 function showTaskQueueFormatError() {
@@ -48,6 +49,7 @@ function runTaskQueueCommand({ cliArgs = {}, cliProvider, targetDir = process.cw
   const isClean = Boolean(cliArgs.clean);
   const isStatus = Boolean(cliArgs.status);
   const isMerge = Boolean(cliArgs.merge);
+  const stopWorkerName = typeof cliArgs.stopWorker === 'string' ? cliArgs.stopWorker.trim() : '';
 
   if (isStatus) {
     showParallelStatus(targetDir);
@@ -63,6 +65,13 @@ function runTaskQueueCommand({ cliArgs = {}, cliProvider, targetDir = process.cw
     console.log(`\n${C.bold}Worktree 정리 중...${C.reset}\n`);
     cleanupWorktrees(targetDir, null);
     console.log(`\n${C.green}정리 완료.${C.reset}`);
+    return;
+  }
+
+  if (stopWorkerName) {
+    const request = requestParallelWorkerStop(targetDir, stopWorkerName);
+    console.log(`\n${C.yellow}즉시 종료 요청 등록${C.reset} — ${C.cyan}${request.workerName}${C.reset}`);
+    console.log(`  ${C.dim}실행 중인 병렬 세션이 요청을 감지하면 해당 워커만 즉시 종료합니다.${C.reset}\n`);
     return;
   }
 

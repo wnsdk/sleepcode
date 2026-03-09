@@ -21,11 +21,13 @@ test('summarizeWorkerOutcomes groups worker states for completion summary', () =
     { name: 'b', status: 'done', merged: false },
     { name: 'c', status: 'failed', merged: false },
     { name: 'd', status: 'budget_stop', merged: false },
+    { name: 'e', status: 'terminated', merged: false },
   ]);
 
   assert.deepEqual(summary.done.map((worker) => worker.name), ['a', 'b']);
   assert.deepEqual(summary.failed.map((worker) => worker.name), ['c']);
   assert.deepEqual(summary.stopped.map((worker) => worker.name), ['d']);
+  assert.deepEqual(summary.terminated.map((worker) => worker.name), ['e']);
   assert.deepEqual(summary.alreadyMerged.map((worker) => worker.name), ['a']);
   assert.deepEqual(summary.needsMerge.map((worker) => worker.name), ['b', 'c', 'd']);
 });
@@ -35,6 +37,7 @@ test('getCompletionNextSteps returns merge/clean guidance based on summary', () 
     getCompletionNextSteps({
       done: [{ name: 'a' }],
       needsMerge: [{ name: 'a' }],
+      terminated: [],
     }),
     ['npx sleepcode run --merge', 'npx sleepcode run --clean']
   );
@@ -42,6 +45,15 @@ test('getCompletionNextSteps returns merge/clean guidance based on summary', () 
     getCompletionNextSteps({
       done: [{ name: 'a' }],
       needsMerge: [],
+      terminated: [],
+    }),
+    ['npx sleepcode run --clean']
+  );
+  assert.deepEqual(
+    getCompletionNextSteps({
+      done: [],
+      needsMerge: [],
+      terminated: [{ name: 'feature-a' }],
     }),
     ['npx sleepcode run --clean']
   );

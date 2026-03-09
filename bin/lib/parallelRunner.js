@@ -48,6 +48,7 @@ function printParallelCompletionSummary(workerStates) {
   const parts = [`${C.green}성공: ${summary.done.length}${C.reset}`];
   if (summary.failed.length > 0) parts.push(`${C.red}실패: ${summary.failed.length}${C.reset}`);
   if (summary.stopped.length > 0) parts.push(`${C.yellow}예산 중지: ${summary.stopped.length}${C.reset}`);
+  if (summary.terminated.length > 0) parts.push(`${C.yellow}즉시 종료: ${summary.terminated.length}${C.reset}`);
   console.log(`  ${parts.join('  ')}`);
 
   console.log(`\n${C.bold}생성된 브랜치:${C.reset}`);
@@ -57,6 +58,8 @@ function printParallelCompletionSummary(workerStates) {
       : '';
     const icon = worker.status === 'done'
       ? `${C.green}✓${C.reset}`
+      : worker.status === 'terminated'
+        ? `${C.yellow}■${C.reset}`
       : worker.status === 'budget_stop'
         ? `${C.yellow}■${C.reset}`
         : `${C.red}✗${C.reset}`;

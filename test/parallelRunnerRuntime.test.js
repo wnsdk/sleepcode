@@ -36,6 +36,7 @@ test('createParallelRunnerRuntime wires dashboard callbacks, timers, and worker 
     scheduleRender: 0,
     spawn: [],
     start: 0,
+    stopRequests: [],
     stopWorkers: [],
     sync: [],
   };
@@ -55,6 +56,9 @@ test('createParallelRunnerRuntime wires dashboard callbacks, timers, and worker 
     syncParallelWorkerProgressFn: (args) => {
       calls.sync.push(args);
     },
+    applyParallelStopRequestsFn: (args) => {
+      calls.stopRequests.push(args);
+    },
     stopRunningWorkersFn: (workerStates, signal) => {
       calls.stopWorkers.push({ workerStates, signal });
     },
@@ -73,7 +77,7 @@ test('createParallelRunnerRuntime wires dashboard callbacks, timers, and worker 
   assert.equal(calls.start, 1);
   assert.equal(calls.sync.length, 1);
   assert.equal(calls.sync[0].workerStates.length, 1);
-  assert.deepEqual(calls.intervals.map((item) => item.delay), [3000, 5000, 30000]);
+  assert.deepEqual(calls.intervals.map((item) => item.delay), [3000, 5000, 30000, 1000]);
   assert.equal(calls.spawn.length, 1);
   assert.equal(calls.spawn[0][0].name, 'main');
   assert.equal(calls.spawn[0][1].cmd, 'python3');
@@ -99,6 +103,9 @@ test('createParallelRunnerRuntime wires dashboard callbacks, timers, and worker 
   calls.intervals[1].fn();
   assert.equal(calls.sync.length, 2);
   assert.equal(typeof calls.sync[1].scheduleRender, 'function');
+  calls.intervals[3].fn();
+  assert.equal(calls.stopRequests.length, 1);
+  assert.equal(calls.stopRequests[0].workerStates.length, 1);
 });
 
 test('createParallelRunnerRuntime finishes only after the last worker completes', () => {
@@ -159,7 +166,7 @@ test('createParallelRunnerRuntime finishes only after the last worker completes'
   assert.equal(calls.merge.length, 2);
   assert.equal(calls.finalizeMerge.length, 1);
   assert.equal(calls.finalizeMerge[0].workerStates, workerStates);
-  assert.deepEqual(calls.clearIntervals, [3000, 5000, 30000]);
+  assert.deepEqual(calls.clearIntervals, [3000, 5000, 30000, 1000]);
   assert.equal(calls.dispose, 1);
   assert.equal(calls.printSummary.length, 1);
 });

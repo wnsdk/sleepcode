@@ -7,6 +7,7 @@ const {
   getRuntimeGracefulStopPath,
   getRuntimeLogsDir,
   getRuntimeMainTaskQueuePath,
+  getRuntimeStopRequestsDir,
   getRuntimeTaskQueuePath,
   getRuntimeWorktreesDir,
 } = require('../bin/lib/runtimePaths');
@@ -20,4 +21,5 @@ test('runtime path helpers stay under .sleepcode/runtime', () => {
   assert.equal(getRuntimeTaskQueuePath(targetDir), path.join(targetDir, '.sleepcode', 'runtime', 'task_queue.md'));
   assert.equal(getRuntimeMainTaskQueuePath(targetDir), path.join(targetDir, '.sleepcode', 'runtime', 'task_queue.main.md'));
   assert.equal(getRuntimeGracefulStopPath(targetDir), path.join(targetDir, '.sleepcode', 'runtime', 'graceful_stop'));
+  assert.equal(getRuntimeStopRequestsDir(targetDir), path.join(targetDir, '.sleepcode', 'runtime', 'stop_requests'));
 });

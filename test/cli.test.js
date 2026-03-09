@@ -27,12 +27,13 @@ test('parseArgs ignores the init token and still parses init options', () => {
 
 test('parseArgs reads run worktree management flags', () => {
   assert.deepEqual(
-    parseArgs(['node', 'sleepcode', 'run', '--setup', '--status', '--merge', '--clean']),
+    parseArgs(['node', 'sleepcode', 'run', '--setup', '--status', '--merge', '--clean', '--stop-worker', 'feature-a']),
     {
       setup: true,
       status: true,
       merge: true,
       clean: true,
+      stopWorker: 'feature-a',
     }
   );
 });

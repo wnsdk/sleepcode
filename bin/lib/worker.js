@@ -97,8 +97,14 @@ function spawnWorker(ws, py, onDone, onUpdate, pushLog, cliProvider, onTaskCompl
       syncWorkerTaskProgress(ws, wtDir, content);
     }
 
-    ws.status = (code === 0) ? 'done' : 'failed';
-    ws.currentTask = errMsg || '';
+    if (ws.stopRequested === 'immediate') {
+      ws.status = 'terminated';
+      ws.currentTask = '사용자 요청으로 즉시 종료됨';
+      ws.stopRequested = null;
+    } else {
+      ws.status = (code === 0) ? 'done' : 'failed';
+      ws.currentTask = errMsg || '';
+    }
     onUpdate();
     onDone();
   }

@@ -5,6 +5,24 @@ const { C } = require('./constants');
 const { isOverBudget } = require('./configBudget');
 const { syncWorkerTaskProgress } = require('./taskState');
 const { autoMergeWorktrees } = require('./parallelMerge');
+const {
+  ensureRuntimeDirs,
+  getRuntimeStopRequestsDir,
+} = require('./runtimePaths');
+
+function encodeStopRequestWorkerName(workerName) {
+  return encodeURIComponent(String(workerName || '').trim());
+}
+
+function decodeStopRequestWorkerName(fileName) {
+  const suffix = '.stop';
+  const encoded = fileName.endsWith(suffix) ? fileName.slice(0, -suffix.length) : fileName;
+  try {
+    return decodeURIComponent(encoded);
+  } catch {
+    return encoded;
+  }
+}
 
 function stopRunningWorkers(workerStates, signal = null) {
   for (const worker of workerStates || []) {
@@ -14,6 +32,73 @@ function stopRunningWorkers(workerStates, signal = null) {
       else worker._proc.kill();
     } catch {}
   }
+}
+
+function requestParallelWorkerStop(targetDir, workerName, ensureRuntimeDirsFn = ensureRuntimeDirs) {
+  const normalizedName = String(workerName || '').trim();
+  if (!normalizedName) {
+    throw new Error('중지할 워커 이름이 필요합니다.');
+  }
+
+  const { stopRequestsDir } = ensureRuntimeDirsFn(targetDir);
+  const filePath = path.join(stopRequestsDir, `${encodeStopRequestWorkerName(normalizedName)}.stop`);
+  fs.writeFileSync(filePath, JSON.stringify({
+    workerName: normalizedName,
+    requestedAt: new Date().toISOString(),
+  }, null, 2));
+  return { filePath, workerName: normalizedName };
+}
+
+function applyParallelStopRequests({
+  targetDir,
+  workerStates,
+  dashboard,
+  existsSync = fs.existsSync,
+  readdirSync = fs.readdirSync,
+  unlinkSync = fs.unlinkSync,
+  stopRequestsDirFn = getRuntimeStopRequestsDir,
+}) {
+  const stopRequestsDir = stopRequestsDirFn(targetDir);
+  if (!existsSync(stopRequestsDir)) {
+    return { stopped: [], ignored: [] };
+  }
+
+  const requestFiles = readdirSync(stopRequestsDir)
+    .filter((fileName) => fileName.endsWith('.stop'))
+    .sort();
+
+  const stopped = [];
+  const ignored = [];
+
+  for (const fileName of requestFiles) {
+    const workerName = decodeStopRequestWorkerName(fileName);
+    const worker = (workerStates || []).find((item) => item.name === workerName);
+    if (!worker) continue;
+
+    const filePath = path.join(stopRequestsDir, fileName);
+    try {
+      unlinkSync(filePath);
+    } catch {}
+
+    if (worker.status !== 'running' || !worker._proc) {
+      ignored.push(workerName);
+      continue;
+    }
+
+    worker.stopRequested = 'immediate';
+    worker.currentTask = '사용자 요청으로 즉시 종료 중';
+    stopped.push(workerName);
+    dashboard.pushLog('SYSTEM', `${C.yellow}${workerName} 워커 즉시 종료 요청 감지${C.reset}`);
+    try {
+      worker._proc.kill();
+    } catch {}
+  }
+
+  if (stopped.length > 0 || ignored.length > 0) {
+    dashboard.renderDashboard();
+  }
+
+  return { stopped, ignored };
 }
 
 function syncParallelWorkerProgress({
@@ -102,11 +187,12 @@ function finalizeCompletedParallelWorkers({
   if (workers.length === 0) {
     return { merged: [], skipped: [], conflicted: [] };
   }
+  const mergeCandidates = workers.filter((worker) => worker.status !== 'terminated');
 
   dashboard.pushLog('SYSTEM', `${C.bold}모든 워커 종료 확인 — 브랜치 일괄 병합 시작${C.reset}`);
 
   try {
-    const mergeResults = autoMergeWorktreesFn(targetDir, workers, cliProvider);
+    const mergeResults = autoMergeWorktreesFn(targetDir, mergeCandidates, cliProvider);
 
     for (const worker of workers) {
       if (mergeResults.merged.includes(worker.name) || mergeResults.skipped.includes(worker.name)) {
@@ -136,8 +222,10 @@ function finalizeCompletedParallelWorkers({
 
 module.exports = {
   applyParallelBudgetStop,
+  applyParallelStopRequests,
   finalizeCompletedParallelWorkers,
   mergeCompletedParallelWorker,
+  requestParallelWorkerStop,
   stopRunningWorkers,
   syncParallelWorkerProgress,
 };

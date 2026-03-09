@@ -29,18 +29,25 @@ function getRuntimeGracefulStopPath(targetDir) {
   return path.join(getRuntimeDir(targetDir), 'graceful_stop');
 }
 
+function getRuntimeStopRequestsDir(targetDir) {
+  return path.join(getRuntimeDir(targetDir), 'stop_requests');
+}
+
 function ensureRuntimeDirs(targetDir) {
   const runtimeDir = getRuntimeDir(targetDir);
   const logsDir = getRuntimeLogsDir(targetDir);
   const worktreesDir = getRuntimeWorktreesDir(targetDir);
+  const stopRequestsDir = getRuntimeStopRequestsDir(targetDir);
 
   fs.mkdirSync(logsDir, { recursive: true });
   fs.mkdirSync(worktreesDir, { recursive: true });
+  fs.mkdirSync(stopRequestsDir, { recursive: true });
 
   return {
     runtimeDir,
     logsDir,
     worktreesDir,
+    stopRequestsDir,
   };
 }
 
@@ -52,5 +59,6 @@ module.exports = {
   getRuntimeTaskQueuePath,
   getRuntimeMainTaskQueuePath,
   getRuntimeGracefulStopPath,
+  getRuntimeStopRequestsDir,
   ensureRuntimeDirs,
 };

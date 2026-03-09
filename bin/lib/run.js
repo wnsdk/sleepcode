@@ -54,7 +54,7 @@ const {
 } = require('./runWatchControl');
 
 function hasTaskQueueManagementFlags(cliArgs = {}) {
-  return Boolean(cliArgs.setup || cliArgs.status || cliArgs.merge || cliArgs.clean);
+  return Boolean(cliArgs.setup || cliArgs.status || cliArgs.merge || cliArgs.clean || cliArgs.stopWorker);
 }
 
 function shouldUseNotionControlPlane(targetDir, cliArgs = {}, env = process.env, parseEnvFileFn = parseEnvFile) {

@@ -9,6 +9,7 @@ test('hasTaskQueueManagementFlags detects worktree management options', () => {
   assert.equal(_internals.hasTaskQueueManagementFlags({ clean: true }), true);
   assert.equal(_internals.hasTaskQueueManagementFlags({ status: true }), true);
   assert.equal(_internals.hasTaskQueueManagementFlags({ merge: true }), true);
+  assert.equal(_internals.hasTaskQueueManagementFlags({ stopWorker: 'feature-a' }), true);
 });
 
 test('shouldUseNotionControlPlane prefers explicit notion arguments', () => {

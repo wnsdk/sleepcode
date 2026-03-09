@@ -11,7 +11,7 @@ ${SLEEPCODE_BADGE}  v${pkg.version}
 
 사용법: sleepcode init [옵션]
        sleepcode [옵션]
-       sleepcode run [--continue|--setup|--clean|--merge|--status]
+       sleepcode run [--continue|--setup|--clean|--merge|--status|--stop-worker <name>]
        sleepcode usage
        sleepcode notion-update [--notion-key <key>] [--notion-db <id|url>]
 
@@ -28,6 +28,7 @@ ${SLEEPCODE_BADGE}  v${pkg.version}
   run --status     워커 상태 확인
   run --merge      완료된 브랜치 자동 머지
   run --clean      worktree 정리
+  run --stop-worker <name> 특정 워커 즉시 종료 요청
 
 옵션:
   --type <type>        프로젝트 타입 (spring-boot, react-native, nextjs, custom)
@@ -51,6 +52,7 @@ ${SLEEPCODE_BADGE}  v${pkg.version}
   --status             현재 워커 상태 출력
   --merge              완료된 브랜치 병합 수행
   --clean              남은 worktree 정리
+  --stop-worker <name> 실행 중인 특정 워커 즉시 종료
   -c, --continue       이전 세션 이어서 실행 (토큰 절약)
   -f, --force          기존 .sleepcode/ 덮어쓰기
   -v, --version        버전 정보
@@ -96,6 +98,7 @@ function parseArgs(argv = process.argv) {
     else if (args[i] === '--status') parsed.status = true;
     else if (args[i] === '--merge') parsed.merge = true;
     else if (args[i] === '--clean') parsed.clean = true;
+    else if (args[i] === '--stop-worker' && args[i + 1]) parsed.stopWorker = args[++i];
     else if (args[i] === '--continue' || args[i] === '-c') parsed.continue = true;
     else if (args[i] === '--force' || args[i] === '-f') parsed.force = true;
     else if (args[i] === '--help' || args[i] === '-h') {

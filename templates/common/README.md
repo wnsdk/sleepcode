@@ -69,6 +69,7 @@ npx sleepcode run --setup           # worktree만 먼저 생성 (실행 전 확�
 npx sleepcode run --status          # 워커 상태 확인
 npx sleepcode run --merge           # 완료된 브랜치 자동 머지
 npx sleepcode run --clean           # worktree 정리
+npx sleepcode run --stop-worker bugfix  # 특정 워커 즉시 종료
 ```
 
 ### 5. Notion 제어판 모드 (원격 태스크 관리)

@@ -13,13 +13,15 @@ function summarizeWorkerOutcomes(workerStates) {
   const failed = workerStates.filter((worker) => worker.status === 'failed');
   const done = workerStates.filter((worker) => worker.status === 'done');
   const stopped = workerStates.filter((worker) => worker.status === 'budget_stop');
+  const terminated = workerStates.filter((worker) => worker.status === 'terminated');
   const alreadyMerged = workerStates.filter((worker) => worker.merged && !worker.usesMainBranch && worker.name !== 'main');
-  const needsMerge = workerStates.filter((worker) => worker.status !== 'running' && !worker.merged);
+  const needsMerge = workerStates.filter((worker) => worker.status !== 'running' && worker.status !== 'terminated' && !worker.merged);
 
   return {
     failed,
     done,
     stopped,
+    terminated,
     alreadyMerged,
     needsMerge,
   };
@@ -34,6 +36,10 @@ function getCompletionNextSteps(summary) {
   }
 
   if (summary.done.length > 0) {
+    return ['npx sleepcode run --clean'];
+  }
+
+  if (summary.terminated.length > 0) {
     return ['npx sleepcode run --clean'];
   }
 

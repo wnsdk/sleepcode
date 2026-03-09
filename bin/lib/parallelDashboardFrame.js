@@ -35,6 +35,8 @@ function buildParallelDashboardFrame({
       ? `${C.cyan}⟳${C.reset}`
       : worker.status === 'done'
         ? `${C.green}✓${C.reset}`
+        : worker.status === 'terminated'
+          ? `${C.yellow}■${C.reset}`
         : worker.status === 'budget_stop'
           ? `${C.yellow}■${C.reset}`
           : `${C.red}✗${C.reset}`;

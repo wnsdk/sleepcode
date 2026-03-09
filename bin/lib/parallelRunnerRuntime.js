@@ -2,6 +2,7 @@ const { spawnWorker } = require('./worker');
 const { createParallelDashboard } = require('./parallelDashboard');
 const {
   applyParallelBudgetStop,
+  applyParallelStopRequests,
   finalizeCompletedParallelWorkers,
   mergeCompletedParallelWorker,
   stopRunningWorkers,
@@ -18,6 +19,7 @@ function createParallelRunnerRuntime({
   createParallelDashboardFn = createParallelDashboard,
   syncParallelWorkerProgressFn = syncParallelWorkerProgress,
   applyParallelBudgetStopFn = applyParallelBudgetStop,
+  applyParallelStopRequestsFn = applyParallelStopRequests,
   finalizeCompletedParallelWorkersFn = finalizeCompletedParallelWorkers,
   mergeCompletedParallelWorkerFn = mergeCompletedParallelWorker,
   stopRunningWorkersFn = stopRunningWorkers,
@@ -41,6 +43,7 @@ function createParallelRunnerRuntime({
   let dashboardInterval = null;
   let taskProgressInterval = null;
   let budgetCheckInterval = null;
+  let stopRequestInterval = null;
 
   function finishIfDone() {
     if (activeWorkers !== 0) return false;
@@ -48,6 +51,7 @@ function createParallelRunnerRuntime({
     clearIntervalFn(dashboardInterval);
     clearIntervalFn(taskProgressInterval);
     clearIntervalFn(budgetCheckInterval);
+    clearIntervalFn(stopRequestInterval);
     finalizeCompletedParallelWorkersFn({
       targetDir,
       cliProvider,
@@ -100,6 +104,13 @@ function createParallelRunnerRuntime({
       });
       budgetStopped = result.stopped;
     }, 30000);
+    stopRequestInterval = setIntervalFn(() => {
+      applyParallelStopRequestsFn({
+        targetDir,
+        workerStates,
+        dashboard,
+      });
+    }, 1000);
 
     for (const worker of workerStates) {
       spawnWorkerFn(

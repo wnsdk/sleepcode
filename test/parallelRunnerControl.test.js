@@ -6,8 +6,10 @@ const path = require('path');
 
 const {
   applyParallelBudgetStop,
+  applyParallelStopRequests,
   finalizeCompletedParallelWorkers,
   mergeCompletedParallelWorker,
+  requestParallelWorkerStop,
   stopRunningWorkers,
   syncParallelWorkerProgress,
 } = require('../bin/lib/parallelRunnerControl');
@@ -127,6 +129,72 @@ test('applyParallelBudgetStop leaves workers untouched when budget is still avai
   assert.equal(workerStates[0].status, 'running');
 });
 
+test('requestParallelWorkerStop writes a stop request file for the named worker', () => {
+  withTempDir('sleepcode-stop-request-', (dir) => {
+    const ensured = [];
+    const request = requestParallelWorkerStop(
+      dir,
+      'feature-a',
+      (targetDir) => {
+        const stopRequestsDir = path.join(targetDir, '.sleepcode', 'runtime', 'stop_requests');
+        fs.mkdirSync(stopRequestsDir, { recursive: true });
+        ensured.push(stopRequestsDir);
+        return { stopRequestsDir };
+      }
+    );
+
+    assert.equal(request.workerName, 'feature-a');
+    assert.equal(ensured.length, 1);
+    assert.equal(fs.existsSync(request.filePath), true);
+    assert.match(fs.readFileSync(request.filePath, 'utf-8'), /feature-a/);
+  });
+});
+
+test('applyParallelStopRequests stops only the requested running worker', () => {
+  withTempDir('sleepcode-stop-runtime-', (dir) => {
+    const stopRequestsDir = path.join(dir, '.sleepcode', 'runtime', 'stop_requests');
+    fs.mkdirSync(stopRequestsDir, { recursive: true });
+    fs.writeFileSync(path.join(stopRequestsDir, 'feature-a.stop'), '', 'utf-8');
+
+    const logs = [];
+    let renderCalls = 0;
+    const killCalls = [];
+    const workerStates = [
+      {
+        name: 'feature-a',
+        status: 'running',
+        currentTask: '작업 중',
+        _proc: { kill: () => killCalls.push('feature-a') },
+      },
+      {
+        name: 'feature-b',
+        status: 'running',
+        _proc: { kill: () => killCalls.push('feature-b') },
+      },
+    ];
+
+    const result = applyParallelStopRequests({
+      targetDir: dir,
+      workerStates,
+      dashboard: {
+        pushLog: (...args) => logs.push(args),
+        renderDashboard: () => {
+          renderCalls += 1;
+        },
+      },
+    });
+
+    assert.deepEqual(result.stopped, ['feature-a']);
+    assert.deepEqual(result.ignored, []);
+    assert.equal(workerStates[0].stopRequested, 'immediate');
+    assert.equal(workerStates[0].currentTask, '사용자 요청으로 즉시 종료 중');
+    assert.deepEqual(killCalls, ['feature-a']);
+    assert.equal(renderCalls, 1);
+    assert.match(logs[0][1], /feature-a 워커 즉시 종료 요청 감지/);
+    assert.equal(fs.existsSync(path.join(stopRequestsDir, 'feature-a.stop')), false);
+  });
+});
+
 test('mergeCompletedParallelWorker defers non-main merges until the last worker finishes', () => {
   const logs = [];
   const completedWorker = { name: 'feature-a', status: 'done', merged: false };
@@ -205,6 +273,32 @@ test('finalizeCompletedParallelWorkers batch-merges after all workers finish', (
   assert.match(logs[1][1], /일괄 병합 완료: feature-a/);
   assert.match(logs[2][1], /병합 스킵: main/);
   assert.match(logs[3][1], /일괄 병합 충돌: feature-b/);
+});
+
+test('finalizeCompletedParallelWorkers excludes terminated workers from auto-merge', () => {
+  const mergeInputs = [];
+
+  finalizeCompletedParallelWorkers({
+    targetDir: 'C:\\workspace\\sleepcode',
+    cliProvider: 'codex',
+    workerStates: [
+      { name: 'feature-a', status: 'done', merged: false },
+      { name: 'feature-b', status: 'terminated', merged: false },
+    ],
+    dashboard: {
+      pushLog: () => {},
+    },
+    autoMergeWorktreesFn: (_targetDir, workers) => {
+      mergeInputs.push(workers.map((worker) => worker.name));
+      return {
+        merged: ['feature-a'],
+        skipped: [],
+        conflicted: [],
+      };
+    },
+  });
+
+  assert.deepEqual(mergeInputs, [['feature-a']]);
 });
 
 test('finalizeCompletedParallelWorkers reports merge errors without throwing', () => {

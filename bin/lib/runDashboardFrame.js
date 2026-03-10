@@ -21,6 +21,8 @@ function countWorkerTaskLines(worker) {
   return hasDoneSummary + doneShown + hasCurrent + pendingShown + hasRemaining;
 }
 
+const MIN_WORKTREE_ROWS = 5;
+
 function getRunDashboardHeight(phase, workerStates) {
   if (phase !== 'executing' || !Array.isArray(workerStates) || workerStates.length === 0) {
     return 12;
@@ -29,7 +31,7 @@ function getRunDashboardHeight(phase, workerStates) {
   for (const worker of workerStates) {
     taskLines += 1 + countWorkerTaskLines(worker); // 1 header + task lines
   }
-  return 8 + taskLines;
+  return 8 + Math.max(MIN_WORKTREE_ROWS, taskLines);
 }
 
 function buildWorkerTaskLines(worker, width, lines) {
@@ -156,6 +158,7 @@ function buildRunDashboardFrame({
     lines.push(boxLine(`${SLEEPCODE_BADGE_WITH_VERSION}${projectLabel}  ${C.cyan}⟳${C.reset} ${activeCount}/${workerStates.length} workers${notionLink(dbId)}`, width));
     lines.push(`${C.dim}╠${'═'.repeat(width + 2)}╣${C.reset}`);
 
+    const workerAreaStart = lines.length;
     for (let wi = 0; wi < workerStates.length; wi++) {
       const worker = workerStates[wi];
       const isFocused = wi === focusedIdx;
@@ -177,6 +180,9 @@ function buildRunDashboardFrame({
       const focusIndicator = (isFocused && worktreeAreaFocused) ? `${C.cyan}▸${C.reset}` : ' ';
       lines.push(boxLine(`${focusIndicator}${statusIcon} ${C.bold}${padEndVisual(worker.name, 17)}${C.reset} ${bar} ${String(worker.done).padStart(2)}/${String(worker.total).padEnd(2)} ${C.cyan}${String(percent).padStart(3)}%${C.reset} ${model}${difficulty}`, width));
       buildWorkerTaskLines(worker, width, lines);
+    }
+    while (lines.length - workerAreaStart < MIN_WORKTREE_ROWS) {
+      lines.push(boxLine('', width));
     }
 
     lines.push(`${C.dim}╠${'═'.repeat(width + 2)}╣${C.reset}`);

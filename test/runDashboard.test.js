@@ -15,7 +15,7 @@ test('clipVisualText truncates long task labels and preserves short ones', () =>
 test('getRunDashboardHeight switches between waiting and executing layouts', () => {
   assert.equal(getRunDashboardHeight('waiting', []), 12);
   assert.equal(getRunDashboardHeight('executing', []), 12);
-  assert.equal(getRunDashboardHeight('executing', [{ name: 'main' }]), 10);
+  assert.equal(getRunDashboardHeight('executing', [{ name: 'main' }]), 13);
   assert.equal(getRunDashboardHeight('executing', [{}, {}, {}]), 14);
 });
 

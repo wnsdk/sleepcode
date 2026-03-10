@@ -1,6 +1,6 @@
 const { C, SLEEPCODE_BADGE_WITH_VERSION, notionLink } = require('./constants');
 const { progressBar, padEndVisual, visualWidth } = require('./utils');
-const { providerLabelWithModel, providerLabel } = require('./provider');
+const { providerLabel } = require('./provider');
 const { boxLine, renderMenuLineWithLayout } = require('./dashboard');
 const {
   clipVisualText,
@@ -209,7 +209,7 @@ function buildRunDashboardFrame({
             : `${C.red}✗${C.reset}`;
       const percent = worker.total > 0 ? Math.round(worker.done / worker.total * 100) : 0;
       const model = worker.provider
-        ? `${C.dim}[${providerLabelWithModel(worker.provider, worker.model)}]${C.reset} `
+        ? `${C.dim}[${providerLabel(worker.provider)}]${C.reset} `
         : '';
       const difficulty = worker.difficultyLabel
         ? ` ${C.yellow}${worker.difficulty}${C.reset}`

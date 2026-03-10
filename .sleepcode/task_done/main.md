@@ -15,3 +15,4 @@
 - [x] onAiLimit 값을 “wait”으로 설정하고 sleepcode run 실행해보았는데, ai limit 걸리니까 바로 실패처리가 되어버리는 버그를 발견함. <!-- notion:31fad790-3b5d-80ff-b5a7-fb220466de25 -->
 - [x] package.json의 버전을 적절한 값으로 수정해 <!-- notion:31fad790-3b5d-8080-bd3b-e9985cd535a5 -->
 - [x] sleepcode run 터미널 UI에서 “워크트리 상세 대시보드” 영역은 “워크트리 목록 대시보드” 영역의 높이를 최대 높이로 가져야 한다. (첨부사진 참고) <!-- notion:31fad790-3b5d-804f-b7ad-c73879028881 -->
+- [x] sleepcode run 터미널 UI의 워크트리 목록 대시보드에서 각 워크트리별로 provider 가 표기되어 있다. 이 provider 표기에 마우스를 올리면 상세 ai 모델이 뜨는 기능을 폐기해줘 <!-- notion:31fad790-3b5d-80c6-b43f-ea56613fb813 -->

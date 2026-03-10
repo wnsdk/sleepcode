@@ -35,7 +35,7 @@ function buildConfigToSave({ weeklyBudget = 0, budgetThreshold = 90, claudeRatio
 function printBanner() {
   console.log(`
     ${SLEEPCODE_BADGE}
-    ${C.dim}AI codes while you sleep${C.reset}
+    ${C.dim}local-first multi-agent orchestration${C.reset}
 `);
 }
 

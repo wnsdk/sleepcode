@@ -1,8 +1,18 @@
 # SleepCode
 
-**AI codes while you sleep** — Claude AI 야간 자동화 세팅 CLI
+**Local-first multi-agent coding orchestration for git repos**
 
-잠자는 동안 AI가 코드를 작성하고, 빌드하고, 테스트하고, 커밋합니다.
+SleepCode는 `task_queue.md` 또는 Notion DB를 backlog로 사용해 여러 AI 코딩 워커를 git worktree에서 병렬 실행하고,
+완료 로그, 커밋, 자동 머지, 비용 추적까지 관리하는 CLI입니다.
+
+채팅형 IDE 도구가 아니라, 로컬 저장소에서 backlog 기반 개발 작업을 운영하는 오케스트레이션 레이어에 가깝습니다.
+
+## 핵심 가치
+
+- `task_queue.md` 또는 Notion DB를 backlog로 사용
+- 워커별 git worktree 분리로 병렬 작업 실행
+- 완료 로그 append-only 기록 + 자동 커밋/자동 머지
+- Claude/Codex BYO provider + 모델/예산 제어
 
 ---
 

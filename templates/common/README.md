@@ -1,6 +1,9 @@
 # SleepCode
 
-AI codes while you sleep — 밤새 개발 작업을 자동화하는 시스템입니다.
+Local-first multi-agent coding orchestration for git repos.
+
+SleepCode는 `task_queue.md` 또는 Notion DB를 backlog로 사용해 여러 AI 코딩 워커를 git worktree에서 병렬 실행하고,
+완료 로그, 커밋, 자동 머지, 비용 추적까지 관리하는 로컬 오케스트레이션 레이어입니다.
 
 이 문서는 `npx sleepcode init` 완료 후 생성되는 프로젝트를 기준으로 설명합니다.
 

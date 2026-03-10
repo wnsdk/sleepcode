@@ -190,6 +190,14 @@ function spawnWorker(ws, py, onDone, onUpdate, pushLog, cliProvider, onTaskCompl
       let blockedCommandError = null;
       let terminalResult = null;
       let resultExitTimer = null;
+      let stderrText = '';
+      let lastPlainLine = '';
+
+      const appendLimited = (current, addition, limit = 4000) => {
+        const next = current + addition;
+        if (next.length <= limit) return next;
+        return next.slice(-limit);
+      };
 
       const clearResultExitTimer = () => {
         if (!resultExitTimer) return;
@@ -235,11 +243,16 @@ function spawnWorker(ws, py, onDone, onUpdate, pushLog, cliProvider, onTaskCompl
             }
             processStreamEvent(ws, obj, onUpdate, pushLog);
           } catch {}
+          if (!line.startsWith('{')) {
+            lastPlainLine = line;
+          }
         }
       });
 
       proc.stderr.on('data', (data) => {
-        logStream.write(`[STDERR] ${data.toString()}`);
+        const text = data.toString();
+        stderrText = appendLimited(stderrText, text);
+        logStream.write(`[STDERR] ${text}`);
       });
 
       proc.on('close', async (code) => {
@@ -276,18 +289,16 @@ function spawnWorker(ws, py, onDone, onUpdate, pushLog, cliProvider, onTaskCompl
           ? (terminalResult.message || 'provider returned an error')
           : null;
 
-        if (effectiveCode !== 0 && allowFallback && ws.fallbackProvider && ws.fallbackProvider !== provider && !sawEvents && !terminalResult) {
-          const fromLabel = providerLabel(provider);
-          const toLabel = providerLabel(ws.fallbackProvider);
-          pushLog(ws.name, `${C.yellow}[FALLBACK]${C.reset} ${fromLabel} failed, retrying with ${toLabel}`);
-          logLine(`FALLBACK: ${provider} -> ${ws.fallbackProvider}`);
-          onUpdate();
-          runAttempt(ws.fallbackProvider, false);
-          return;
-        }
+        const aiLimitText = [
+          closeError,
+          terminalResult && terminalResult.subtype,
+          terminalResult && terminalResult.stopReason,
+          stderrText,
+          lastPlainLine,
+        ].filter(Boolean).join(' ');
 
         // AI 한도 초과 에러 처리: onAiLimit === 'wait'이면 대기 후 재시도
-        if (effectiveCode !== 0 && isAiLimitError(closeError) && onAiLimit === 'wait') {
+        if (effectiveCode !== 0 && isAiLimitError(aiLimitText) && onAiLimit === 'wait') {
           const waitSeconds = Math.min(60 * Math.pow(2, aiLimitRetryCount), 3600);
           aiLimitRetryCount += 1;
           const waitMin = Math.round(waitSeconds / 60);
@@ -296,6 +307,16 @@ function spawnWorker(ws, py, onDone, onUpdate, pushLog, cliProvider, onTaskCompl
           logLine(`AI_LIMIT_WAIT: waitSeconds=${waitSeconds} retryCount=${aiLimitRetryCount} error=${closeError}`);
           onUpdate();
           setTimeout(() => runAttempt(provider, allowFallback), waitSeconds * 1000);
+          return;
+        }
+
+        if (effectiveCode !== 0 && allowFallback && ws.fallbackProvider && ws.fallbackProvider !== provider && !sawEvents && !terminalResult) {
+          const fromLabel = providerLabel(provider);
+          const toLabel = providerLabel(ws.fallbackProvider);
+          pushLog(ws.name, `${C.yellow}[FALLBACK]${C.reset} ${fromLabel} failed, retrying with ${toLabel}`);
+          logLine(`FALLBACK: ${provider} -> ${ws.fallbackProvider}`);
+          onUpdate();
+          runAttempt(ws.fallbackProvider, false);
           return;
         }
 

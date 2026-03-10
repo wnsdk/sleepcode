@@ -48,7 +48,7 @@ const EXPECTED_DB_PROPERTIES = {
   'Model': buildModelSelectProperty(),
   'Cost': {
     number: { format: 'number_with_commas' },
-    description: 'Weighted token cost (Sonnet=1x). Cache: creation×1.25, read×0.1. Model: Opus×1.67, Sonnet×1.0, Haiku×0.33',
+    description: 'Weighted token cost (Sonnet=1x). Cache: creation×1.25, read×0.1. Model: Opus×1.67, Sonnet×1.0, Haiku×0.33. Codex: (billed_input*rate + cached_input*cached_rate + output*rate)/1,000,000 by model + tier',
   },
   'Completed At': { date: {} },
   'Commit': { rich_text: {} },

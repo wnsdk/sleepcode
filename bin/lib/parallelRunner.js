@@ -5,6 +5,7 @@ const { detectPython } = require('./prerequisites');
 const { resolveProviderPlan } = require('./provider');
 const { isOverBudget } = require('./configBudget');
 const { ensureRuntimeDirs } = require('./runtimePaths');
+const { extractTaskItems } = require('./utils');
 const {
   getCompletionNextSteps,
   summarizeWorkerOutcomes,
@@ -32,6 +33,7 @@ function createWorkerStates(targetDir, workerInfos, logsDir, timestamp) {
     fallbackProvider: null,
     _proc: null,
     logFile: path.join(logsDir, `parallel_${worker.name}_${timestamp}.log`),
+    taskItems: worker.tasks ? extractTaskItems(worker.tasks) : [],
   }));
 }
 

@@ -4,8 +4,80 @@ const { boxLine, renderMenuLineWithLayout } = require('./dashboard');
 const { clipVisualText, formatElapsedSeconds, formatProviderTokens } = require('./dashboardUtils');
 const { providerLabel } = require('./provider');
 
+const MAX_TASKS_DISPLAY = 8;
+
+function countWorkerTaskLines(worker) {
+  const tasks = worker.taskItems || [];
+  if (tasks.length === 0) return 1;
+  if (tasks.length <= MAX_TASKS_DISPLAY) return tasks.length;
+  const done = worker.done || 0;
+  const doneShown = Math.min(done, 2);
+  const hasDoneSummary = done > doneShown ? 1 : 0;
+  const hasCurrent = (done < tasks.length && worker.status === 'running') ? 1 : 0;
+  const pendingAfter = tasks.length - done - (hasCurrent ? 1 : 0);
+  const pendingShown = Math.min(pendingAfter, 3);
+  const hasRemaining = (pendingAfter - pendingShown) > 0 ? 1 : 0;
+  return hasDoneSummary + doneShown + hasCurrent + pendingShown + hasRemaining;
+}
+
 function getParallelDashboardHeight(workerStates) {
-  return 11 + workerStates.length * 2;
+  let taskLines = 0;
+  for (const worker of workerStates) {
+    taskLines += 1 + countWorkerTaskLines(worker);
+  }
+  return 11 + taskLines;
+}
+
+function buildWorkerTaskLines(worker, width, lines) {
+  const tasks = worker.taskItems || [];
+  const done = worker.done || 0;
+
+  if (tasks.length === 0) {
+    if (worker.currentTask && worker.status === 'running') {
+      lines.push(boxLine(`  ${C.dim}> ${clipVisualText(worker.currentTask, width - 6)}${C.reset}`, width));
+    } else {
+      lines.push(boxLine('', width));
+    }
+    return;
+  }
+
+  if (tasks.length <= MAX_TASKS_DISPLAY) {
+    for (let i = 0; i < tasks.length; i++) {
+      const title = tasks[i].title || `Task ${i + 1}`;
+      if (i < done) {
+        lines.push(boxLine(`  ${C.green}✓${C.reset} ${C.dim}${clipVisualText(title, width - 8)}${C.reset}`, width));
+      } else if (i === done && worker.status === 'running') {
+        lines.push(boxLine(`  ${C.cyan}▶${C.reset} ${clipVisualText(title, width - 8)}`, width));
+      } else {
+        lines.push(boxLine(`  ${C.dim}○ ${clipVisualText(title, width - 8)}${C.reset}`, width));
+      }
+    }
+    return;
+  }
+
+  const doneShown = Math.min(done, 2);
+  if (done > doneShown) {
+    lines.push(boxLine(`  ${C.green}✓${C.reset} ${C.dim}완료 ${done}개${C.reset}`, width));
+  }
+  for (let i = Math.max(0, done - doneShown); i < done; i++) {
+    const title = tasks[i].title || `Task ${i + 1}`;
+    lines.push(boxLine(`  ${C.green}✓${C.reset} ${C.dim}${clipVisualText(title, width - 8)}${C.reset}`, width));
+  }
+  if (done < tasks.length && worker.status === 'running') {
+    const title = tasks[done].title || `Task ${done + 1}`;
+    lines.push(boxLine(`  ${C.cyan}▶${C.reset} ${clipVisualText(title, width - 8)}`, width));
+  }
+  const pendingStart = done + (worker.status === 'running' ? 1 : 0);
+  const pendingCount = tasks.length - pendingStart;
+  const pendingToShow = Math.min(pendingCount, 3);
+  for (let i = pendingStart; i < pendingStart + pendingToShow; i++) {
+    const title = tasks[i].title || `Task ${i + 1}`;
+    lines.push(boxLine(`  ${C.dim}○ ${clipVisualText(title, width - 8)}${C.reset}`, width));
+  }
+  const remaining = pendingCount - pendingToShow;
+  if (remaining > 0) {
+    lines.push(boxLine(`  ${C.dim}  ... +${remaining}개 대기${C.reset}`, width));
+  }
 }
 
 function buildParallelDashboardFrame({
@@ -43,11 +115,7 @@ function buildParallelDashboardFrame({
     const percent = worker.total > 0 ? Math.round(worker.done / worker.total * 100) : 0;
     const diffTag = worker.difficultyLabel ? ` ${C.yellow}${worker.difficulty}${C.reset}` : '';
     lines.push(boxLine(`${statusIcon} ${C.bold}${padEndVisual(worker.name, 18)}${C.reset} ${bar} ${String(worker.done).padStart(2)}/${String(worker.total).padEnd(2)} ${C.cyan}${String(percent).padStart(3)}%${C.reset}${diffTag}`, width));
-    if (worker.currentTask && worker.status === 'running') {
-      lines.push(boxLine(`  ${C.dim}> ${clipVisualText(worker.currentTask, width - 6)}${C.reset}`, width));
-    } else {
-      lines.push(boxLine('', width));
-    }
+    buildWorkerTaskLines(worker, width, lines);
   }
 
   lines.push(`${C.dim}╠${'═'.repeat(width + 2)}╣${C.reset}`);

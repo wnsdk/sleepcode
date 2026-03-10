@@ -65,27 +65,6 @@ chcp 65001 > $null
 
 ---
 
-## 세션 안전 관리
-
-### 세션 시작 시
-- 작업 시작 전 `.sleepcode/runtime/session_state.json`을 확인한다.
-- `status`가 `in_progress`이면 이전 세션이 비정상 종료된 것이므로:
-  1. 해당 태스크를 이어서 진행하거나, 상태를 정리한 후 새 태스크를 시작한다.
-  2. `.sleepcode/runtime/worktrees/`에 남은 워크트리가 있으면 정리한다.
-- `status`가 `idle` 또는 `completed`이면 정상적으로 새 태스크를 시작한다.
-
-### 태스크 작업 중
-- 태스크 착수 시 `session_state.json`의 `status`를 `in_progress`로, `current_task`와 `branch`를 기록한다.
-- 파일 3개 이상 수정하거나 큰 변경이 있으면 WIP 커밋을 남긴다.
-  - 메시지 형식: `wip: <작업 내용 요약>`
-  - 다음 세션에서 squash하거나 amend한다.
-- worktree에서 작업 중이면, 주요 변경마다 `session_state.json`의 `modified_files`를 갱신한다.
-
-### 태스크 완료 시
-- `session_state.json`의 `status`를 `completed`로 갱신한다.
-
----
-
 # AI 작업 설정
 
 ## 역할

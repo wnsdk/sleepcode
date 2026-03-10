@@ -1,6 +1,6 @@
 {
   "name": "sleepcode",
-  "version": "3.2.0",
+  "version": "3.2.1",
   "description": "Local-first multi-agent coding orchestration CLI for git repos",
   "scripts": {
     "test": "node --test"

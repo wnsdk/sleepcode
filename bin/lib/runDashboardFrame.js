@@ -183,6 +183,8 @@ function buildRunDashboardFrame({
   const taskPanelOpen = menuState && menuState.taskPanelOpen;
   const worktreeAreaFocused = !menuState || !menuState.focusArea || menuState.focusArea === 'worktree';
   const menuAreaFocused = !menuState || menuState.focusArea === 'menu';
+  let worktreeAreaStart = null;
+  let worktreeAreaHeight = null;
 
   lines.push(`${C.dim}╔${'═'.repeat(width + 2)}╗${C.reset}`);
 
@@ -192,6 +194,7 @@ function buildRunDashboardFrame({
     lines.push(`${C.dim}╠${'═'.repeat(width + 2)}╣${C.reset}`);
 
     const workerAreaStart = lines.length;
+    worktreeAreaStart = workerAreaStart;
     for (let wi = 0; wi < workerStates.length; wi++) {
       const worker = workerStates[wi];
       const isFocused = wi === focusedIdx;
@@ -223,6 +226,7 @@ function buildRunDashboardFrame({
     while (lines.length - workerAreaStart < MIN_WORKTREE_ROWS) {
       lines.push(boxLine('', width));
     }
+    worktreeAreaHeight = lines.length - workerAreaStart;
 
     lines.push(`${C.dim}╠${'═'.repeat(width + 2)}╣${C.reset}`);
 
@@ -284,7 +288,7 @@ function buildRunDashboardFrame({
     const panelWidth = termColsPanel - mainBoxWidth - gap;
     if (panelWidth >= 20) {
       const focusedWorker = workerStates[focusedIdx];
-      const maxHeight = lines.length;
+      const maxHeight = worktreeAreaHeight != null ? worktreeAreaHeight : lines.length;
 
       // 선택 항목이 보이도록 스크롤 오프셋 자동 조정
       const panelTasks = focusedWorker.taskEntries || [];
@@ -309,13 +313,16 @@ function buildRunDashboardFrame({
         scrollOffset,
       };
       const panelLines = buildTaskPanelLines(focusedWorker, panelWidth, panelState, maxHeight);
-      // 패널 높이는 maxHeight를 초과하지 않음 — lines 확장 없음
-      for (let i = 0; i < lines.length; i++) {
+      // 패널 높이는 워크트리 목록 영역 높이를 초과하지 않음
+      const panelStart = worktreeAreaStart != null ? worktreeAreaStart : 0;
+      for (let i = 0; i < maxHeight; i++) {
+        const lineIdx = panelStart + i;
+        if (lineIdx < 0 || lineIdx >= lines.length) break;
         const panelLine = panelLines[i] || '';
         if (!panelLine) continue;
-        const mainVw = visualWidth(lines[i]);
+        const mainVw = visualWidth(lines[lineIdx]);
         const padNeeded = Math.max(0, mainBoxWidth - mainVw + gap);
-        lines[i] = lines[i] + ' '.repeat(padNeeded) + panelLine;
+        lines[lineIdx] = lines[lineIdx] + ' '.repeat(padNeeded) + panelLine;
       }
     }
   }

@@ -238,6 +238,15 @@ function buildRunDashboardFrame({
   if (gracefulShutdown) {
     lines.push(`  ${C.yellow}⏳ 마무리 중... 현재 작업 완료 후 종료됩니다${C.reset}`);
     menuState._menuLayout = null;
+  } else if (menuState && menuState.ratioAdjustOpen) {
+    const rv = menuState.ratioAdjustValue != null ? menuState.ratioAdjustValue : 0.5;
+    const filled = Math.round(rv * 10);
+    const bar = `${C.cyan}${'█'.repeat(filled)}${C.reset}${C.dim}${'░'.repeat(10 - filled)}${C.reset}`;
+    const claudePct = Math.round(rv * 100);
+    const codexPct = 100 - claudePct;
+    const ratioLine = `  ${C.cyan}${C.bold}비율 설정${C.reset}  Claude ${bar} Codex  ${C.cyan}${claudePct}%${C.reset}/${C.dim}${codexPct}%${C.reset}  ${C.dim}[←→] 조정  [Enter] 저장  [Esc] 취소${C.reset}`;
+    lines.push(ratioLine);
+    menuState._menuLayout = null;
   } else {
     const hasWorktrees = Array.isArray(workerStates) && workerStates.length > 0;
     const tabHint = hasWorktrees

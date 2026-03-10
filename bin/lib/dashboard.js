@@ -53,7 +53,7 @@ function renderMenuLine(selectedIndex, innerWidth, confirmPending, menuItems, fo
 }
 
 /** 대시보드 메뉴 키 입력 핸들러 설정 */
-function setupMenuInput(state, onRender, menuEntries, onImmediate, onScroll, worktreeOpts, scrollbarOpts) {
+function setupMenuInput(state, onRender, menuEntries, onImmediate, onScroll, worktreeOpts, scrollbarOpts, ratioOpts) {
   if (!process.stdin.isTTY) return null;
   process.stdin.setRawMode(true);
   process.stdin.resume();
@@ -175,6 +175,42 @@ function setupMenuInput(state, onRender, menuEntries, onImmediate, onScroll, wor
 
     const key = input;
     const wtCount = getWorktreeCount();
+
+    // 비율 조정 모드
+    if (state.ratioAdjustOpen) {
+      if (key === '\x1b' && input.length === 1) {
+        state.ratioAdjustOpen = false;
+        state.ratioAdjustValue = null;
+        onRender();
+        return;
+      }
+      if (key === '\r' || key === '\n') {
+        if (state.ratioAdjustValue !== null && ratioOpts && typeof ratioOpts.saveRatio === 'function') {
+          ratioOpts.saveRatio(state.ratioAdjustValue);
+        }
+        state.ratioAdjustOpen = false;
+        state.ratioAdjustValue = null;
+        onRender();
+        return;
+      }
+      if (key === '\x1b[D') { // Left: decrease claude ratio by 10%
+        const v = Math.round((state.ratioAdjustValue - 0.1) * 10) / 10;
+        state.ratioAdjustValue = Math.max(0, v);
+        onRender();
+        return;
+      }
+      if (key === '\x1b[C') { // Right: increase claude ratio by 10%
+        const v = Math.round((state.ratioAdjustValue + 0.1) * 10) / 10;
+        state.ratioAdjustValue = Math.min(1, v);
+        onRender();
+        return;
+      }
+      if (key === '\x03') {
+        if (typeof onImmediate === 'function') onImmediate();
+        return;
+      }
+      return; // 다른 키 소비
+    }
 
     // Tab: 포커스 전환 (워크트리 ↔ 메뉴)
     if (key === '\t' && wtCount > 0) {

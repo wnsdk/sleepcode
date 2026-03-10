@@ -29,6 +29,7 @@ function createRunWatchRuntime({
     dbId,
     pollIntervalSec,
     projectName,
+    targetDir,
     getWatchPhase: () => runState.getWatchPhase(),
     getPollInfo: () => runState.getPollInfo(),
     getLastPollTime: () => runState.getLastPollTime(),

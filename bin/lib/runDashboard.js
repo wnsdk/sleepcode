@@ -10,11 +10,13 @@ const {
 } = require('./runDashboardFrame');
 const { createRunDashboardLogs } = require('./runDashboardLogs');
 const { createRunDashboardTerminal } = require('./runDashboardTerminal');
+const { loadConfig, saveConfig } = require('./config');
 
 function createRunDashboard({
   dbId,
   pollIntervalSec,
   projectName,
+  targetDir,
   getWatchPhase,
   getPollInfo,
   getLastPollTime,
@@ -34,7 +36,35 @@ function createRunDashboard({
     taskPanelSelectedIndex: null,
     taskCancelConfirm: false,
     taskPanelScrollOffset: 0,
+    ratioAdjustOpen: false,
+    ratioAdjustValue: null,
   };
+
+  function getRatio() {
+    if (!targetDir) return null;
+    const config = loadConfig(targetDir);
+    if (!config || config.claudeRatio == null) return null;
+    return config.claudeRatio;
+  }
+
+  function saveRatio(value) {
+    if (!targetDir) return;
+    const config = loadConfig(targetDir) || {};
+    if (value === null) {
+      delete config.claudeRatio;
+    } else {
+      config.claudeRatio = value;
+    }
+    saveConfig(targetDir, config);
+  }
+
+  function openRatioAdjust() {
+    const current = getRatio();
+    menuState.ratioAdjustValue = current !== null ? current : 0.5;
+    menuState.ratioAdjustOpen = true;
+    renderDashboard();
+  }
+
   let cleanupMenuInput = null;
   let gracefulShutdown = false;
   let renderPending = false;
@@ -55,8 +85,18 @@ function createRunDashboard({
     isAltScreenActive: () => terminal.isActive(),
   });
 
+  function updateRatioMenuLabel() {
+    if (!menuState._menuItems) return;
+    const ratio = getRatio();
+    const ratioLabel = ratio !== null
+      ? `비율 설정 (C${Math.round(ratio * 100)}%:X${100 - Math.round(ratio * 100)}%)`
+      : '비율 설정';
+    menuState._menuItems[1] = ratioLabel;
+  }
+
   function renderDashboard() {
     if (!terminal.isActive()) return;
+    updateRatioMenuLabel();
 
     // worktreeIndex 범위 보정
     const ws = getWorkerStates();
@@ -195,6 +235,7 @@ function createRunDashboard({
       renderDashboard,
       [
         { label: '즉시 폴링', noConfirm: true, handler: requestPollNow },
+        { label: '비율 설정', noConfirm: true, handler: openRatioAdjust },
         { label: '즉시 종료', handler: requestImmediateExit },
         { label: '마무리 후 종료', handler: requestGracefulExit },
       ],
@@ -209,6 +250,9 @@ function createRunDashboard({
         getScrollbarMetrics: logs.getScrollbarMetrics,
         getDashboardHeight: () => currentDashboardHeight,
         scrollToThumbTop: logs.scrollToThumbTop,
+      },
+      {
+        saveRatio,
       }
     );
 

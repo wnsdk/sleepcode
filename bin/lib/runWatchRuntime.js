@@ -4,6 +4,7 @@ const { createRunPollingController } = require('./runPolling');
 function createRunWatchRuntime({
   dbId,
   pollIntervalSec,
+  projectName,
   targetDir,
   gracefulStopPath,
   pollIntervalMs,
@@ -26,6 +27,7 @@ function createRunWatchRuntime({
   const dashboard = createRunDashboardFn({
     dbId,
     pollIntervalSec,
+    projectName,
     getWatchPhase: () => runState.getWatchPhase(),
     getPollInfo: () => runState.getPollInfo(),
     getLastPollTime: () => runState.getLastPollTime(),

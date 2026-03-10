@@ -12,6 +12,7 @@ const { createRunDashboardTerminal } = require('./runDashboardTerminal');
 function createRunDashboard({
   dbId,
   pollIntervalSec,
+  projectName,
   getWatchPhase,
   getPollInfo,
   getLastPollTime,
@@ -52,6 +53,7 @@ function createRunDashboard({
     const lines = buildRunDashboardFrame({
       dbId,
       pollIntervalSec,
+      projectName,
       watchPhase: getWatchPhase(),
       workerStates: getWorkerStates(),
       pollInfo: getPollInfo(),

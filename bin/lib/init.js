@@ -7,7 +7,7 @@ const { generateFiles, printResult } = require('./files');
 const { createNotionDb, syncNotionDbSchema, validateNotionDbId } = require('./notion');
 const { summarizeSchemaChanges } = require('./notionSchema');
 const { checkPrerequisites } = require('./prerequisites');
-const { saveConfig } = require('./config');
+const { saveConfig, loadConfig } = require('./config');
 const { ask, parseNotionDbId, select } = require('./utils');
 
 function parseClaudeRatio(value) {
@@ -109,6 +109,10 @@ function saveOptionalConfig(targetDir, options, { verbose = false } = {}) {
 function generateProjectFiles(targetDir, generationOptions, configOptions, { verboseConfig = false } = {}) {
   generateFiles(targetDir, generationOptions);
   saveOptionalConfig(targetDir, configOptions, { verbose: verboseConfig });
+  if (generationOptions.projectName) {
+    const existing = loadConfig(targetDir) || {};
+    saveConfig(targetDir, { ...existing, projectName: generationOptions.projectName });
+  }
   printResult(generationOptions.notionDbId);
 }
 

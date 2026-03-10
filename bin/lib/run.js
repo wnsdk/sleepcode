@@ -85,11 +85,13 @@ function cmdWatch(cliProvider) {
 
   const config = loadConfig(targetDir) || {};
   const defaultWorker = config.defaultWorker || undefined;
+  const projectName = config.projectName || undefined;
 
   const runState = createRunStateStore();
   const watchRuntime = createRunWatchRuntime({
     dbId,
     pollIntervalSec,
+    projectName,
     targetDir,
     gracefulStopPath,
     pollIntervalMs,

@@ -90,6 +90,7 @@ function buildWorkerTaskLines(worker, width, lines) {
 function buildRunDashboardFrame({
   dbId,
   pollIntervalSec,
+  projectName,
   watchPhase,
   workerStates,
   pollInfo,
@@ -100,12 +101,13 @@ function buildRunDashboardFrame({
 }) {
   const lines = [];
   const width = 62;
+  const projectLabel = projectName ? `  ${C.bold}${projectName}${C.reset}` : '';
 
   lines.push(`${C.dim}╔${'═'.repeat(width + 2)}╗${C.reset}`);
 
   if (watchPhase === 'executing' && workerStates.length > 0) {
     const activeCount = workerStates.filter((worker) => worker.status === 'running').length;
-    lines.push(boxLine(`${SLEEPCODE_BADGE_WITH_VERSION}  ${C.cyan}⟳${C.reset} ${activeCount}/${workerStates.length} workers${notionLink(dbId)}`, width));
+    lines.push(boxLine(`${SLEEPCODE_BADGE_WITH_VERSION}${projectLabel}  ${C.cyan}⟳${C.reset} ${activeCount}/${workerStates.length} workers${notionLink(dbId)}`, width));
     lines.push(`${C.dim}╠${'═'.repeat(width + 2)}╣${C.reset}`);
 
     for (const worker of workerStates) {
@@ -143,7 +145,7 @@ function buildRunDashboardFrame({
     const remaining = lastPollTime
       ? Math.max(0, pollIntervalSec - Math.floor((Date.now() - lastPollTime) / 1000))
       : pollIntervalSec;
-    lines.push(boxLine(`${SLEEPCODE_BADGE_WITH_VERSION}  ${C.dim}◆${C.reset} 대기 중${notionLink(dbId)}`, width));
+    lines.push(boxLine(`${SLEEPCODE_BADGE_WITH_VERSION}${projectLabel}  ${C.dim}◆${C.reset} 대기 중${notionLink(dbId)}`, width));
     lines.push(`${C.dim}╠${'═'.repeat(width + 2)}╣${C.reset}`);
     lines.push(boxLine(`${C.dim}전체${C.reset} ${pollInfo.total}  ${C.dim}·  대기${C.reset} ${C.cyan}${pollInfo.pending}${C.reset}`, width));
     lines.push(`${C.dim}╠${'═'.repeat(width + 2)}╣${C.reset}`);

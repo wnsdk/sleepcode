@@ -146,7 +146,7 @@ function buildTaskPanelLines(worker, panelWidth, panelState, maxHeight) {
 
   if (hasPending) {
     if (cancelConfirm) {
-      pLines.push(pBox(`${C.red}[Y] 취소확인  [N/Esc] 취소안함${C.reset}`));
+      pLines.push(pBox(`${C.red}[Enter] 취소확인  [Esc] 취소안함${C.reset}`));
     } else {
       pLines.push(pBox(`${C.dim}[↑↓] 선택  [x] 취소${C.reset}`));
     }

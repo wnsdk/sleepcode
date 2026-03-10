@@ -220,18 +220,6 @@ function setupMenuInput(state, onRender, menuEntries, onImmediate, onScroll, wor
         onRender();
         return;
       }
-      if (state.taskCancelConfirm && (key === 'n' || key === 'N')) {
-        state.taskCancelConfirm = false;
-        onRender();
-        return;
-      }
-      if (state.taskCancelConfirm && (key === 'y' || key === 'Y')) {
-        state.taskCancelConfirm = false;
-        if (worktreeOpts && typeof worktreeOpts.onCancelTask === 'function') {
-          worktreeOpts.onCancelTask(state.worktreeIndex, state.taskPanelSelectedIndex);
-        }
-        return;
-      }
     }
 
     // 워크트리 위아래 이동 (워크트리 포커스 상태에서, 패널 닫힘)

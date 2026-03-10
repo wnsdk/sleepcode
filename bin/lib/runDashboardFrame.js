@@ -41,14 +41,19 @@ function buildWorkerTaskLines(worker, width, lines) {
 }
 
 /** 우측 태스크 패널 박스 라인 생성 */
-function buildTaskPanelLines(worker, panelWidth) {
+function buildTaskPanelLines(worker, panelWidth, panelState) {
   const inner = panelWidth - 4; // 2 border + 2 padding
   if (inner < 10) return [];
+
+  const selectedTaskIdx = panelState && panelState.selectedTaskIdx != null ? panelState.selectedTaskIdx : -1;
+  const cancelConfirm = panelState && panelState.cancelConfirm;
 
   const pLines = [];
   const tasks = worker.taskEntries || [];
   const done = worker.done || 0;
   const workerName = worker.name || 'worktree';
+  const isRunning = worker.status === 'running';
+  const firstPendingIdx = isRunning ? done + 1 : done;
 
   // 패널 내부 한 줄 생성
   const pBox = (content) => {
@@ -64,10 +69,18 @@ function buildTaskPanelLines(worker, panelWidth) {
   } else {
     for (let i = 0; i < tasks.length; i++) {
       const title = tasks[i].title || `Task ${i + 1}`;
+      const isPending = i >= firstPendingIdx;
+      const isSelected = isPending && selectedTaskIdx === i;
+
       if (i < done) {
         pLines.push(pBox(`${C.green}✓${C.reset} ${C.dim}${clipVisualText(title, inner - 4)}${C.reset}`));
-      } else if (i === done && worker.status === 'running') {
+      } else if (i === done && isRunning) {
         pLines.push(pBox(`${C.cyan}▶${C.reset} ${clipVisualText(title, inner - 4)}`));
+      } else if (isSelected && cancelConfirm) {
+        const clipped = clipVisualText(title, Math.max(0, inner - 10));
+        pLines.push(pBox(`${C.red}✗${C.reset} ${C.bold}${clipped}${C.reset} ${C.red}취소?${C.reset}`));
+      } else if (isSelected) {
+        pLines.push(pBox(`${C.yellow}▸${C.reset} ${clipVisualText(title, inner - 4)}`));
       } else {
         pLines.push(pBox(`${C.dim}○ ${clipVisualText(title, inner - 4)}${C.reset}`));
       }
@@ -77,6 +90,17 @@ function buildTaskPanelLines(worker, panelWidth) {
   pLines.push(pBox(''));
   const summary = `${C.green}완료${C.reset} ${done}/${tasks.length}`;
   pLines.push(pBox(summary));
+
+  // 취소 힌트 / 확인 메시지
+  const hasPending = tasks.length > firstPendingIdx;
+  if (hasPending) {
+    if (cancelConfirm) {
+      pLines.push(pBox(`${C.red}[Y] 취소확인  [N/Esc] 취소안함${C.reset}`));
+    } else {
+      pLines.push(pBox(`${C.dim}[↑↓] 선택  [x] 취소${C.reset}`));
+    }
+  }
+
   pLines.push(`${C.dim}╚${'═'.repeat(inner + 2)}╝${C.reset}`);
 
   return pLines;
@@ -187,7 +211,11 @@ function buildRunDashboardFrame({
     const panelWidth = termCols - mainBoxWidth - gap;
     if (panelWidth >= 20) {
       const focusedWorker = workerStates[focusedIdx];
-      const panelLines = buildTaskPanelLines(focusedWorker, panelWidth);
+      const panelState = {
+        selectedTaskIdx: menuState && menuState.taskPanelSelectedIndex != null ? menuState.taskPanelSelectedIndex : -1,
+        cancelConfirm: menuState && menuState.taskCancelConfirm,
+      };
+      const panelLines = buildTaskPanelLines(focusedWorker, panelWidth, panelState);
       // 패널이 더 긴 경우 빈 줄 추가
       while (lines.length < panelLines.length) {
         lines.push('');

@@ -184,8 +184,58 @@ function setupMenuInput(state, onRender, menuEntries, onImmediate, onScroll, wor
       return;
     }
 
-    // 워크트리 위아래 이동 (워크트리 포커스 상태에서)
-    if (wtCount > 0 && state.focusArea !== 'menu') {
+    // 태스크 패널 열린 상태: 패널 내 태스크 탐색 및 취소 처리
+    if (state.taskPanelOpen && wtCount > 0 && state.focusArea !== 'menu') {
+      const getWorkerStatesFn = worktreeOpts && typeof worktreeOpts.getWorkerStates === 'function'
+        ? worktreeOpts.getWorkerStates
+        : null;
+      const worker = getWorkerStatesFn
+        ? (getWorkerStatesFn()[state.worktreeIndex] || null)
+        : null;
+      const tasks = (worker && worker.taskEntries) || [];
+      const done = (worker && worker.done) || 0;
+      const isRunning = worker && worker.status === 'running';
+      const firstPendingIdx = isRunning ? done + 1 : done;
+      const hasPending = tasks.length > firstPendingIdx;
+
+      if (key === '\x1b[A' && hasPending) {
+        const cur = state.taskPanelSelectedIndex != null ? state.taskPanelSelectedIndex : firstPendingIdx;
+        state.taskPanelSelectedIndex = Math.max(firstPendingIdx, cur - 1);
+        state.taskCancelConfirm = false;
+        onRender();
+        return;
+      }
+      if (key === '\x1b[B' && hasPending) {
+        const cur = state.taskPanelSelectedIndex != null ? state.taskPanelSelectedIndex : firstPendingIdx;
+        state.taskPanelSelectedIndex = Math.min(tasks.length - 1, cur + 1);
+        state.taskCancelConfirm = false;
+        onRender();
+        return;
+      }
+      if (key === 'x' && hasPending && !state.taskCancelConfirm) {
+        const cur = state.taskPanelSelectedIndex != null ? state.taskPanelSelectedIndex : firstPendingIdx;
+        const validIdx = Math.max(firstPendingIdx, Math.min(tasks.length - 1, cur));
+        state.taskPanelSelectedIndex = validIdx;
+        state.taskCancelConfirm = true;
+        onRender();
+        return;
+      }
+      if (state.taskCancelConfirm && (key === 'n' || key === 'N')) {
+        state.taskCancelConfirm = false;
+        onRender();
+        return;
+      }
+      if (state.taskCancelConfirm && (key === 'y' || key === 'Y')) {
+        state.taskCancelConfirm = false;
+        if (worktreeOpts && typeof worktreeOpts.onCancelTask === 'function') {
+          worktreeOpts.onCancelTask(state.worktreeIndex, state.taskPanelSelectedIndex);
+        }
+        return;
+      }
+    }
+
+    // 워크트리 위아래 이동 (워크트리 포커스 상태에서, 패널 닫힘)
+    if (wtCount > 0 && state.focusArea !== 'menu' && !state.taskPanelOpen) {
       if (key === '\x1b[A') {
         // Up arrow: 워크트리 위로 이동
         if (state.worktreeIndex == null) state.worktreeIndex = 0;
@@ -238,10 +288,16 @@ function setupMenuInput(state, onRender, menuEntries, onImmediate, onScroll, wor
       return;
     }
 
-    // Esc: 태스크 패널 닫기
+    // Esc: 취소 확인 해제 또는 태스크 패널 닫기
     if (key === '\x1b' && input.length === 1) {
+      if (state.taskCancelConfirm) {
+        state.taskCancelConfirm = false;
+        onRender();
+        return;
+      }
       if (state.taskPanelOpen) {
         state.taskPanelOpen = false;
+        state.taskPanelSelectedIndex = null;
         onRender();
         return;
       }
@@ -263,6 +319,15 @@ function setupMenuInput(state, onRender, menuEntries, onImmediate, onScroll, wor
 
     // Enter
     if (key === '\r' || key === '\n') {
+      // taskCancelConfirm → 취소 확인
+      if (state.taskCancelConfirm) {
+        state.taskCancelConfirm = false;
+        if (worktreeOpts && typeof worktreeOpts.onCancelTask === 'function') {
+          worktreeOpts.onCancelTask(state.worktreeIndex, state.taskPanelSelectedIndex);
+        }
+        return;
+      }
+
       // confirmPending → 메뉴 액션 실행
       if (state.confirmPending) {
         state.confirmPending = false;
@@ -288,6 +353,10 @@ function setupMenuInput(state, onRender, menuEntries, onImmediate, onScroll, wor
       // 워크트리 포커스 상태 → 태스크 패널 토글
       if (wtCount > 0 && state.worktreeIndex != null && state.worktreeIndex >= 0) {
         state.taskPanelOpen = !state.taskPanelOpen;
+        if (!state.taskPanelOpen) {
+          state.taskPanelSelectedIndex = null;
+          state.taskCancelConfirm = false;
+        }
         onRender();
         return;
       }

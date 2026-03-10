@@ -21,6 +21,7 @@ function createRunWatchRuntime({
   handleGracefulStopDetected,
   stopWatchTimers,
   stopWorkerProcesses,
+  onCancelPendingTask,
   createRunDashboardFn = createRunDashboard,
   createRunPollingControllerFn = createRunPollingController,
 }) {
@@ -54,6 +55,7 @@ function createRunWatchRuntime({
       stopWatchTimers(runState.getPollingController());
       stopWorkerProcesses(runState.getCurrentWorkerStates());
     },
+    onCancelPendingTask,
   });
 
   const runtime = {

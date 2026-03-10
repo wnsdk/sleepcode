@@ -1,3 +1,5 @@
+const fs = require('fs');
+
 const { C } = require('./constants');
 const { setupMenuInput } = require('./dashboard');
 const {
@@ -22,8 +24,16 @@ function createRunDashboard({
   onGracefulExit,
   onImmediateExit,
   onInterrupt,
+  onCancelPendingTask,
 }) {
-  const menuState = { menuIndex: 0, worktreeIndex: 0, taskPanelOpen: false, focusArea: 'worktree' };
+  const menuState = {
+    menuIndex: 0,
+    worktreeIndex: 0,
+    taskPanelOpen: false,
+    focusArea: 'worktree',
+    taskPanelSelectedIndex: null,
+    taskCancelConfirm: false,
+  };
   let cleanupMenuInput = null;
   let gracefulShutdown = false;
   let renderPending = false;
@@ -108,6 +118,62 @@ function createRunDashboard({
     renderDashboard();
   }
 
+  function handleCancelTask(worktreeIdx, taskIdx) {
+    const workerStates = getWorkerStates();
+    const worker = workerStates[worktreeIdx];
+    if (!worker) return;
+
+    const tasks = worker.taskEntries || [];
+    const task = tasks[taskIdx];
+    if (!task) return;
+
+    const done = worker.done || 0;
+    const isRunning = worker.status === 'running';
+    const firstPendingIdx = isRunning ? done + 1 : done;
+    if (taskIdx < firstPendingIdx) return; // 실행 중이거나 완료된 태스크는 취소 불가
+
+    // task_queue.md에서 해당 태스크 라인 제거 (best-effort)
+    const tasksPath = worker.tasksPath;
+    if (tasksPath && fs.existsSync(tasksPath)) {
+      try {
+        const content = fs.readFileSync(tasksPath, 'utf-8');
+        const lines = content.split('\n');
+        const filteredLines = lines.filter((line) => {
+          const trimmed = line.trimStart();
+          if (!trimmed.match(/^- \[ \] /)) return true; // 태스크 라인이 아니면 유지
+          if (task.notionId && trimmed.includes(`notion:${task.notionId}`)) return false;
+          if (task.title && trimmed.startsWith(`- [ ] ${task.title}`)) return false;
+          return true;
+        });
+        fs.writeFileSync(tasksPath, filteredLines.join('\n'));
+      } catch (e) {
+        process.stderr.write(`[cancel] task_queue.md 업데이트 실패: ${e.message}\n`);
+      }
+    }
+
+    // 워커 상태에서 태스크 제거 및 total 조정
+    worker.taskEntries.splice(taskIdx, 1);
+    worker.total = Math.max(0, (worker.total || 0) - 1);
+
+    // 선택 인덱스 조정
+    const newFirstPendingIdx = isRunning ? worker.done + 1 : worker.done;
+    const newLastPendingIdx = worker.taskEntries.length - 1;
+    if (newLastPendingIdx < newFirstPendingIdx) {
+      menuState.taskPanelSelectedIndex = null;
+    } else {
+      menuState.taskPanelSelectedIndex = Math.max(newFirstPendingIdx, Math.min(taskIdx, newLastPendingIdx));
+    }
+    menuState.taskCancelConfirm = false;
+
+    // Notion 업데이트
+    if (typeof onCancelPendingTask === 'function') {
+      onCancelPendingTask(task, worker);
+    }
+
+    logs.pushLog('SYSTEM', `${C.yellow}⊘ 태스크 취소됨: ${task.title}${C.reset}`);
+    renderDashboard();
+  }
+
   function requestImmediateExit() {
     if (typeof onImmediateExit === 'function') onImmediateExit();
     dispose();
@@ -135,7 +201,11 @@ function createRunDashboard({
       ],
       requestImmediateExit,
       logs.handleScroll,
-      { getWorktreeCount: () => getWorkerStates().length },
+      {
+        getWorktreeCount: () => getWorkerStates().length,
+        getWorkerStates,
+        onCancelTask: handleCancelTask,
+      },
       {
         getScrollbarMetrics: logs.getScrollbarMetrics,
         getDashboardHeight: () => currentDashboardHeight,

@@ -1,5 +1,6 @@
 const path = require('path');
 
+const { C } = require('./constants');
 const { isOverBudget, recordCost } = require('./configBudget');
 const { loadConfig } = require('./config');
 const { syncClaudeMd } = require('./files');
@@ -15,6 +16,7 @@ const { getWorkerDoneState, syncWorkerTaskProgress } = require('./taskState');
 const {
   parseTaskStatuses,
 } = require('./notionRun');
+const { buildStatusProps } = require('./notionSync');
 const {
   finalizeParallelWorkers,
   summarizeExecutionResults,
@@ -88,6 +90,8 @@ function cmdWatch(cliProvider) {
   const projectName = config.projectName || undefined;
 
   const runState = createRunStateStore();
+  // onCancelPendingTask는 notionBindings 초기화 후 채워지는 레퍼런스
+  const cancelTaskRef = { fn: null };
   const watchRuntime = createRunWatchRuntime({
     dbId,
     pollIntervalSec,
@@ -108,6 +112,9 @@ function cmdWatch(cliProvider) {
     handleGracefulStopDetected,
     stopWatchTimers,
     stopWorkerProcesses,
+    onCancelPendingTask: (task, worker) => {
+      if (cancelTaskRef.fn) cancelTaskRef.fn(task, worker);
+    },
   });
   const {
     dashboard,
@@ -134,6 +141,18 @@ function cmdWatch(cliProvider) {
     handleTaskUiUpdated,
     updatePage: notionUpdatePage,
   } = notionBindings;
+
+  // notionBindings 초기화 완료 후 취소 핸들러 등록
+  cancelTaskRef.fn = (task) => {
+    const schema = runState.getCurrentSchema();
+    if (!task || !task.notionId || !schema) return;
+    const props = {};
+    const statusProps = buildStatusProps(schema, 'Idle');
+    if (statusProps) Object.assign(props, statusProps);
+    if (schema.run_prop) props[schema.run_prop] = { checkbox: false };
+    notionUpdatePage(task.notionId, props);
+    watchPushLog('SYSTEM', `${C.yellow}⊘ ${task.title} → Notion 취소 처리됨${C.reset}`);
+  };
 
   const spawnRunWorker = createRunWorkerSpawner({
     py,

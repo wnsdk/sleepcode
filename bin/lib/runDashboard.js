@@ -33,6 +33,7 @@ function createRunDashboard({
     focusArea: 'worktree',
     taskPanelSelectedIndex: null,
     taskCancelConfirm: false,
+    taskPanelScrollOffset: 0,
   };
   let cleanupMenuInput = null;
   let gracefulShutdown = false;

@@ -41,31 +41,32 @@ function buildWorkerTaskLines(worker, width, lines) {
 }
 
 /** 우측 태스크 패널 박스 라인 생성 */
-function buildTaskPanelLines(worker, panelWidth, panelState) {
+function buildTaskPanelLines(worker, panelWidth, panelState, maxHeight) {
   const inner = panelWidth - 4; // 2 border + 2 padding
   if (inner < 10) return [];
 
   const selectedTaskIdx = panelState && panelState.selectedTaskIdx != null ? panelState.selectedTaskIdx : -1;
   const cancelConfirm = panelState && panelState.cancelConfirm;
+  const scrollOffset = (panelState && panelState.scrollOffset) || 0;
 
-  const pLines = [];
   const tasks = worker.taskEntries || [];
   const done = worker.done || 0;
   const workerName = worker.name || 'worktree';
   const isRunning = worker.status === 'running';
   const firstPendingIdx = isRunning ? done + 1 : done;
+  const hasPending = tasks.length > firstPendingIdx;
 
-  // 패널 내부 한 줄 생성
-  const pBox = (content) => {
-    return `${C.dim}║${C.reset} ${padEndVisual(content, inner)} ${C.dim}║${C.reset}`;
-  };
+  // Fixed structure: HEADER=3 (╔, name, ╠), FOOTER=3 or 4 (empty, summary, [hint], ╚)
+  const HEADER = 3;
+  const FOOTER = hasPending ? 4 : 3;
+  const availableContentRows = (maxHeight != null && maxHeight > HEADER + FOOTER)
+    ? maxHeight - HEADER - FOOTER
+    : null;
 
-  pLines.push(`${C.dim}╔${'═'.repeat(inner + 2)}╗${C.reset}`);
-  pLines.push(pBox(`${C.cyan}${C.bold}${clipVisualText(workerName, inner)}${C.reset}`));
-  pLines.push(`${C.dim}╠${'═'.repeat(inner + 2)}╣${C.reset}`);
-
+  // Build all content lines
+  const allContentLines = [];
   if (tasks.length === 0) {
-    pLines.push(pBox(`${C.dim}태스크 없음${C.reset}`));
+    allContentLines.push(`${C.dim}태스크 없음${C.reset}`);
   } else {
     for (let i = 0; i < tasks.length; i++) {
       const title = tasks[i].title || `Task ${i + 1}`;
@@ -73,17 +74,69 @@ function buildTaskPanelLines(worker, panelWidth, panelState) {
       const isSelected = isPending && selectedTaskIdx === i;
 
       if (i < done) {
-        pLines.push(pBox(`${C.green}✓${C.reset} ${C.dim}${clipVisualText(title, inner - 4)}${C.reset}`));
+        allContentLines.push(`${C.green}✓${C.reset} ${C.dim}${clipVisualText(title, inner - 4)}${C.reset}`);
       } else if (i === done && isRunning) {
-        pLines.push(pBox(`${C.cyan}▶${C.reset} ${clipVisualText(title, inner - 4)}`));
+        allContentLines.push(`${C.cyan}▶${C.reset} ${clipVisualText(title, inner - 4)}`);
       } else if (isSelected && cancelConfirm) {
         const clipped = clipVisualText(title, Math.max(0, inner - 10));
-        pLines.push(pBox(`${C.red}✗${C.reset} ${C.bold}${clipped}${C.reset} ${C.red}취소?${C.reset}`));
+        allContentLines.push(`${C.red}✗${C.reset} ${C.bold}${clipped}${C.reset} ${C.red}취소?${C.reset}`);
       } else if (isSelected) {
-        pLines.push(pBox(`${C.yellow}▸${C.reset} ${clipVisualText(title, inner - 4)}`));
+        allContentLines.push(`${C.yellow}▸${C.reset} ${clipVisualText(title, inner - 4)}`);
       } else {
-        pLines.push(pBox(`${C.dim}○ ${clipVisualText(title, inner - 4)}${C.reset}`));
+        allContentLines.push(`${C.dim}○ ${clipVisualText(title, inner - 4)}${C.reset}`);
       }
+    }
+  }
+
+  // Apply scroll windowing
+  const totalContent = allContentLines.length;
+  const needsScroll = availableContentRows != null && totalContent > availableContentRows;
+  const clampedOffset = needsScroll
+    ? Math.max(0, Math.min(scrollOffset, totalContent - availableContentRows))
+    : 0;
+  const visibleContent = needsScroll
+    ? allContentLines.slice(clampedOffset, clampedOffset + availableContentRows)
+    : allContentLines;
+  const contentRows = availableContentRows != null ? availableContentRows : visibleContent.length;
+
+  // Build scrollbar characters for the content area
+  let scrollbarChars = null;
+  if (needsScroll && contentRows > 0) {
+    const thumbSize = Math.max(1, Math.round(contentRows * contentRows / totalContent));
+    const maxThumbTop = contentRows - thumbSize;
+    const thumbTop = maxThumbTop > 0
+      ? Math.round(clampedOffset / (totalContent - contentRows) * maxThumbTop)
+      : 0;
+    scrollbarChars = [];
+    for (let i = 0; i < contentRows; i++) {
+      scrollbarChars.push(
+        (i >= thumbTop && i < thumbTop + thumbSize)
+          ? `${C.cyan}█${C.reset}`
+          : `${C.dim}│${C.reset}`
+      );
+    }
+  }
+
+  // 패널 내부 한 줄 생성 (scrollChar 있으면 우측 테두리를 스크롤바로 교체)
+  const pBox = (content, scrollChar) => {
+    const right = scrollChar != null ? scrollChar : `${C.dim}║${C.reset}`;
+    return `${C.dim}║${C.reset} ${padEndVisual(content, inner)} ${right}`;
+  };
+
+  const pLines = [];
+  pLines.push(`${C.dim}╔${'═'.repeat(inner + 2)}╗${C.reset}`);
+  pLines.push(pBox(`${C.cyan}${C.bold}${clipVisualText(workerName, inner)}${C.reset}`));
+  pLines.push(`${C.dim}╠${'═'.repeat(inner + 2)}╣${C.reset}`);
+
+  for (let i = 0; i < visibleContent.length; i++) {
+    pLines.push(pBox(visibleContent[i], scrollbarChars ? scrollbarChars[i] : null));
+  }
+
+  // 빈 줄로 콘텐츠 영역 채우기 (maxHeight에 맞춤)
+  if (availableContentRows != null) {
+    const currentContentRows = pLines.length - HEADER;
+    for (let i = currentContentRows; i < availableContentRows; i++) {
+      pLines.push(pBox('', scrollbarChars ? (scrollbarChars[i] || null) : null));
     }
   }
 
@@ -91,8 +144,6 @@ function buildTaskPanelLines(worker, panelWidth, panelState) {
   const summary = `${C.green}완료${C.reset} ${done}/${tasks.length}`;
   pLines.push(pBox(summary));
 
-  // 취소 힌트 / 확인 메시지
-  const hasPending = tasks.length > firstPendingIdx;
   if (hasPending) {
     if (cancelConfirm) {
       pLines.push(pBox(`${C.red}[Y] 취소확인  [N/Esc] 취소안함${C.reset}`));
@@ -205,21 +256,38 @@ function buildRunDashboardFrame({
 
   // 우측 태스크 패널 합성
   if (taskPanelOpen && focusedIdx >= 0 && focusedIdx < (workerStates || []).length) {
-    const termCols = (process.stdout.columns || 120);
+    const termColsPanel = (process.stdout.columns || 120);
     const mainBoxWidth = width + 4; // inner + 2 borders + 2 padding(║ + space)
     const gap = 1;
-    const panelWidth = termCols - mainBoxWidth - gap;
+    const panelWidth = termColsPanel - mainBoxWidth - gap;
     if (panelWidth >= 20) {
       const focusedWorker = workerStates[focusedIdx];
-      const panelState = {
-        selectedTaskIdx: menuState && menuState.taskPanelSelectedIndex != null ? menuState.taskPanelSelectedIndex : -1,
-        cancelConfirm: menuState && menuState.taskCancelConfirm,
-      };
-      const panelLines = buildTaskPanelLines(focusedWorker, panelWidth, panelState);
-      // 패널이 더 긴 경우 빈 줄 추가
-      while (lines.length < panelLines.length) {
-        lines.push('');
+      const maxHeight = lines.length;
+
+      // 선택 항목이 보이도록 스크롤 오프셋 자동 조정
+      const panelTasks = focusedWorker.taskEntries || [];
+      const panelIsRunning = focusedWorker.status === 'running';
+      const panelDone = focusedWorker.done || 0;
+      const panelHasPending = panelTasks.length > (panelIsRunning ? panelDone + 1 : panelDone);
+      const PANEL_HEADER = 3;
+      const PANEL_FOOTER = panelHasPending ? 4 : 3;
+      const contentH = Math.max(0, maxHeight - PANEL_HEADER - PANEL_FOOTER);
+      const selectedIdx = menuState && menuState.taskPanelSelectedIndex != null ? menuState.taskPanelSelectedIndex : -1;
+      let scrollOffset = (menuState && menuState.taskPanelScrollOffset) || 0;
+      if (selectedIdx >= 0 && contentH > 0) {
+        if (selectedIdx < scrollOffset) scrollOffset = selectedIdx;
+        if (selectedIdx >= scrollOffset + contentH) scrollOffset = selectedIdx - contentH + 1;
       }
+      scrollOffset = Math.max(0, scrollOffset);
+      if (menuState) menuState.taskPanelScrollOffset = scrollOffset;
+
+      const panelState = {
+        selectedTaskIdx: selectedIdx,
+        cancelConfirm: menuState && menuState.taskCancelConfirm,
+        scrollOffset,
+      };
+      const panelLines = buildTaskPanelLines(focusedWorker, panelWidth, panelState, maxHeight);
+      // 패널 높이는 maxHeight를 초과하지 않음 — lines 확장 없음
       for (let i = 0; i < lines.length; i++) {
         const panelLine = panelLines[i] || '';
         if (!panelLine) continue;

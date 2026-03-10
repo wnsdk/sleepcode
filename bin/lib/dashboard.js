@@ -241,6 +241,7 @@ function setupMenuInput(state, onRender, menuEntries, onImmediate, onScroll, wor
         if (state.worktreeIndex == null) state.worktreeIndex = 0;
         state.worktreeIndex = (state.worktreeIndex - 1 + wtCount) % wtCount;
         state.taskPanelOpen = false;
+        state.taskPanelScrollOffset = 0;
         onRender();
         return;
       }
@@ -249,6 +250,7 @@ function setupMenuInput(state, onRender, menuEntries, onImmediate, onScroll, wor
         if (state.worktreeIndex == null) state.worktreeIndex = 0;
         state.worktreeIndex = (state.worktreeIndex + 1) % wtCount;
         state.taskPanelOpen = false;
+        state.taskPanelScrollOffset = 0;
         onRender();
         return;
       }
@@ -298,6 +300,7 @@ function setupMenuInput(state, onRender, menuEntries, onImmediate, onScroll, wor
       if (state.taskPanelOpen) {
         state.taskPanelOpen = false;
         state.taskPanelSelectedIndex = null;
+        state.taskPanelScrollOffset = 0;
         onRender();
         return;
       }
@@ -356,6 +359,7 @@ function setupMenuInput(state, onRender, menuEntries, onImmediate, onScroll, wor
         if (!state.taskPanelOpen) {
           state.taskPanelSelectedIndex = null;
           state.taskCancelConfirm = false;
+          state.taskPanelScrollOffset = 0;
         }
         onRender();
         return;

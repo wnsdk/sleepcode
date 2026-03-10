@@ -1,5 +1,7 @@
 .npmrc
+.claude/
+
+# sleepcode workspace
 .sleepcode/*
 !.sleepcode/task_done/
 !.sleepcode/task_done/**
-.claude/

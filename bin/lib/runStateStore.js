@@ -34,6 +34,9 @@ function createRunStateStore() {
     getCurrentNotionTasks() {
       return state.currentNotionTasks;
     },
+    setCurrentNotionTasks(tasks) {
+      state.currentNotionTasks = tasks;
+    },
     getCurrentSchema() {
       return state.currentSchema;
     },

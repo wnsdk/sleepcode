@@ -91,6 +91,46 @@ test('syncRunningWorkerProgress refreshes only running workers and schedules a r
   });
 });
 
+test('processPollResponse updates currently executing tasks when modified in Notion', () => {
+  const currentTasks = [
+    { id: 'task-1', title: 'Old Title', difficulty: '2', status: 'Running' },
+    { id: 'task-2', title: 'Task 2', difficulty: '3', status: 'To Do' },
+  ];
+  const updatedTasks = [];
+
+  const result = processPollResponse({
+    data: {
+      schema: { run_prop: 'Run' },
+      tasks: [
+        { id: 'task-1', title: 'Updated Title', difficulty: '4', status: 'Running' },
+        { id: 'task-2', title: 'Task 2', difficulty: '3', status: 'To Do' },
+      ],
+    },
+    isExecuting: true,
+    executingTaskIds: new Set(['task-1']),
+    setPollInfo: () => {},
+    buildPollInfo: () => ({ total: 2, pending: 0 }),
+    selectTasksToRun: (tasks) => [],
+    filterNewTasks: () => [],
+    addTasksDuringExecution: () => {},
+    executeNotionTasks: () => {},
+    renderDashboard: () => {},
+    getCurrentNotionTasks: () => currentTasks,
+    setCurrentNotionTasks: (tasks) => {
+      updatedTasks.length = 0;
+      updatedTasks.push(...tasks);
+    },
+  });
+
+  assert.equal(result.mode, 'executing');
+  assert.equal(updatedTasks.length, 2);
+  assert.equal(updatedTasks[0].id, 'task-1');
+  assert.equal(updatedTasks[0].title, 'Updated Title');
+  assert.equal(updatedTasks[0].difficulty, '4');
+  assert.equal(updatedTasks[1].id, 'task-2');
+  assert.equal(updatedTasks[1].title, 'Task 2');
+});
+
 test('createRunPollingController stops immediately when graceful stop file exists', () => {
   withTempDir('sleepcode-run-graceful-', (dir) => {
     const gracefulStopPath = path.join(dir, 'graceful_stop');

@@ -41,10 +41,39 @@ function processPollResponse({
   addTasksDuringExecution,
   executeNotionTasks,
   renderDashboard,
+  getCurrentNotionTasks,
+  setCurrentNotionTasks,
 }) {
   const schema = data.schema;
   setPollInfo(buildPollInfo(data.tasks));
   const tasksToRun = selectTasksToRun(data.tasks, schema);
+
+  // pending 상태인 task가 노션에서 수정됐을 경우, 반영
+  if (isExecuting && getCurrentNotionTasks && setCurrentNotionTasks) {
+    const currentTasks = getCurrentNotionTasks();
+    const polledTaskMap = new Map((data.tasks || []).map(t => [t.id, t]));
+
+    const updatedTasks = (currentTasks || []).map(currentTask => {
+      const polledTask = polledTaskMap.get(currentTask.id);
+      if (polledTask) {
+        // 폴링된 task 정보로 현재 task 정보 업데이트
+        return {
+          ...currentTask,
+          title: polledTask.title || currentTask.title,
+          difficulty: polledTask.difficulty || currentTask.difficulty,
+          status: polledTask.status || currentTask.status,
+          model: polledTask.model || currentTask.model,
+          run: polledTask.run !== undefined ? polledTask.run : currentTask.run,
+          // 기타 필드들도 필요시 업데이트 가능
+        };
+      }
+      return currentTask;
+    });
+
+    if (updatedTasks.length > 0) {
+      setCurrentNotionTasks(updatedTasks);
+    }
+  }
 
   if (isExecuting) {
     const newTasks = filterNewTasks(tasksToRun, executingTaskIds);
@@ -88,6 +117,8 @@ function createRunPollingController({
   dashboard,
   pushLog,
   onGracefulStopDetected,
+  getCurrentNotionTasks,
+  setCurrentNotionTasks,
 }) {
   let pollTimer = null;
   let dashboardTimer = null;
@@ -141,6 +172,8 @@ function createRunPollingController({
       addTasksDuringExecution,
       executeNotionTasks,
       renderDashboard,
+      getCurrentNotionTasks,
+      setCurrentNotionTasks,
     });
   }
 

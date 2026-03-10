@@ -98,6 +98,8 @@ function createRunWatchRuntime({
     onGracefulStopDetected: () => {
       handleGracefulStopDetected({ dashboard });
     },
+    getCurrentNotionTasks: () => runState.getCurrentNotionTasks(),
+    setCurrentNotionTasks: (tasks) => runState.setCurrentNotionTasks(tasks),
   });
   runState.setPollingController(pollingController);
 

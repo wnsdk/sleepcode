@@ -219,7 +219,8 @@ function buildRunDashboardFrame({
     lines.push(menuRender.line);
     menuState._menuLayout = { row: lines.length, items: menuRender.items };
   }
-  lines.push(`${C.dim} ══ ${C.reset}${C.cyan}logs${C.reset}${C.dim} ${'═'.repeat(width - 6)}${C.reset}`);
+  const termCols = (process.stdout.columns || 120);
+  lines.push(`${C.dim} ══ ${C.reset}${C.cyan}logs${C.reset}${C.dim} ${'═'.repeat(Math.max(0, termCols - 9))}${C.reset}`);
 
   // 우측 태스크 패널 합성
   if (taskPanelOpen && focusedIdx >= 0 && focusedIdx < (workerStates || []).length) {

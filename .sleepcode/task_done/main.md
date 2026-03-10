@@ -1,29 +1,3 @@
 # 완료 기록
 
-- [x] package.json의 버전을 적절한 값으로 수정하고 npm publish까지 진행해줘. <!-- notion:31bad790-3b5d-80fd-988e-cd501c48546f -->
-- [x] package.json의 버전을 적절한 값으로 수정하고 npm publish까지 진행해줘. <!-- notion:31bad790-3b5d-80fd-988e-cd501c48546f -->
-- [x] 노션 DB의 priority 컬럼은 어떤 역할을 하고 있어? 그리고 이 값이 실제로 영향을 주고 있어? <!-- notion:31cad790-3b5d-80fd-a9f1-e42b533dcab5 -->
-- [x] sleepcode를 실행할 때, 비용(cost)를 집계해서 보여주고 있잖아. 이거 비용 말고, ‘사용한 토큰’ 뭐 이런 명칭으로 바꿔야할듯. 그리고 provider별로 사용한 토큰을 따로 보여줘야할듯. <!-- notion:31cad790-3b5d-8072-90ba-de8c46168655 -->
-- [x] 슬립코드 노션 db 구조에서 ‘Cost’의 명칭을 ‘Tokens’로 바꿔줘 <!-- notion:31cad790-3b5d-8002-b70b-df47c4ebcdfa -->
-- [x] claude 응답 json 데이터에서 ‘message’ > ‘usage’에 사용한 토큰을 알려주는데, 이 값을 터미널 대시보드에 실시간으로 집계해줘. 최종적으로 사용한 총 토큰양은 노션 db의 Tokens 컬럼에 기입하는 로직도 추가해줘. 총 토큰양 계산 과정을 노션 db task 페이지의 ai report에 포함해줘 <!-- notion:31cad790-3b5d-80e3-8b76-fd3a57c5f9f2 -->
-- [x] 슬립코드 사용 시 task 작업 끝난 후 노션 DB task 페이지에 자동으로 글을 써주고 있잖아.  AI Report 이후에, 실제로 한 작업들에 대한 내용은 노션화(?) 되어있지 않고 문자열 그대로 들어가는 문제가 있어. (예시 자료 함께 첨부) <!-- notion:31cad790-3b5d-8055-b3f2-f48108b8e01b -->
-- [x] package.json의 버전을 적절한 값으로 수정하고 npm publish까지 진행해줘. <!-- notion:31bad790-3b5d-80fd-988e-cd501c48546f -->
-- [x] 슬립코드 사용자 입장에서, 노션 db 스키마에 'difficulty' 컬럼을 추가해줘(1부터 5까지만 선택 가능해야됨). 그리고 sleepcode run으로 task를 실행하기 전 그 task의 난이도를 결정할 때, 노션 db에 그 task의 difficulty 컬럼에 값이 채워져 있을경우 그 값을 바로 갖다쓰도록 해줘.
-- [x] task가 완료 된 후 노션 DB의 해당 task의 페이지에 AI Report 같은거 쓰고 있잖아. 여기에 버그 있음: 다른 task들의 AI Report 내용들을 포함하여 AI Report가 작성되는 문제 수정
-- [x] Codex도 모델별 가격표 기반 환산 로직을 넣어줘
-- [x] 노션 업데이트 실패했을 때 발생하는 에러 로그를 출력하게 해줘
-- [x] package.json의 버전을 적당히 올리고 커밋해줘
-- [x] 노션 db에 설정한 difficulty값과는 상관없이 항상 task의 난이도를 실행시에 ai 돌려서 결정하는 문제 수정
-- [x] 노션 업데이트 실패시 에러로그가 그 어디에서도 안보이는 문제 수정
-- [x] sleepcode run 했을 때 터미널 UI의 Content Pane에만 스크롤바를 추가해줘
-- [x] package.json 에서 버전을 적당히 올려줘
-- [x] sleepcode run 으로 여러 워크트리를 돌릴 때, 특정 워크트리만 "즉시 종료" 시키는 기능을 추가하고 싶어
-- [x] sleepcode 터미널 UI 말인데, 뭔가 비동기 처리가 제대로 안된것같은 느낌이다? 여러 워크트리 돌릴 때 같은 워크트리 로그만 계속 쌓이고, 그러다가 다른 워크트리 로그만 계속 쌓이고. 그리고 특정 task의 난이도 결정하는 동안 터미널 UI가 멈춰버림
-- [x] sleepcode run 했을 때 터미널 UI가 워크트리 별로 task 목록을 보는 기능 등을 추가한 UI로 변경됐다고 알고 있는데, 실제로는 과거 UI 그대로야. 왜이런거야? <!-- notion:31dad790-3b5d-8087-ba09-e9c95691fd78 -->
-- [x] sleepcode run 했을 때 터미널 UI 헤더에, 사용자에게 입력받은 프로젝트 명에 대한 표기도 추가해줘 <!-- notion:31fad790-3b5d-8025-ad2d-c4a274acbb29 -->
-- [x] ㅇㅇㅇㅇ <!-- notion:31fad790-3b5d-806e-a7f0-d51dfd637d07 -->
-- [x] sleepcode run 터미널 UI에서 워크트리 리스트에 다음 기능 추가해줘: 위아래 방향키로 워크트리 항목을 이동할 수 있다. 특정 워크트리 항목이 포커싱 된 상태에서 엔터를 누르면 그 워크트리에 쌓여있는 task 목록이 우측 빈공간에 박스형태로 뜬다. <!-- notion:31fad790-3b5d-80d7-a902-f10a8e167812 -->
-- [x] sleepcode run 했을 때 터미널 UI 헤더에, 사용자에게 입력받았던 프로젝트 명 표기를 추가해달라고 했었는데 ‘node ./bin/index.js run’ 명령어로 실행시켜보니까 프로젝트 명 표기가 없음. 어떻게 된건지 한글로 설명해봐 <!-- notion:31fad790-3b5d-80ee-88bc-d932599989db -->
-- [x] sleepcode run 터미널 UI의 ‘logs’영역에서, 스크롤바를 마우스로 움직일 수 있게 해줘 <!-- notion:31fad790-3b5d-8038-b15c-e35461f60c47 -->
-- [x] sleepcode run 터미널 UI에서 워크트리 항목과 메뉴 항목에 동시에 포커스가 되는 걸 확인했다. 포커스는 메뉴항목과 워크트리항목 전체를 통틀어서 한 곳에서만 포커싱되어야하며, 메뉴항목과 워크트리 항목간의 포커싱을 바꾸는 방법이 제공되어야 한다. <!-- notion:31fad790-3b5d-80ea-8b26-cfa818918cfd -->
-- [x] 사용자가 ‘sleepcode’ 명령어를 치면 여러가지 정보를 사용자에게 물어보잖아. 이때 프로젝트명도 사용자에게 입력받는데, 이걸 .sleepcode/config.json의 projectName필드에 저장하게 해줄래? 이것뿐만 아니라 사용자에게 입력받은 여러가지 정보들 중에서 config.json에 넣기에 적합한 것들은 전부 config.json에 저장되게끔 해줘 <!-- notion:31fad790-3b5d-80fe-8474-f0132c8d1733 -->
+- [x] sleepcode run 터미널 UI의 ‘==logs=====’ 이 영역 말인데, 항상 === 구분선이 터미널 너비를 꽉 채우도록 해줘 <!-- notion:31fad790-3b5d-801b-9ed7-d94c529cf044 -->

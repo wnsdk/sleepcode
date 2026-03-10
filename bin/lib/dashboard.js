@@ -47,7 +47,7 @@ function renderMenuLine(selectedIndex, innerWidth, confirmPending, menuItems) {
 }
 
 /** 대시보드 메뉴 키 입력 핸들러 설정 */
-function setupMenuInput(state, onRender, menuEntries, onImmediate, onScroll) {
+function setupMenuInput(state, onRender, menuEntries, onImmediate, onScroll, worktreeOpts) {
   if (!process.stdin.isTTY) return null;
   process.stdin.setRawMode(true);
   process.stdin.resume();
@@ -63,6 +63,8 @@ function setupMenuInput(state, onRender, menuEntries, onImmediate, onScroll) {
   const actions = entries.map(entry => entry.handler);
   state._menuItems = entries.map(entry => entry.label);
   const itemCount = entries.length;
+  const getWorktreeCount = (worktreeOpts && worktreeOpts.getWorktreeCount) || (() => 0);
+  let menuNavActive = false;
 
   const handler = (data) => {
     const input = data.toString();
@@ -118,14 +120,41 @@ function setupMenuInput(state, onRender, menuEntries, onImmediate, onScroll) {
 
     const key = input;
 
-    // 로그 스크롤
-    if (typeof onScroll === 'function') {
+    // 워크트리 위아래 이동 (executing 단계에서)
+    const wtCount = getWorktreeCount();
+    if (wtCount > 0) {
       if (key === '\x1b[A') {
-        if (onScroll('lineUp')) return;
+        // Up arrow: 워크트리 위로 이동
+        menuNavActive = false;
+        if (state.worktreeIndex == null) state.worktreeIndex = 0;
+        state.worktreeIndex = (state.worktreeIndex - 1 + wtCount) % wtCount;
+        state.taskPanelOpen = false;
+        onRender();
+        return;
       }
       if (key === '\x1b[B') {
-        if (onScroll('lineDown')) return;
+        // Down arrow: 워크트리 아래로 이동
+        menuNavActive = false;
+        if (state.worktreeIndex == null) state.worktreeIndex = 0;
+        state.worktreeIndex = (state.worktreeIndex + 1) % wtCount;
+        state.taskPanelOpen = false;
+        onRender();
+        return;
       }
+    } else {
+      // 워크트리 없을 때는 기존 로그 스크롤
+      if (typeof onScroll === 'function') {
+        if (key === '\x1b[A') {
+          if (onScroll('lineUp')) return;
+        }
+        if (key === '\x1b[B') {
+          if (onScroll('lineDown')) return;
+        }
+      }
+    }
+
+    // 로그 스크롤 (Page Up/Down, Home/End)
+    if (typeof onScroll === 'function') {
       if (key === '\x1b[5~') {
         if (onScroll('pageUp')) return;
       }
@@ -148,36 +177,62 @@ function setupMenuInput(state, onRender, menuEntries, onImmediate, onScroll) {
       return;
     }
 
+    // Esc: 태스크 패널 닫기
+    if (key === '\x1b' && input.length === 1) {
+      if (state.taskPanelOpen) {
+        state.taskPanelOpen = false;
+        onRender();
+        return;
+      }
+    }
+
     // 좌우 화살표 (ESC [ D / ESC [ C)
     if (key === '\x1b[D') {
       state.confirmPending = false;
+      menuNavActive = true;
       state.menuIndex = (state.menuIndex - 1 + itemCount) % itemCount;
       onRender();
       return;
     }
     if (key === '\x1b[C') {
       state.confirmPending = false;
+      menuNavActive = true;
       state.menuIndex = (state.menuIndex + 1) % itemCount;
       onRender();
       return;
     }
 
-    // Enter: 한 번 누르면 확인 대기, 다시 누르면 실행 (즉시 폴링은 확인 없이 바로 실행)
+    // Enter
     if (key === '\r' || key === '\n') {
-      const action = actions[state.menuIndex];
-      const entry = entries[state.menuIndex];
-      const isNoConfirm = entry && entry.noConfirm;
-      if (isNoConfirm) {
+      // confirmPending → 메뉴 액션 실행
+      if (state.confirmPending) {
+        state.confirmPending = false;
+        const action = actions[state.menuIndex];
         action();
         return;
       }
-      if (!state.confirmPending) {
+
+      // 메뉴 좌우 이동 직후 → 메뉴 확인/실행
+      if (menuNavActive) {
+        const action = actions[state.menuIndex];
+        const entry = entries[state.menuIndex];
+        const isNoConfirm = entry && entry.noConfirm;
+        if (isNoConfirm) {
+          menuNavActive = false;
+          action();
+          return;
+        }
         state.confirmPending = true;
         onRender();
         return;
       }
-      state.confirmPending = false;
-      action();
+
+      // 워크트리 포커스 상태 → 태스크 패널 토글
+      if (wtCount > 0 && state.worktreeIndex != null && state.worktreeIndex >= 0) {
+        state.taskPanelOpen = !state.taskPanelOpen;
+        onRender();
+        return;
+      }
     }
   };
 

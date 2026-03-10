@@ -23,7 +23,7 @@ function createRunDashboard({
   onImmediateExit,
   onInterrupt,
 }) {
-  const menuState = { menuIndex: 0 };
+  const menuState = { menuIndex: 0, worktreeIndex: 0, taskPanelOpen: false };
   let cleanupMenuInput = null;
   let gracefulShutdown = false;
   let renderPending = false;
@@ -47,15 +47,22 @@ function createRunDashboard({
   function renderDashboard() {
     if (!terminal.isActive()) return;
 
-    currentDashboardHeight = getRunDashboardHeight(getWatchPhase(), getWorkerStates());
-    terminal.syncViewport(false);
+    // worktreeIndex 범위 보정
+    const ws = getWorkerStates();
+    if (ws.length > 0) {
+      if (menuState.worktreeIndex == null || menuState.worktreeIndex < 0) {
+        menuState.worktreeIndex = 0;
+      } else if (menuState.worktreeIndex >= ws.length) {
+        menuState.worktreeIndex = ws.length - 1;
+      }
+    }
 
     const lines = buildRunDashboardFrame({
       dbId,
       pollIntervalSec,
       projectName,
       watchPhase: getWatchPhase(),
-      workerStates: getWorkerStates(),
+      workerStates: ws,
       pollInfo: getPollInfo(),
       lastPollTime: getLastPollTime(),
       execStartTime: getExecStartTime(),
@@ -63,6 +70,8 @@ function createRunDashboard({
       menuState,
     });
 
+    currentDashboardHeight = lines.length;
+    terminal.syncViewport(false);
     terminal.writeFrameLines(lines);
     if (logs.isScrolled()) logs.renderLogs();
   }
@@ -125,7 +134,8 @@ function createRunDashboard({
         { label: '마무리 후 종료', handler: requestGracefulExit },
       ],
       requestImmediateExit,
-      logs.handleScroll
+      logs.handleScroll,
+      { getWorktreeCount: () => getWorkerStates().length }
     );
 
     process.stdout.on('resize', terminal.resizeHandler);

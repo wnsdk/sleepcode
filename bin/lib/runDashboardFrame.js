@@ -1,5 +1,5 @@
 const { C, SLEEPCODE_BADGE_WITH_VERSION, notionLink } = require('./constants');
-const { progressBar, padEndVisual } = require('./utils');
+const { progressBar, padEndVisual, visualWidth } = require('./utils');
 const { providerLabelWithModel, providerLabel } = require('./provider');
 const { boxLine, renderMenuLineWithLayout } = require('./dashboard');
 const { clipVisualText, formatElapsedSeconds, formatProviderTokens } = require('./dashboardUtils');
@@ -87,6 +87,48 @@ function buildWorkerTaskLines(worker, width, lines) {
   }
 }
 
+/** 우측 태스크 패널 박스 라인 생성 */
+function buildTaskPanelLines(worker, panelWidth) {
+  const inner = panelWidth - 4; // 2 border + 2 padding
+  if (inner < 10) return [];
+
+  const pLines = [];
+  const tasks = worker.taskEntries || [];
+  const done = worker.done || 0;
+  const workerName = worker.name || 'worktree';
+
+  // 패널 내부 한 줄 생성
+  const pBox = (content) => {
+    return `${C.dim}║${C.reset} ${padEndVisual(content, inner)} ${C.dim}║${C.reset}`;
+  };
+
+  pLines.push(`${C.dim}╔${'═'.repeat(inner + 2)}╗${C.reset}`);
+  pLines.push(pBox(`${C.cyan}${C.bold}${clipVisualText(workerName, inner)}${C.reset}`));
+  pLines.push(`${C.dim}╠${'═'.repeat(inner + 2)}╣${C.reset}`);
+
+  if (tasks.length === 0) {
+    pLines.push(pBox(`${C.dim}태스크 없음${C.reset}`));
+  } else {
+    for (let i = 0; i < tasks.length; i++) {
+      const title = tasks[i].title || `Task ${i + 1}`;
+      if (i < done) {
+        pLines.push(pBox(`${C.green}✓${C.reset} ${C.dim}${clipVisualText(title, inner - 4)}${C.reset}`));
+      } else if (i === done && worker.status === 'running') {
+        pLines.push(pBox(`${C.cyan}▶${C.reset} ${clipVisualText(title, inner - 4)}`));
+      } else {
+        pLines.push(pBox(`${C.dim}○ ${clipVisualText(title, inner - 4)}${C.reset}`));
+      }
+    }
+  }
+
+  pLines.push(pBox(''));
+  const summary = `${C.green}완료${C.reset} ${done}/${tasks.length}`;
+  pLines.push(pBox(summary));
+  pLines.push(`${C.dim}╚${'═'.repeat(inner + 2)}╝${C.reset}`);
+
+  return pLines;
+}
+
 function buildRunDashboardFrame({
   dbId,
   pollIntervalSec,
@@ -102,6 +144,8 @@ function buildRunDashboardFrame({
   const lines = [];
   const width = 62;
   const projectLabel = projectName ? `  ${C.bold}${projectName}${C.reset}` : '';
+  const focusedIdx = (menuState && menuState.worktreeIndex != null) ? menuState.worktreeIndex : -1;
+  const taskPanelOpen = menuState && menuState.taskPanelOpen;
 
   lines.push(`${C.dim}╔${'═'.repeat(width + 2)}╗${C.reset}`);
 
@@ -110,7 +154,9 @@ function buildRunDashboardFrame({
     lines.push(boxLine(`${SLEEPCODE_BADGE_WITH_VERSION}${projectLabel}  ${C.cyan}⟳${C.reset} ${activeCount}/${workerStates.length} workers${notionLink(dbId)}`, width));
     lines.push(`${C.dim}╠${'═'.repeat(width + 2)}╣${C.reset}`);
 
-    for (const worker of workerStates) {
+    for (let wi = 0; wi < workerStates.length; wi++) {
+      const worker = workerStates[wi];
+      const isFocused = wi === focusedIdx;
       const bar = progressBar(worker.done, worker.total, 15);
       const statusIcon = worker.status === 'running'
         ? `${C.cyan}⟳${C.reset}`
@@ -126,7 +172,8 @@ function buildRunDashboardFrame({
       const difficulty = worker.difficultyLabel
         ? ` ${C.yellow}${worker.difficulty}${C.reset}`
         : '';
-      lines.push(boxLine(`${statusIcon} ${C.bold}${padEndVisual(worker.name, 18)}${C.reset} ${bar} ${String(worker.done).padStart(2)}/${String(worker.total).padEnd(2)} ${C.cyan}${String(percent).padStart(3)}%${C.reset} ${model}${difficulty}`, width));
+      const focusIndicator = isFocused ? `${C.cyan}▸${C.reset}` : ' ';
+      lines.push(boxLine(`${focusIndicator}${statusIcon} ${C.bold}${padEndVisual(worker.name, 17)}${C.reset} ${bar} ${String(worker.done).padStart(2)}/${String(worker.total).padEnd(2)} ${C.cyan}${String(percent).padStart(3)}%${C.reset} ${model}${difficulty}`, width));
       buildWorkerTaskLines(worker, width, lines);
     }
 
@@ -163,6 +210,29 @@ function buildRunDashboardFrame({
     menuState._menuLayout = { row: lines.length, items: menuRender.items };
   }
   lines.push(`${C.dim} ══ ${C.reset}${C.cyan}logs${C.reset}${C.dim} ${'═'.repeat(width - 6)}${C.reset}`);
+
+  // 우측 태스크 패널 합성
+  if (taskPanelOpen && focusedIdx >= 0 && focusedIdx < (workerStates || []).length) {
+    const termCols = (process.stdout.columns || 120);
+    const mainBoxWidth = width + 4; // inner + 2 borders + 2 padding(║ + space)
+    const gap = 1;
+    const panelWidth = termCols - mainBoxWidth - gap;
+    if (panelWidth >= 20) {
+      const focusedWorker = workerStates[focusedIdx];
+      const panelLines = buildTaskPanelLines(focusedWorker, panelWidth);
+      // 패널이 더 긴 경우 빈 줄 추가
+      while (lines.length < panelLines.length) {
+        lines.push('');
+      }
+      for (let i = 0; i < lines.length; i++) {
+        const panelLine = panelLines[i] || '';
+        if (!panelLine) continue;
+        const mainVw = visualWidth(lines[i]);
+        const padNeeded = Math.max(0, mainBoxWidth - mainVw + gap);
+        lines[i] = lines[i] + ' '.repeat(padNeeded) + panelLine;
+      }
+    }
+  }
 
   return lines;
 }

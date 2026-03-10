@@ -33,27 +33,41 @@ function formatTokens(n) {
   return String(num);
 }
 
-function getTokensByProvider(workerStates) {
+function getUsageByProvider(workerStates) {
   const byProvider = {};
   for (const worker of workerStates || []) {
     const provider = worker.provider || 'unknown';
-    if (!byProvider[provider]) byProvider[provider] = { input: 0, output: 0 };
+    if (!byProvider[provider]) byProvider[provider] = { input: 0, output: 0, cost: 0 };
     byProvider[provider].input += (worker.totalInputTokens ?? worker.inputTokens) || 0;
     byProvider[provider].output += (worker.totalOutputTokens ?? worker.outputTokens) || 0;
+    byProvider[provider].cost += (worker.totalCost ?? worker.cost) || 0;
   }
   return byProvider;
 }
 
+function formatUsd(value) {
+  const num = Math.max(0, Number(value) || 0);
+  if (num >= 10) return `$${num.toFixed(2)}`;
+  if (num >= 1) return `$${num.toFixed(3)}`;
+  return `$${num.toFixed(4)}`;
+}
+
 function formatProviderTokens(workerStates, providerLabelFn) {
-  const byProvider = getTokensByProvider(workerStates);
+  const byProvider = getUsageByProvider(workerStates);
   const entries = Object.entries(byProvider);
   if (entries.length === 0) return 'Cost 0';
 
   return 'Cost ' + entries
-    .map(([provider, tokens]) => {
+    .map(([provider, usage]) => {
       const label = typeof providerLabelFn === 'function' ? providerLabelFn(provider) : provider;
-      const total = tokens.input + tokens.output;
-      return `${label} ${formatTokens(total)}`;
+      const totalTokens = usage.input + usage.output;
+      if (totalTokens > 0) {
+        return `${label} ${formatTokens(totalTokens)}`;
+      }
+      if (usage.cost > 0) {
+        return `${label} ${formatUsd(usage.cost)}`;
+      }
+      return `${label} 0`;
     })
     .join('  ');
 }
@@ -104,7 +118,7 @@ module.exports = {
   clipVisualTextFrom,
   formatElapsedSeconds,
   formatTokens,
-  getTokensByProvider,
+  getUsageByProvider,
   formatProviderTokens,
   getWorktreeNameScrollOffset,
   WORKTREE_NAME_MAX_WIDTH,

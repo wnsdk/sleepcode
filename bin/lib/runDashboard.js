@@ -147,9 +147,7 @@ function createRunDashboard({
           return true;
         });
         fs.writeFileSync(tasksPath, filteredLines.join('\n'));
-      } catch (e) {
-        process.stderr.write(`[cancel] task_queue.md 업데이트 실패: ${e.message}\n`);
-      }
+      } catch {}
     }
 
     // 워커 상태에서 태스크 제거 및 total 조정

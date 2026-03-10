@@ -70,7 +70,6 @@ async function handleTaskCompletion({
 
   syncWorkerTaskProgress(ws, wtDir, updatedContent);
   if (typeof onTaskCompleted === 'function') {
-    process.stderr.write(`[notion:debug] onTaskCompleted 콜백 호출: task="${nextTaskEntry ? nextTaskEntry.title : 'null'}" commit=${commitResult ? commitResult.committed : 'null'}\n`);
     try {
       const reportText = buildTaskExecutionReportText({
         reportLines: ws.currentTaskReportLines,
@@ -84,11 +83,7 @@ async function handleTaskCompletion({
         commit: commitResult,
         reportText,
       }));
-    } catch (e) {
-      process.stderr.write(`[notion:debug] onTaskCompleted 콜백 에러: ${e.message}\n`);
-    }
-  } else {
-    process.stderr.write(`[notion:debug] onTaskCompleted 콜백이 없음 (typeof=${typeof onTaskCompleted})\n`);
+    } catch {}
   }
 
   onUpdate();

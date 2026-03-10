@@ -115,8 +115,6 @@ function finishExecution({
   schedule = setTimeout,
 }) {
   pushLog('SYSTEM', `${C.bold}실행 완료 — Notion 업데이트${C.reset}`);
-  process.stderr.write(`[notion:debug] finishExecution 진입: notionTasks=${(notionTasks || []).length}, schema=${!!schema}, workerStates=${(workerStates || []).length}\n`);
-  process.stderr.write(`[notion:debug] finishExecution: notionCompletedIds=${notionCompletedIds ? notionCompletedIds.size : 'null'}, updatePage=${typeof updatePage}\n`);
 
   const completion = summarizeExecutionResultsFn({
     notionTasks,
@@ -126,12 +124,9 @@ function finishExecution({
     getTaskCompletion: (workerRefs) => parseTaskStatusesFn(workerRefs, getWorkerDoneState),
   });
 
-  process.stderr.write(`[notion:debug] finishExecution: taskResults=${(completion.taskResults || []).length}\n`);
   for (const result of completion.taskResults) {
-    process.stderr.write(`[notion:debug] finishExecution task: id=${result.task.id} isDone=${result.isDone} newStatus=${result.newStatus} propsKeys=${JSON.stringify(Object.keys(result.props))}\n`);
     if (Object.keys(result.props).length > 0) {
-      const ok = updatePage(result.task.id, result.props);
-      process.stderr.write(`[notion:debug] finishExecution updatePage 결과: ${ok}\n`);
+      updatePage(result.task.id, result.props);
     }
 
     const icon = result.isDone ? `${C.green}✓${C.reset}` : `${C.red}✗${C.reset}`;

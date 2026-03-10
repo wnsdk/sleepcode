@@ -87,32 +87,39 @@ async function createNotionDbWithLogs(notionKey, parentPageId, dbName) {
   return notionDbId;
 }
 
-function saveOptionalConfig(targetDir, options, { verbose = false } = {}) {
-  const configToSave = buildConfigToSave(options);
-  if (Object.keys(configToSave).length === 0) return configToSave;
-
-  saveConfig(targetDir, configToSave);
-
-  if (verbose && options.weeklyBudget > 0) {
-    console.log(`  ${C.green}✓${C.reset} .sleepcode/config.json       ${C.dim}← 주간 예산: $${options.weeklyBudget} (${options.budgetThreshold}%)${C.reset}`);
-  }
-  if (verbose && options.claudeRatio !== null) {
-    console.log(`  ${C.green}✓${C.reset} .sleepcode/config.json       ${C.dim}← 비율: Claude ${Math.round(options.claudeRatio * 100)}% / Codex ${Math.round((1 - options.claudeRatio) * 100)}%${C.reset}`);
-  }
-  if (verbose && options.onAiLimit) {
-    console.log(`  ${C.green}✓${C.reset} .sleepcode/config.json       ${C.dim}← AI 한도 초과: ${options.onAiLimit}${C.reset}`);
-  }
-
-  return configToSave;
-}
 
 function generateProjectFiles(targetDir, generationOptions, configOptions, { verboseConfig = false } = {}) {
   generateFiles(targetDir, generationOptions);
-  saveOptionalConfig(targetDir, configOptions, { verbose: verboseConfig });
-  if (generationOptions.projectName) {
-    const existing = loadConfig(targetDir) || {};
-    saveConfig(targetDir, { ...existing, projectName: generationOptions.projectName });
+
+  // Build config: budget/ratio settings + non-sensitive user inputs
+  const configToSave = buildConfigToSave(configOptions);
+
+  const { projectName, role, typeKey, notionPages, figmaFileNames, buildCmd, testCmd, lintCmd } = generationOptions;
+  if (projectName) configToSave.projectName = projectName;
+  if (role) configToSave.role = role;
+  if (typeKey) configToSave.projectType = typeKey;
+  if (notionPages) configToSave.notionPages = notionPages;
+  if (figmaFileNames) configToSave.figmaFileNames = figmaFileNames;
+  if (buildCmd) configToSave.buildCmd = buildCmd;
+  if (testCmd) configToSave.testCmd = testCmd;
+  if (lintCmd) configToSave.lintCmd = lintCmd;
+
+  if (Object.keys(configToSave).length > 0) {
+    saveConfig(targetDir, configToSave);
   }
+
+  if (verboseConfig) {
+    if (configOptions.weeklyBudget > 0) {
+      console.log(`  ${C.green}✓${C.reset} .sleepcode/config.json       ${C.dim}← 주간 예산: $${configOptions.weeklyBudget} (${configOptions.budgetThreshold}%)${C.reset}`);
+    }
+    if (configOptions.claudeRatio !== null) {
+      console.log(`  ${C.green}✓${C.reset} .sleepcode/config.json       ${C.dim}← 비율: Claude ${Math.round(configOptions.claudeRatio * 100)}% / Codex ${Math.round((1 - configOptions.claudeRatio) * 100)}%${C.reset}`);
+    }
+    if (configOptions.onAiLimit) {
+      console.log(`  ${C.green}✓${C.reset} .sleepcode/config.json       ${C.dim}← AI 한도 초과: ${configOptions.onAiLimit}${C.reset}`);
+    }
+  }
+
   printResult(generationOptions.notionDbId);
 }
 

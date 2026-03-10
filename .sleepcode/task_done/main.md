@@ -7,3 +7,4 @@
 - [x] package.json의 버전을 적절한 값으로 수정해 <!-- notion:31fad790-3b5d-8030-918f-f98420b6eb5d -->
 - [x] “sleepcode run 터미널 UI > 워크트리 상세 영역” → task가 너무 많으면 화면이 저렇게 깨져버린다. 워크트리 상세 영역의 최대 높이를 적절히 지정하고, 스크롤바를 추가해줘 <!-- notion:31fad790-3b5d-807a-84f8-d7a04fd0881e -->
 - [x] sleepcode run 터미널 UI 에서, ‘노션 업데이트’ 관련 로그는 “logs” 영역에 렌더링 안되고, 터미널 전체를 덮으면서 렌더링돼. 노션 업데이트 관련 로그도 logs 영역에 렌더링되도록 수정해줘 <!-- notion:31fad790-3b5d-8086-a14c-d52bb0f2dd01 -->
+- [x] ‘sleepcode run 터미널 UI’ > “워크트리 상세 영역” > 특정 task 실행 취소 시 → 노션 DB의 해당 task의 Status를 ‘Idle’로 바꿔줘 <!-- notion:31fad790-3b5d-8098-9c31-ebce706eb450 -->

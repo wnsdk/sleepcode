@@ -10,3 +10,4 @@
 - [x] ‘sleepcode run 터미널 UI’ > “워크트리 상세 영역” > 특정 task 실행 취소 시 → 노션 DB의 해당 task의 Status를 ‘Idle’로 바꿔줘 <!-- notion:31fad790-3b5d-8098-9c31-ebce706eb450 -->
 - [x] ‘sleepcode run 터미널 UI’ > “워크트리 상세 영역” > 특정 task 실행 취소 → 취소확인 버튼을 y키가 아닌 enter로 해주고, 취소안함 버튼을 n/esc 키 말고 esc키 하나만 남겨줘 <!-- notion:31fad790-3b5d-80cf-b3e2-facdbe0c1f67 -->
 - [x] sleepcode run 실행 중에 터미널 UI에서 ‘claude, codex 실행 비율’을 바꿀 수 있는 방법을 적절히 추가해줘 <!-- notion:31fad790-3b5d-8034-8886-ca7784a43fd7 -->
+- [x] ‘sleepcode run 터미널 UI’ > ‘워크트리 목록 영역’ → 워크트리 이름 영역에 최대 너비를 지정해줘. 만일 워크트리 이름이 지정된 영역의 너비보다 길 경우, 텍스트를 잘라내지 말고 가로 방향으로 천천히 이동시키는 애니메이션을 적용한다.

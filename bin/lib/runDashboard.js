@@ -8,9 +8,11 @@ const {
   formatElapsedSeconds,
   getRunDashboardHeight,
 } = require('./runDashboardFrame');
+const { WORKTREE_NAME_MAX_WIDTH } = require('./dashboardUtils');
 const { createRunDashboardLogs } = require('./runDashboardLogs');
 const { createRunDashboardTerminal } = require('./runDashboardTerminal');
 const { loadConfig, saveConfig } = require('./config');
+const { visualWidth } = require('./utils');
 
 function createRunDashboard({
   dbId,
@@ -69,6 +71,7 @@ function createRunDashboard({
   let gracefulShutdown = false;
   let renderPending = false;
   let renderTimer = null;
+  let animTimer = null;
 
   let currentDashboardHeight = getRunDashboardHeight(getWatchPhase(), getWorkerStates());
 
@@ -256,6 +259,15 @@ function createRunDashboard({
       }
     );
 
+    // Animation timer: re-render periodically when any worktree has a long name
+    animTimer = setInterval(() => {
+      if (!terminal.isActive()) return;
+      const ws = getWorkerStates();
+      if (ws.some((w) => w.name && visualWidth(w.name) > WORKTREE_NAME_MAX_WIDTH)) {
+        renderDashboard();
+      }
+    }, 100);
+
     process.stdout.on('resize', terminal.resizeHandler);
     process.on('SIGINT', sigintHandler);
     process.on('exit', terminal.cleanupAltScreen);
@@ -279,6 +291,10 @@ function createRunDashboard({
     if (renderTimer) {
       clearTimeout(renderTimer);
       renderTimer = null;
+    }
+    if (animTimer) {
+      clearInterval(animTimer);
+      animTimer = null;
     }
     renderPending = false;
     if (cleanupMenuInput) {

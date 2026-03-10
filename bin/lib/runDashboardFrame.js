@@ -2,7 +2,14 @@ const { C, SLEEPCODE_BADGE_WITH_VERSION, notionLink } = require('./constants');
 const { progressBar, padEndVisual, visualWidth } = require('./utils');
 const { providerLabelWithModel, providerLabel } = require('./provider');
 const { boxLine, renderMenuLineWithLayout } = require('./dashboard');
-const { clipVisualText, formatElapsedSeconds, formatProviderTokens } = require('./dashboardUtils');
+const {
+  clipVisualText,
+  clipVisualTextFrom,
+  formatElapsedSeconds,
+  formatProviderTokens,
+  getWorktreeNameScrollOffset,
+  WORKTREE_NAME_MAX_WIDTH,
+} = require('./dashboardUtils');
 
 const MAX_TASKS_DISPLAY = 8;
 
@@ -204,7 +211,13 @@ function buildRunDashboardFrame({
         ? ` ${C.yellow}${worker.difficulty}${C.reset}`
         : '';
       const focusIndicator = (isFocused && worktreeAreaFocused) ? `${C.cyan}▸${C.reset}` : ' ';
-      lines.push(boxLine(`${focusIndicator}${statusIcon} ${C.bold}${padEndVisual(worker.name, 17)}${C.reset} ${bar} ${String(worker.done).padStart(2)}/${String(worker.total).padEnd(2)} ${C.cyan}${String(percent).padStart(3)}%${C.reset} ${model}${difficulty}`, width));
+      const rawNameVw = visualWidth(worker.name || '');
+      const nameOffset = getWorktreeNameScrollOffset(rawNameVw, WORKTREE_NAME_MAX_WIDTH);
+      const displayNameStr = rawNameVw > WORKTREE_NAME_MAX_WIDTH
+        ? clipVisualTextFrom(worker.name || '', nameOffset, WORKTREE_NAME_MAX_WIDTH)
+        : (worker.name || '');
+      const displayName = padEndVisual(displayNameStr, WORKTREE_NAME_MAX_WIDTH);
+      lines.push(boxLine(`${focusIndicator}${statusIcon} ${C.bold}${displayName}${C.reset} ${bar} ${String(worker.done).padStart(2)}/${String(worker.total).padEnd(2)} ${C.cyan}${String(percent).padStart(3)}%${C.reset} ${model}${difficulty}`, width));
       buildWorkerTaskLines(worker, width, lines);
     }
     while (lines.length - workerAreaStart < MIN_WORKTREE_ROWS) {

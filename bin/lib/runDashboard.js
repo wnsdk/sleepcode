@@ -135,7 +135,12 @@ function createRunDashboard({
       ],
       requestImmediateExit,
       logs.handleScroll,
-      { getWorktreeCount: () => getWorkerStates().length }
+      { getWorktreeCount: () => getWorkerStates().length },
+      {
+        getScrollbarMetrics: logs.getScrollbarMetrics,
+        getDashboardHeight: () => currentDashboardHeight,
+        scrollToThumbTop: logs.scrollToThumbTop,
+      }
     );
 
     process.stdout.on('resize', terminal.resizeHandler);

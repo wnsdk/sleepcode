@@ -261,6 +261,20 @@ function createDashboardLogs({
     return logScroll > 0;
   }
 
+  function scrollToThumbTop(thumbTop) {
+    const logRows = getLogRows();
+    const totalLines = logBuffer.length;
+    if (totalLines <= logRows) return;
+    const maxOffset = totalLines - logRows;
+    const thumbSize = Math.max(1, Math.floor((logRows * logRows) / totalLines));
+    const thumbTravel = Math.max(0, logRows - thumbSize);
+    if (thumbTravel <= 0) return;
+    const clamped = Math.max(0, Math.min(thumbTravel, thumbTop));
+    const viewportStart = Math.round((clamped * maxOffset) / thumbTravel);
+    logScroll = Math.max(0, Math.min(maxOffset, maxOffset - viewportStart));
+    renderLogs(true);
+  }
+
   return {
     appendLogToScreen,
     getLogBuffer: () => [...logBuffer],
@@ -272,6 +286,7 @@ function createDashboardLogs({
     isScrolled,
     pushLog,
     renderLogs,
+    scrollToThumbTop,
   };
 }
 

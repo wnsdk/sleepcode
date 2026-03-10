@@ -47,12 +47,13 @@ function renderMenuLine(selectedIndex, innerWidth, confirmPending, menuItems) {
 }
 
 /** 대시보드 메뉴 키 입력 핸들러 설정 */
-function setupMenuInput(state, onRender, menuEntries, onImmediate, onScroll, worktreeOpts) {
+function setupMenuInput(state, onRender, menuEntries, onImmediate, onScroll, worktreeOpts, scrollbarOpts) {
   if (!process.stdin.isTTY) return null;
   process.stdin.setRawMode(true);
   process.stdin.resume();
   if (process.stdout.isTTY) {
-    process.stdout.write('\x1b[?1000h\x1b[?1006h');
+    // ?1000h: basic mouse, ?1006h: SGR extended, ?1002h: button motion tracking (drag)
+    process.stdout.write('\x1b[?1000h\x1b[?1006h\x1b[?1002h');
   }
 
   const entries = Array.isArray(menuEntries) ? menuEntries : [];
@@ -64,7 +65,9 @@ function setupMenuInput(state, onRender, menuEntries, onImmediate, onScroll, wor
   state._menuItems = entries.map(entry => entry.label);
   const itemCount = entries.length;
   const getWorktreeCount = (worktreeOpts && worktreeOpts.getWorktreeCount) || (() => 0);
+  const sbOpts = scrollbarOpts || null;
   let menuNavActive = false;
+  let sbDrag = null; // { startY, startThumbTop, thumbTravel }
 
   const handler = (data) => {
     const input = data.toString();
@@ -81,14 +84,58 @@ function setupMenuInput(state, onRender, menuEntries, onImmediate, onScroll, wor
         const y = parseInt(match[3], 10);
         const type = match[4];
         const isPress = type === 'M';
-        const isLeft = (btn & 3) === 0 && btn < 64;
+        const isMotion = (btn & 32) !== 0 && (btn & 64) === 0;
+        const isLeftBtn = (btn & 3) === 0 && (btn & 64) === 0;
+        const isLeftPress = isPress && isLeftBtn && !isMotion;
+        const isLeftDrag = isPress && isLeftBtn && isMotion;
+        const isLeftRelease = !isPress && isLeftBtn;
         const isWheelUp = btn === 64;
         const isWheelDown = btn === 65;
+
+        // 스크롤바 드래그 진행 중
+        if (sbDrag) {
+          if (isLeftDrag || isLeftRelease) {
+            const dy = y - sbDrag.startY;
+            const newThumbTop = Math.max(0, Math.min(sbDrag.thumbTravel, sbDrag.startThumbTop + dy));
+            if (sbOpts && typeof sbOpts.scrollToThumbTop === 'function') {
+              sbOpts.scrollToThumbTop(newThumbTop);
+            }
+            if (isLeftRelease) sbDrag = null;
+            continue;
+          }
+        }
+
         if (isPress && (isWheelUp || isWheelDown) && typeof onScroll === 'function') {
           onScroll(isWheelUp ? 'wheelUp' : 'wheelDown');
           continue;
         }
-        if (isPress && isLeft) {
+
+        if (isLeftPress) {
+          // 스크롤바 열(마지막 열) 클릭 여부 확인
+          const scrollbarCol = process.stdout.columns || 80;
+          if (x === scrollbarCol && sbOpts && typeof sbOpts.getScrollbarMetrics === 'function') {
+            const metrics = sbOpts.getScrollbarMetrics();
+            if (metrics) {
+              const dbH = typeof sbOpts.getDashboardHeight === 'function' ? sbOpts.getDashboardHeight() : 0;
+              const trackRow = y - dbH - 1; // 0-based within track
+              if (trackRow >= 0 && trackRow < metrics.trackHeight) {
+                const thumbTravel = metrics.trackHeight - metrics.thumbSize;
+                if (trackRow >= metrics.thumbTop && trackRow < metrics.thumbTop + metrics.thumbSize) {
+                  // 썸 위에 클릭 → 드래그 시작
+                  sbDrag = { startY: y, startThumbTop: metrics.thumbTop, thumbTravel };
+                } else {
+                  // 트랙 위에 클릭 → 해당 위치로 이동
+                  const newThumbTop = Math.max(0, Math.min(thumbTravel, trackRow - Math.floor(metrics.thumbSize / 2)));
+                  if (typeof sbOpts.scrollToThumbTop === 'function') {
+                    sbOpts.scrollToThumbTop(newThumbTop);
+                  }
+                }
+                continue;
+              }
+            }
+          }
+
+          // 메뉴 클릭 처리
           const layout = state._menuLayout;
           if (!layout || layout.row !== y) continue;
           const hit = layout.items.find(it => x >= it.start && x <= it.end);
@@ -245,7 +292,7 @@ function setupMenuInput(state, onRender, menuEntries, onImmediate, onScroll, wor
       process.stdin.pause();
     }
     if (process.stdout.isTTY) {
-      process.stdout.write('\x1b[?1000l\x1b[?1006l');
+      process.stdout.write('\x1b[?1002l\x1b[?1000l\x1b[?1006l');
     }
   };
 }

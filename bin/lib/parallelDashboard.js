@@ -153,7 +153,13 @@ function createParallelDashboard({
         { label: '즉시 종료', handler: immediateExit },
       ],
       immediateExit,
-      logs.handleScroll
+      logs.handleScroll,
+      null,
+      {
+        getScrollbarMetrics: logs.getScrollbarMetrics,
+        getDashboardHeight: () => dashboardHeight,
+        scrollToThumbTop: logs.scrollToThumbTop,
+      }
     );
 
     renderDashboard();

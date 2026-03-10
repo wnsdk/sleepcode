@@ -23,7 +23,7 @@ function createRunDashboard({
   onImmediateExit,
   onInterrupt,
 }) {
-  const menuState = { menuIndex: 0, worktreeIndex: 0, taskPanelOpen: false };
+  const menuState = { menuIndex: 0, worktreeIndex: 0, taskPanelOpen: false, focusArea: 'worktree' };
   let cleanupMenuInput = null;
   let gracefulShutdown = false;
   let renderPending = false;

@@ -146,6 +146,8 @@ function buildRunDashboardFrame({
   const projectLabel = projectName ? `  ${C.bold}${projectName}${C.reset}` : '';
   const focusedIdx = (menuState && menuState.worktreeIndex != null) ? menuState.worktreeIndex : -1;
   const taskPanelOpen = menuState && menuState.taskPanelOpen;
+  const worktreeAreaFocused = !menuState || !menuState.focusArea || menuState.focusArea === 'worktree';
+  const menuAreaFocused = !menuState || menuState.focusArea === 'menu';
 
   lines.push(`${C.dim}╔${'═'.repeat(width + 2)}╗${C.reset}`);
 
@@ -172,7 +174,7 @@ function buildRunDashboardFrame({
       const difficulty = worker.difficultyLabel
         ? ` ${C.yellow}${worker.difficulty}${C.reset}`
         : '';
-      const focusIndicator = isFocused ? `${C.cyan}▸${C.reset}` : ' ';
+      const focusIndicator = (isFocused && worktreeAreaFocused) ? `${C.cyan}▸${C.reset}` : ' ';
       lines.push(boxLine(`${focusIndicator}${statusIcon} ${C.bold}${padEndVisual(worker.name, 17)}${C.reset} ${bar} ${String(worker.done).padStart(2)}/${String(worker.total).padEnd(2)} ${C.cyan}${String(percent).padStart(3)}%${C.reset} ${model}${difficulty}`, width));
       buildWorkerTaskLines(worker, width, lines);
     }
@@ -205,7 +207,15 @@ function buildRunDashboardFrame({
     lines.push(`  ${C.yellow}⏳ 마무리 중... 현재 작업 완료 후 종료됩니다${C.reset}`);
     menuState._menuLayout = null;
   } else {
-    const menuRender = renderMenuLineWithLayout(menuState.menuIndex, width, menuState.confirmPending, menuState._menuItems);
+    const hasWorktrees = Array.isArray(workerStates) && workerStates.length > 0;
+    const tabHint = hasWorktrees
+      ? { text: `${C.dim}[Tab: 포커스전환]${C.reset}`, plain: '[Tab: 포커스전환]' }
+      : null;
+    const menuRender = renderMenuLineWithLayout(
+      menuState.menuIndex, width, menuState.confirmPending, menuState._menuItems,
+      menuAreaFocused || !hasWorktrees,
+      tabHint
+    );
     lines.push(menuRender.line);
     menuState._menuLayout = { row: lines.length, items: menuRender.items };
   }

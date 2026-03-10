@@ -8,11 +8,15 @@ function boxLine(content, innerWidth) {
 
 /** 대시보드 하단 메뉴 렌더링 */
 
-function renderMenuLineWithLayout(selectedIndex, innerWidth, confirmPending, menuItems) {
+function renderMenuLineWithLayout(selectedIndex, innerWidth, confirmPending, menuItems, focused, hint) {
   const items = menuItems || [];
+  const isMenuFocused = focused !== false; // default true for backwards compat
   const parts = items.map((label, i) => {
     if (i === selectedIndex) {
-      return `${C.cyan}${C.bold}▸ ${label}${C.reset}`;
+      if (isMenuFocused) {
+        return `${C.cyan}${C.bold}▸ ${label}${C.reset}`;
+      }
+      return `${C.dim}▸ ${label}${C.reset}`;
     }
     return `${C.dim}  ${label}${C.reset}`;
   });
@@ -24,10 +28,12 @@ function renderMenuLineWithLayout(selectedIndex, innerWidth, confirmPending, men
     content += `  ${C.yellow}← Enter로 확인${C.reset}`;
     contentPlain += '  ← Enter로 확인';
   }
-  const rawPlain = `  ${contentPlain}  `;
+  const hintPlain = hint ? `  ${hint.plain}` : '';
+  const hintText = hint ? `  ${hint.text}` : '';
+  const rawPlain = `  ${contentPlain}  ${hintPlain}`;
   const vw = visualWidth(rawPlain);
   const pad = Math.max(0, innerWidth - vw);
-  const line = `  ${content}  ${' '.repeat(pad)}`;
+  const line = `  ${content}  ${hintText}${' '.repeat(pad)}`;
 
   // 클릭 영역 계산 (1-based column)
   const layout = [];
@@ -42,8 +48,8 @@ function renderMenuLineWithLayout(selectedIndex, innerWidth, confirmPending, men
   return { line, items: layout };
 }
 
-function renderMenuLine(selectedIndex, innerWidth, confirmPending, menuItems) {
-  return renderMenuLineWithLayout(selectedIndex, innerWidth, confirmPending, menuItems).line;
+function renderMenuLine(selectedIndex, innerWidth, confirmPending, menuItems, focused, hint) {
+  return renderMenuLineWithLayout(selectedIndex, innerWidth, confirmPending, menuItems, focused, hint).line;
 }
 
 /** 대시보드 메뉴 키 입력 핸들러 설정 */
@@ -61,12 +67,12 @@ function setupMenuInput(state, onRender, menuEntries, onImmediate, onScroll, wor
     throw new Error('setupMenuInput requires at least one menu entry');
   }
   state.confirmPending = false;
+  if (!state.focusArea) state.focusArea = 'worktree';
   const actions = entries.map(entry => entry.handler);
   state._menuItems = entries.map(entry => entry.label);
   const itemCount = entries.length;
   const getWorktreeCount = (worktreeOpts && worktreeOpts.getWorktreeCount) || (() => 0);
   const sbOpts = scrollbarOpts || null;
-  let menuNavActive = false;
   let sbDrag = null; // { startY, startThumbTop, thumbTravel }
 
   const handler = (data) => {
@@ -143,9 +149,11 @@ function setupMenuInput(state, onRender, menuEntries, onImmediate, onScroll, wor
           if (hit.index !== state.menuIndex) {
             state.confirmPending = false;
             state.menuIndex = hit.index;
+            state.focusArea = 'menu';
             onRender();
             continue;
           }
+          state.focusArea = 'menu';
           const action = actions[state.menuIndex];
           const entry = entries[state.menuIndex];
           const isNoConfirm = entry && entry.noConfirm;
@@ -166,13 +174,20 @@ function setupMenuInput(state, onRender, menuEntries, onImmediate, onScroll, wor
     }
 
     const key = input;
-
-    // 워크트리 위아래 이동 (executing 단계에서)
     const wtCount = getWorktreeCount();
-    if (wtCount > 0) {
+
+    // Tab: 포커스 전환 (워크트리 ↔ 메뉴)
+    if (key === '\t' && wtCount > 0) {
+      state.focusArea = state.focusArea === 'menu' ? 'worktree' : 'menu';
+      state.confirmPending = false;
+      onRender();
+      return;
+    }
+
+    // 워크트리 위아래 이동 (워크트리 포커스 상태에서)
+    if (wtCount > 0 && state.focusArea !== 'menu') {
       if (key === '\x1b[A') {
         // Up arrow: 워크트리 위로 이동
-        menuNavActive = false;
         if (state.worktreeIndex == null) state.worktreeIndex = 0;
         state.worktreeIndex = (state.worktreeIndex - 1 + wtCount) % wtCount;
         state.taskPanelOpen = false;
@@ -181,14 +196,13 @@ function setupMenuInput(state, onRender, menuEntries, onImmediate, onScroll, wor
       }
       if (key === '\x1b[B') {
         // Down arrow: 워크트리 아래로 이동
-        menuNavActive = false;
         if (state.worktreeIndex == null) state.worktreeIndex = 0;
         state.worktreeIndex = (state.worktreeIndex + 1) % wtCount;
         state.taskPanelOpen = false;
         onRender();
         return;
       }
-    } else {
+    } else if (wtCount === 0) {
       // 워크트리 없을 때는 기존 로그 스크롤
       if (typeof onScroll === 'function') {
         if (key === '\x1b[A') {
@@ -233,17 +247,15 @@ function setupMenuInput(state, onRender, menuEntries, onImmediate, onScroll, wor
       }
     }
 
-    // 좌우 화살표 (ESC [ D / ESC [ C)
-    if (key === '\x1b[D') {
+    // 좌우 화살표 - 메뉴 포커스 상태(또는 워크트리 없을 때)에서만 메뉴 이동
+    if (key === '\x1b[D' && (state.focusArea === 'menu' || wtCount === 0)) {
       state.confirmPending = false;
-      menuNavActive = true;
       state.menuIndex = (state.menuIndex - 1 + itemCount) % itemCount;
       onRender();
       return;
     }
-    if (key === '\x1b[C') {
+    if (key === '\x1b[C' && (state.focusArea === 'menu' || wtCount === 0)) {
       state.confirmPending = false;
-      menuNavActive = true;
       state.menuIndex = (state.menuIndex + 1) % itemCount;
       onRender();
       return;
@@ -259,13 +271,12 @@ function setupMenuInput(state, onRender, menuEntries, onImmediate, onScroll, wor
         return;
       }
 
-      // 메뉴 좌우 이동 직후 → 메뉴 확인/실행
-      if (menuNavActive) {
+      // 메뉴 포커스 상태(또는 워크트리 없을 때) → 메뉴 확인/실행
+      if (state.focusArea === 'menu' || wtCount === 0) {
         const action = actions[state.menuIndex];
         const entry = entries[state.menuIndex];
         const isNoConfirm = entry && entry.noConfirm;
         if (isNoConfirm) {
-          menuNavActive = false;
           action();
           return;
         }

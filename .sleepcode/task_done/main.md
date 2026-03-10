@@ -14,3 +14,4 @@
 - [x] ‘sleepcode run 터미널 UI’ > ‘워크트리 상세 영역’의 최대 높이는 ‘워크트리 목록 영역’의 높이와 똑같도록 해줘 <!-- notion:31fad790-3b5d-80aa-a515-d14c470137b5 -->
 - [x] onAiLimit 값을 “wait”으로 설정하고 sleepcode run 실행해보았는데, ai limit 걸리니까 바로 실패처리가 되어버리는 버그를 발견함. <!-- notion:31fad790-3b5d-80ff-b5a7-fb220466de25 -->
 - [x] package.json의 버전을 적절한 값으로 수정해 <!-- notion:31fad790-3b5d-8080-bd3b-e9985cd535a5 -->
+- [x] sleepcode run 터미널 UI에서 “워크트리 상세 대시보드” 영역은 “워크트리 목록 대시보드” 영역의 높이를 최대 높이로 가져야 한다. (첨부사진 참고) <!-- notion:31fad790-3b5d-804f-b7ad-c73879028881 -->

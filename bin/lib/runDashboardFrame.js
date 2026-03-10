@@ -185,6 +185,7 @@ function buildRunDashboardFrame({
   const menuAreaFocused = !menuState || menuState.focusArea === 'menu';
   let worktreeAreaStart = null;
   let worktreeAreaHeight = null;
+  let dashboardBoxHeight = null;
 
   lines.push(`${C.dim}╔${'═'.repeat(width + 2)}╗${C.reset}`);
 
@@ -251,6 +252,7 @@ function buildRunDashboardFrame({
   }
 
   lines.push(`${C.dim}╚${'═'.repeat(width + 2)}╝${C.reset}`);
+  dashboardBoxHeight = lines.length;
 
   if (gracefulShutdown) {
     lines.push(`  ${C.yellow}⏳ 마무리 중... 현재 작업 완료 후 종료됩니다${C.reset}`);
@@ -288,7 +290,9 @@ function buildRunDashboardFrame({
     const panelWidth = termColsPanel - mainBoxWidth - gap;
     if (panelWidth >= 20) {
       const focusedWorker = workerStates[focusedIdx];
-      const maxHeight = worktreeAreaHeight != null ? worktreeAreaHeight : lines.length;
+      const maxHeight = dashboardBoxHeight != null
+        ? dashboardBoxHeight
+        : (worktreeAreaHeight != null ? worktreeAreaHeight : lines.length);
 
       // 선택 항목이 보이도록 스크롤 오프셋 자동 조정
       const panelTasks = focusedWorker.taskEntries || [];
@@ -313,8 +317,8 @@ function buildRunDashboardFrame({
         scrollOffset,
       };
       const panelLines = buildTaskPanelLines(focusedWorker, panelWidth, panelState, maxHeight);
-      // 패널 높이는 워크트리 목록 영역 높이를 초과하지 않음
-      const panelStart = worktreeAreaStart != null ? worktreeAreaStart : 0;
+      // 패널 높이를 워크트리 목록 대시보드(메인 박스) 높이에 맞춰 정렬
+      const panelStart = 0; // 대시보드 상단과 정렬
       for (let i = 0; i < maxHeight; i++) {
         const lineIdx = panelStart + i;
         if (lineIdx < 0 || lineIdx >= lines.length) break;

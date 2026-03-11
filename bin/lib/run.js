@@ -145,12 +145,13 @@ function cmdWatch(cliProvider) {
   // notionBindings 초기화 완료 후 취소 핸들러 등록
   cancelTaskRef.fn = (task) => {
     const schema = runState.getCurrentSchema();
-    if (!task || !task.notionId || !schema) return;
+    const pageId = task && (task.notionId || task.id);
+    if (!pageId || !schema) return;
     const props = {};
     const statusProps = buildStatusProps(schema, 'Idle');
     if (statusProps) Object.assign(props, statusProps);
     if (schema.run_prop) props[schema.run_prop] = { checkbox: false };
-    notionUpdatePage(task.notionId, props);
+    notionUpdatePage(pageId, props);
     watchPushLog('SYSTEM', `${C.yellow}⊘ ${task.title} → Notion 취소 처리됨${C.reset}`);
   };
 

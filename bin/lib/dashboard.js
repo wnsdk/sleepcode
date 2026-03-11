@@ -233,15 +233,16 @@ function setupMenuInput(state, onRender, menuEntries, onImmediate, onScroll, wor
       const isRunning = worker && worker.status === 'running';
       const firstPendingIdx = isRunning ? done + 1 : done;
       const hasPending = tasks.length > firstPendingIdx;
+      const hasTasks = tasks.length > 0;
 
-      if (key === '\x1b[A' && hasPending) {
+      if (key === '\x1b[A' && hasTasks) {
         const cur = state.taskPanelSelectedIndex != null ? state.taskPanelSelectedIndex : firstPendingIdx;
-        state.taskPanelSelectedIndex = Math.max(firstPendingIdx, cur - 1);
+        state.taskPanelSelectedIndex = Math.max(0, cur - 1);
         state.taskCancelConfirm = false;
         onRender();
         return;
       }
-      if (key === '\x1b[B' && hasPending) {
+      if (key === '\x1b[B' && hasTasks) {
         const cur = state.taskPanelSelectedIndex != null ? state.taskPanelSelectedIndex : firstPendingIdx;
         state.taskPanelSelectedIndex = Math.min(tasks.length - 1, cur + 1);
         state.taskCancelConfirm = false;
@@ -250,11 +251,14 @@ function setupMenuInput(state, onRender, menuEntries, onImmediate, onScroll, wor
       }
       if (key === 'x' && hasPending && !state.taskCancelConfirm) {
         const cur = state.taskPanelSelectedIndex != null ? state.taskPanelSelectedIndex : firstPendingIdx;
-        const validIdx = Math.max(firstPendingIdx, Math.min(tasks.length - 1, cur));
-        state.taskPanelSelectedIndex = validIdx;
-        state.taskCancelConfirm = true;
-        onRender();
-        return;
+        const validIdx = Math.max(0, Math.min(tasks.length - 1, cur));
+        const canCancel = validIdx >= firstPendingIdx;
+        if (canCancel) {
+          state.taskPanelSelectedIndex = validIdx;
+          state.taskCancelConfirm = true;
+          onRender();
+          return;
+        }
       }
     }
 

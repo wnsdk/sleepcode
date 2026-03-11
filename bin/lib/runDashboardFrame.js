@@ -62,10 +62,11 @@ function buildTaskPanelLines(worker, panelWidth, panelState, maxHeight) {
   const isRunning = worker.status === 'running';
   const firstPendingIdx = isRunning ? done + 1 : done;
   const hasPending = tasks.length > firstPendingIdx;
+  const hasTasks = tasks.length > 0;
 
   // Fixed structure: HEADER=3 (╔, name, ╠), FOOTER=3 or 4 (empty, summary, [hint], ╚)
   const HEADER = 3;
-  const FOOTER = hasPending ? 4 : 3;
+  const FOOTER = hasTasks ? 4 : 3;
   const availableContentRows = (maxHeight != null && maxHeight > HEADER + FOOTER)
     ? maxHeight - HEADER - FOOTER
     : null;
@@ -78,19 +79,26 @@ function buildTaskPanelLines(worker, panelWidth, panelState, maxHeight) {
     for (let i = 0; i < tasks.length; i++) {
       const title = tasks[i].title || `Task ${i + 1}`;
       const isPending = i >= firstPendingIdx;
-      const isSelected = isPending && selectedTaskIdx === i;
+      const isSelected = selectedTaskIdx === i;
+      const clippedTitle = clipVisualText(title, inner - 4);
 
-      if (i < done) {
-        allContentLines.push(`${C.green}✓${C.reset} ${C.dim}${clipVisualText(title, inner - 4)}${C.reset}`);
-      } else if (i === done && isRunning) {
-        allContentLines.push(`${C.cyan}▶${C.reset} ${clipVisualText(title, inner - 4)}`);
-      } else if (isSelected && cancelConfirm) {
+      if (isSelected && cancelConfirm && isPending) {
         const clipped = clipVisualText(title, Math.max(0, inner - 10));
         allContentLines.push(`${C.red}✗${C.reset} ${C.bold}${clipped}${C.reset} ${C.red}취소?${C.reset}`);
       } else if (isSelected) {
-        allContentLines.push(`${C.yellow}▸${C.reset} ${clipVisualText(title, inner - 4)}`);
+        if (i < done) {
+          allContentLines.push(`${C.yellow}▸${C.reset} ${C.dim}${clippedTitle}${C.reset}`);
+        } else if (i === done && isRunning) {
+          allContentLines.push(`${C.yellow}▸${C.reset} ${clippedTitle}`);
+        } else {
+          allContentLines.push(`${C.yellow}▸${C.reset} ${clippedTitle}`);
+        }
+      } else if (i < done) {
+        allContentLines.push(`${C.green}✓${C.reset} ${C.dim}${clippedTitle}${C.reset}`);
+      } else if (i === done && isRunning) {
+        allContentLines.push(`${C.cyan}▶${C.reset} ${clippedTitle}`);
       } else {
-        allContentLines.push(`${C.dim}○ ${clipVisualText(title, inner - 4)}${C.reset}`);
+        allContentLines.push(`${C.dim}○ ${clippedTitle}${C.reset}`);
       }
     }
   }
@@ -151,11 +159,13 @@ function buildTaskPanelLines(worker, panelWidth, panelState, maxHeight) {
   const summary = `${C.green}완료${C.reset} ${done}/${tasks.length}`;
   pLines.push(pBox(summary));
 
-  if (hasPending) {
-    if (cancelConfirm) {
+  if (hasTasks) {
+    if (cancelConfirm && hasPending) {
       pLines.push(pBox(`${C.red}[Enter] 취소확인  [Esc] 취소안함${C.reset}`));
-    } else {
+    } else if (hasPending) {
       pLines.push(pBox(`${C.dim}[↑↓] 선택  [x] 취소${C.reset}`));
+    } else {
+      pLines.push(pBox(`${C.dim}[↑↓] 선택${C.reset}`));
     }
   }
 
@@ -299,8 +309,9 @@ function buildRunDashboardFrame({
       const panelIsRunning = focusedWorker.status === 'running';
       const panelDone = focusedWorker.done || 0;
       const panelHasPending = panelTasks.length > (panelIsRunning ? panelDone + 1 : panelDone);
+      const panelHasTasks = panelTasks.length > 0;
       const PANEL_HEADER = 3;
-      const PANEL_FOOTER = panelHasPending ? 4 : 3;
+      const PANEL_FOOTER = panelHasTasks ? 4 : 3;
       const contentH = Math.max(0, maxHeight - PANEL_HEADER - PANEL_FOOTER);
       const selectedIdx = menuState && menuState.taskPanelSelectedIndex != null ? menuState.taskPanelSelectedIndex : -1;
       let scrollOffset = (menuState && menuState.taskPanelScrollOffset) || 0;

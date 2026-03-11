@@ -159,10 +159,11 @@ function buildTaskPanelLines(worker, panelWidth, panelState, maxHeight) {
   const summary = `${C.green}완료${C.reset} ${done}/${tasks.length}`;
   pLines.push(pBox(summary));
 
+  const selectedIsPending = selectedTaskIdx >= firstPendingIdx;
   if (hasTasks) {
     if (cancelConfirm && hasPending) {
       pLines.push(pBox(`${C.red}[Enter] 취소확인  [Esc] 취소안함${C.reset}`));
-    } else if (hasPending) {
+    } else if (hasPending && selectedIsPending) {
       pLines.push(pBox(`${C.dim}[↑↓] 선택  [x] 취소${C.reset}`));
     } else {
       pLines.push(pBox(`${C.dim}[↑↓] 선택${C.reset}`));

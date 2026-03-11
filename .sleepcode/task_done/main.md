@@ -20,3 +20,4 @@
 - [x] 노션DB스키마의 Cost 컬럼의 설명에 codex 계산식 설명도 추가해줘 <!-- notion:31fad790-3b5d-809e-9e34-f775285e6911 -->
 - [x] package.json의 버전을 적절한 값으로 수정해 <!-- notion:320ad790-3b5d-807b-a490-cf41d9679186 -->
 - [x] sleepcode run 터미널 UI의 “워크트리 상세 대시보드” 영역에서 pending 상태가 아닌 task도(즉 모든 task가) 위아래 방향키로 포커싱 가능하게 해줘. 단 task 취소는 pending 상태인 것만 가능하게 해줘 <!-- notion:320ad790-3b5d-80a5-bec7-c3eb9a6a3603 -->
+- [x] sleepcode run 터미널 UI의 “워크트리 상세 대시보드” 에서 pending 상태가 아닌 task가 포커싱 됐을 때는 “[x] 취소” UI가 노출되면 안된다. <!-- notion:320ad790-3b5d-8011-b500-c0e6b39d3be8 -->
